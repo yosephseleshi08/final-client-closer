@@ -129,6 +129,94 @@ export function extractSuggestedName(rawInput: string): string {
 }
 
 /**
+ * Normalizes URLs and handles for duplicate comparison.
+ * Strips protocol (https://, http://), www., m., trailing slashes,
+ * query parameters (?...) and hash anchors (#...).
+ * Normalizes Instagram and Facebook aliases so handles and URLs match.
+ */
+export function normalizeUrlForDuplicateCheck(
+  rawInput: string,
+  channel?: MultiChannelType
+): string {
+  if (!rawInput || typeof rawInput !== 'string') return '';
+  let str = rawInput.trim();
+  if (!str) return '';
+
+  // Lowercase for comparison
+  str = str.toLowerCase();
+
+  // Strip mailto:
+  str = str.replace(/^mailto:/i, '');
+
+  // Strip protocol
+  str = str.replace(/^https?:\/\//i, '');
+
+  // Strip www. or m.
+  str = str.replace(/^(?:www\.|m\.)/i, '');
+
+  // Strip query parameters and hash fragments
+  str = str.split('?')[0].split('#')[0];
+
+  // Strip trailing slashes
+  str = str.replace(/\/+$/, '');
+
+  // Channel-specific handle/domain normalization
+  if (channel === 'instagram' || str.includes('instagram.com') || str.includes('instagr.am')) {
+    if (str.startsWith('@')) {
+      str = `instagram.com/${str.slice(1)}`;
+    } else if (!str.includes('.') && !str.includes('/')) {
+      str = `instagram.com/${str}`;
+    } else {
+      str = str.replace(/^instagr\.am\//i, 'instagram.com/');
+    }
+  } else if (channel === 'facebook' || str.includes('facebook.com') || str.includes('fb.com') || str.includes('fb.me')) {
+    str = str
+      .replace(/^fb\.com\//i, 'facebook.com/')
+      .replace(/^fb\.me\//i, 'facebook.com/');
+    if (str.startsWith('@')) {
+      str = `facebook.com/${str.slice(1)}`;
+    }
+  }
+
+  // Final trim of any remaining trailing slashes
+  str = str.replace(/\/+$/, '');
+
+  return str;
+}
+
+/**
+ * Formats a lead's createdAt or added timestamp into a clean date string.
+ * Uses local calendar parsing to avoid timezone day-shift bugs.
+ */
+export function formatAddedDate(rawDate?: string | null): string {
+  if (!rawDate) return 'an earlier date';
+  const str = String(rawDate).trim();
+  if (!str) return 'an earlier date';
+
+  // If ISO string like 2026-10-24T... or YYYY-MM-DD
+  const ymdMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (ymdMatch) {
+    const y = parseInt(ymdMatch[1], 10);
+    const m = parseInt(ymdMatch[2], 10) - 1;
+    const d = parseInt(ymdMatch[3], 10);
+    const dateObj = new Date(y, m, d);
+    if (!isNaN(dateObj.getTime())) {
+      return dateObj.toLocaleDateString();
+    }
+  }
+
+  try {
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toLocaleDateString();
+    }
+  } catch {}
+
+  return str.split('T')[0] || str;
+}
+
+
+/**
  * Exports channel leads as CSV or JSON format.
  */
 export function exportChannelData(

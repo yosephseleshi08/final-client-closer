@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -27,6 +27,8 @@ import {
   Check,
   FileSpreadsheet,
   FileCode,
+  AlertCircle,
+  X,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import {
@@ -34,7 +36,10 @@ import {
   extractSuggestedName,
   exportChannelData,
   getChannelLabel,
+  normalizeUrlForDuplicateCheck,
+  formatAddedDate,
 } from '../../utils/channelStorage';
+import { playWarningChime } from '../../utils/soundEffects';
 
 interface LeadsSubPageProps {
   channel: MultiChannelType;
@@ -131,6 +136,16 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads }: LeadsSubPageProp
   const [pendingName, setPendingName] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [duplicateAlert, setDuplicateAlert] = useState<{ message: string; timestamp: number } | null>(null);
+
+  // Auto-dismiss the duplicate alert after 6 seconds
+  useEffect(() => {
+    if (!duplicateAlert) return;
+    const timer = setTimeout(() => {
+      setDuplicateAlert(null);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [duplicateAlert]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -148,7 +163,28 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads }: LeadsSubPageProp
     const trimmed = linkInput.trim();
     if (!trimmed) return;
 
-    // Prompt for business name upon paste
+    // Check if that exact URL/handle already exists in the leads array
+    const normalizedInput = normalizeUrlForDuplicateCheck(trimmed, channel);
+    const existingLead = leads.find((l) => {
+      const lNorm = normalizeUrlForDuplicateCheck(l.link, channel);
+      return lNorm && lNorm === normalizedInput;
+    });
+
+    if (existingLead) {
+      // Do NOT save it. Trigger warning chime and red alert/toast message
+      playWarningChime();
+      const dateFormatted = formatAddedDate(existingLead.createdAt);
+      setDuplicateAlert({
+        message: `Warning: This link has already been added. ${existingLead.name} was added on ${dateFormatted}.`,
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    // Clear any previous alert
+    setDuplicateAlert(null);
+
+    // Prompt for business name upon paste (normal flow)
     const suggested = extractSuggestedName(trimmed);
     setPendingLink(trimmed);
     setPendingName(suggested);
@@ -157,6 +193,25 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads }: LeadsSubPageProp
 
   const handleConfirmAddLead = (e: React.FormEvent) => {
     e.preventDefault();
+    const normalizedInput = normalizeUrlForDuplicateCheck(pendingLink, channel);
+    const existingLead = leads.find((l) => {
+      const lNorm = normalizeUrlForDuplicateCheck(l.link, channel);
+      return lNorm && lNorm === normalizedInput;
+    });
+
+    if (existingLead) {
+      playWarningChime();
+      const dateFormatted = formatAddedDate(existingLead.createdAt);
+      setDuplicateAlert({
+        message: `Warning: This link has already been added. ${existingLead.name} was added on ${dateFormatted}.`,
+        timestamp: Date.now(),
+      });
+      setShowNameModal(false);
+      setPendingLink('');
+      setPendingName('');
+      return;
+    }
+
     const finalName = pendingName.trim() || extractSuggestedName(pendingLink) || 'Prospect';
     const { id, numericId } = getNextLeadId(channel, leads);
 
@@ -217,6 +272,49 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads }: LeadsSubPageProp
 
   return (
     <div className="space-y-6">
+      {/* Red Alert / Toast Message for Duplicate Link Prevention */}
+      {duplicateAlert && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="fixed top-5 right-5 z-50 max-w-md w-[calc(100vw-2.5rem)] rounded-2xl border border-rose-500/50 bg-rose-950/95 p-4 text-xs sm:text-sm font-semibold text-rose-100 shadow-2xl shadow-rose-950/60 backdrop-blur-md animate-in slide-in-from-top-3 flex items-start gap-3"
+        >
+          <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="leading-snug">{duplicateAlert.message}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDuplicateAlert(null)}
+            className="text-rose-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer shrink-0"
+            aria-label="Dismiss alert"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Inline Red Alert Banner */}
+      {duplicateAlert && (
+        <div
+          role="alert"
+          className="rounded-xl border border-rose-500/50 bg-rose-500/15 p-3.5 text-xs sm:text-sm font-semibold text-rose-200 flex items-center justify-between gap-3 shadow-lg animate-in fade-in"
+        >
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{duplicateAlert.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDuplicateAlert(null)}
+            className="text-rose-400 hover:text-white p-0.5 rounded transition cursor-pointer shrink-0"
+            aria-label="Dismiss alert"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Top Intake Bar & Actions */}
       <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
         {/* Intake Input Form */}
@@ -226,9 +324,16 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads }: LeadsSubPageProp
             <input
               type="text"
               value={linkInput}
-              onChange={(e) => setLinkInput(e.target.value)}
+              onChange={(e) => {
+                setLinkInput(e.target.value);
+                if (duplicateAlert) setDuplicateAlert(null);
+              }}
               placeholder={`Paste ${getChannelLabel(channel)} link or handle (e.g. instagram.com/handle) and press Enter...`}
-              className="w-full pl-10 pr-24 py-3 bg-slate-900/80 border border-white/10 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-sans"
+              className={`w-full pl-10 pr-24 py-3 bg-slate-900/80 border rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none transition-all font-sans ${
+                duplicateAlert
+                  ? 'border-rose-500/80 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
+                  : 'border-white/10 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
+              }`}
             />
             <button
               type="submit"
@@ -240,6 +345,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads }: LeadsSubPageProp
             </button>
           </div>
         </form>
+
 
         {/* Search & Export Buttons */}
         <div className="flex items-center gap-2.5">
