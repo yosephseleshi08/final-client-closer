@@ -259,6 +259,7 @@ export interface ChannelLead {
   followup2SentDate?: string;
   followupCount?: number; // 0 = initial, 1 = Day 3 sent, 2 = Day 7 sent
   repliedAt?: string;
+  dismissedDate?: string; // YYYY-MM-DD: date when lead was removed/dismissed from daily queue
 
   // Sub-page E: Mockup
   hasMockup?: boolean;

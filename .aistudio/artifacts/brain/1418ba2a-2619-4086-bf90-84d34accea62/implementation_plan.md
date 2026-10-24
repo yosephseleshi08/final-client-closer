@@ -1,6 +1,6 @@
-# Automated Sales Cadence & Today's Execution Dashboard
+# Local Time Zone Date Normalization & Non-Destructive Queue Dismissal
 
-Upgrade the multi-channel outreach command center with an automated 2-step follow-up cadence engine (strict Day 3 & Day 7 timing), a cross-channel daily execution dashboard ("Today's Schedule"), and 4-tab segmented follow-up schedules inside each channel workspace.
+Fix the date matching logic to strictly evaluate the user's local timezone date (eliminating UTC drift and normalizing formats like `MM/DD/YYYY` and `YYYY-MM-DD`), and introduce a non-destructive **"Remove" / "Dismiss"** button on daily queue cards that hides leads from today's view while keeping them safely stored in the Leads database.
 
 ---
 
@@ -9,109 +9,108 @@ Upgrade the multi-channel outreach command center with an automated 2-step follo
 > [!IMPORTANT]
 > The architectural decisions below synthesize the user prompt and the confirmed preferences from Phase 1 clarifications:
 
-- **Confirmed Decision 1 (Top Navigation Placement)**: Added "Today's Schedule" top-level button immediately adjacent to "Executive Dashboard". The global navigation now features: **Email**, **Instagram**, **Facebook**, **Today's Schedule**, **Executive Dashboard**, and **Insights & Analysis**.
-- **Confirmed Decision 2 (Overdue Priority Grouping)**: In "Today's Schedule", past-due/overdue leads are grouped into their own distinct top priority alert section, clearly distinguished from today's regular scheduled items.
-- **Confirmed Decision 3 (Quick-Copy Follow-Up Pitch Templates)**: Cards in Today's Schedule and Follow-Up sub-tabs include instant 1-click copy buttons for initial DM copy, 3-Day quick check-in copy, and 7-Day Loom/breakup copy.
-- **Confirmed Decision 4 (Comprehensive Card Actions & 'Seen' Badge)**: In addition to "Mark as Sent", each card provides:
-  - **Mark as Sent**: Advances the cadence (calculating Day 3 and Day 7 upon initial send, or advancing to Day 7 / completed).
-  - **Replied**: Immediately transitions the lead to positive reply state and clears pending timers.
-  - **Seen**: Toggles the `'👀 Seen'` badge on the lead card while keeping the 3-day and 7-day follow-up timers fully active.
-  - **Open Profile**: Direct 1-click external link to the lead's social profile or website.
+- **Confirmed Decision 1 (Local Time Zone Date Normalization)**:
+  - Eliminate all usages of `new Date().toISOString().split('T')[0]` across all schedule, queue, and filter files, as `toISOString()` forces UTC conversion and causes date mismatch for users in local timezones (e.g. UTC-7).
+  - Implement a universal `normalizeToLocalDateStr(rawInput)` that safely parses any format (`YYYY-MM-DD`, `MM/DD/YYYY`, `M/D/YYYY`, timestamps) into standard local `YYYY-MM-DD`.
+  - Ensure any lead scheduled for today's local date (`2026-10-24`) immediately appears in "Today's Schedule".
+- **Confirmed Decision 2 (Non-Destructive "Remove" / "Dismiss" Queue Action)**:
+  - Add a dedicated **"Remove"** (or **"Dismiss"**) button to each lead card in **"Today's Schedule"** and the **"Follow-Up Schedule"** sub-tabs.
+  - Clicking this action stamps `dismissedDate: localTodayStr` on the lead record.
+  - The lead is immediately removed from today's active execution queue so the user can clear their deck.
+  - **Zero Data Loss**: The lead remains permanently and safely stored in the "Leads" tab and database. The permanent "Delete" button remains strictly isolated to the "Leads" tab table.
+  - **Next-Day Reappearance**: If the lead is still unsent tomorrow, it will automatically reappear as overdue tomorrow.
+- **Confirmed Decision 3 (Accidental Dismissal Recovery)**:
+  - Provide a subtle, non-intrusive "Dismissed for Today (X) · Restore" banner at the bottom of the daily queue so accidental clicks can be undone in 1 click.
 
 ---
 
-### 1. Overview & Core Concept
+### 1. Overview & Bug Root-Cause Analysis
 
-- **What It Does**: Provides growth operators with a single daily command center to execute all outbound tasks due on any given day across Email, Instagram, and Facebook, while automating the math behind sales cadences:
-  1. *Initial Send* $\rightarrow$ logs send date, calculates Follow-up #1 at exactly $+3$ days, calculates Follow-up #2 at exactly $+7$ days. Status becomes "Waiting for Reply" (or "Seen").
-  2. *Day 3 Follow-up* $\rightarrow$ triggers Follow-up #1 prompt with pre-staged bump copy. Marking sent schedules Follow-up #2 for Day 7.
-  3. *Day 7 Follow-up* $\rightarrow$ triggers Follow-up #2 prompt with pre-staged final breakup / Loom video copy. Marking sent moves the lead to Completed/Archived.
-- **Target Audience / Persona**: High-velocity outbound closers and agency founders who need strict, zero-effort follow-up discipline without maintaining complex spreadsheet formulas.
+#### Root Cause of the Date Matching Bug
+1. `new Date().toISOString().split('T')[0]` evaluates the timestamp at UTC 00:00:00, whereas the user is in local time (e.g., PDT `UTC-07:00`). At late hours or across daylight transitions, UTC date is 1 day ahead of local date.
+2. If a user manually typed or scheduled a date in format `10/24/2026`, strict string equality `dateStr === todayStr` failed because `todayStr` was formatted `2026-10-24`.
+
+#### Bug Resolution
+- Centralized date parser and generator in `src/utils/cadenceEngine.ts`:
+  - `getLocalTodayStr()`: Uses `getFullYear()`, `getMonth() + 1`, and `getDate()` from the browser's local timezone.
+  - `normalizeToLocalDateStr(dateStr)`: Standardizes `MM/DD/YYYY` or `YYYY-MM-DD` into a consistent local `YYYY-MM-DD` string.
+  - `isDateToday(dateStr)`: Compares normalized input against `getLocalTodayStr()`.
+  - Replace all remaining `toISOString().split('T')[0]` instances in `ScheduleSubPage.tsx`, `TodaysSchedulePage.tsx`, `ExecutiveDashboard.tsx`, and `ChannelWorkspace.tsx`.
 
 ---
 
 ### 2. User Experience & Visual Design
 
-#### 1. Top Navigation Update
-- Header navigation contains:
-  1. `Email`
-  2. `Instagram`
-  3. `Facebook`
-  4. **`Today's Schedule`** (Highlighted with daily task count badge)
-  5. `Executive Dashboard`
-  6. `Insights & Analysis`
+#### 1. Daily Queue Card Actions Update
+Each card in **"Today's Schedule"** and **"Follow-Up Schedule"** will now display:
+- **"Mark as Sent"** / **"Mark FU Sent"** (Primary action button)
+- **"👀 Seen"** (Toggles seen badge without stopping cadence)
+- **"Replied!"** (Marks replied and archives)
+- **"Open Profile"** (External link)
+- **"Dismiss / Remove"** (New button with `EyeOff` / `X` icon):
+  - Label: `"Remove"` / `"Dismiss"`
+  - Tooltip: *"Dismisses from today's queue only. Lead remains safely stored in your Leads database."*
+  - Clicking immediately removes the card from today's view.
 
-#### 2. "Today's Schedule" Dashboard (Unified Daily Command Center)
-- **Top Summary Banner**: Today's date, total actionable queue count, and quick stats (New Outreach Due, Follow-ups Due, Overdue).
-- **Section 0: Overdue Priority Alert Queue** (rendered if any leads have scheduled dates prior to today and are incomplete):
-  - Highlighted with crimson borders (`border-rose-500/50`), dark red backdrop tint, and urgent alert badges.
-- **Section 1: New Outreach Due Today**
-  - All prospects across Email, Instagram, and Facebook whose initial outreach was scheduled for today.
-  - Displays Channel Badge, Lead ID, Business Name, Link, pre-staged custom pitch with 1-click copy.
-  - Action buttons: `Mark as Sent`, `Seen` (toggles badge), `Replied`, `Open Profile`.
-- **Section 2: Follow-Ups Due Today**
-  - Prospects reaching their exact 3-Day mark or 7-Day mark today.
-  - Badges clearly indicate: `⚡ Follow-Up #1 (Day +3)` or `🔥 Follow-Up #2 (Day +7 - Final)`.
-  - Pre-staged follow-up message box with 1-click `Copy` button.
-  - Action buttons: `Mark FU Sent`, `Seen` (toggles badge), `Replied`, `Open Profile`.
-
-#### 3. Sub-Pages for Follow-Up Schedule Inside Each Channel Workspace
-Inside Email, Instagram, and Facebook workspaces, the "Follow-Up Schedule" tab contains 4 internal segmented views:
-1. **Due Today**: Combined view of initial outreach due today + any 3-day / 7-day follow-ups due today + overdue.
-2. **3-Day Follow-Up**: Leads whose initial send was 3 days ago and are awaiting Follow-Up #1.
-3. **7-Day Follow-Up**: Leads whose initial send was 7 days ago and are awaiting Follow-Up #2.
-4. **Completed / Archived**: Leads marked as Replied, Completed, or won.
+#### 2. Dismissed Items Counter & Restore Bar
+- When any leads have been dismissed for today, display a quiet footer bar:
+  - `“3 leads dismissed from today's queue · [Restore All]”`
+  - Allows reviewing and restoring any dismissed prospect without having to leave the daily dashboard.
 
 ---
 
-### 3. Key Product Decisions & Cadence Engine Architecture
-
-- **Decision 1: Deterministic Date Calculations (`addDays`)**
-  - *Approach*: Given an initial send date in `YYYY-MM-DD`, `followup1Date = addDays(date, 3)` and `followup2Date = addDays(date, 7)`.
-  - *Why*: Eliminates timezone drift and guarantees exact day matching against the system local date `new Date().toISOString().split('T')[0]`.
-- **Decision 2: State Model Expansion**
-  - *Approach*: Extend `ChannelLead` with:
-    - `leadStatus`: `'not_sent' | 'waiting_reply' | 'replied' | 'completed'`
-    - `isSeen`: `boolean` (displays `👀 Seen` indicator)
-    - `initialSentDate`: string (`YYYY-MM-DD`)
-    - `followup1Date`: string (`YYYY-MM-DD`)
-    - `followup2Date`: string (`YYYY-MM-DD`)
-    - `followupCount`: `number` (0 = no follow-up yet, 1 = Day 3 sent, 2 = Day 7 sent)
-- **Decision 3: Zero Channel Leakage in Workspace Views**
-  - *Approach*: In "Today's Schedule", cards aggregate across all 3 channels with clear channel badges (`Email`, `Instagram`, `Facebook`), while inside channel workspaces, leads strictly filter to their own channel.
-
----
-
-### 4. Technical Architecture & Component Mapping
+### 3. Data Model & Storage Lifecycle
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          GLOBAL TOP NAVIGATION                              │
-│  [Email]  [Instagram]  [Facebook]  [Today's Schedule]  [Executive] [Insights│
-└───────────────────────────┬─────────────────────────────────────────────────┘
-                            │
-              ┌─────────────┴──────────────┐
-              ▼                            ▼
-┌───────────────────────────┐ ┌───────────────────────────────────────────────┐
-│ CHANNEL WORKSPACE         │ │ TODAY'S SCHEDULE DASHBOARD                    │
-│ • Leads (Sub-page A)      │ │ • Section 0: Overdue Priority Queue           │
-│ • DM (Sub-page B)         │ │ • Section 1: New Outreach Due Today           │
-│ • Schedule (Sub-page C)   │ │ • Section 2: Follow-Ups Due (Day 3 & Day 7)   │
-│ • Follow-Up Schedule:     │ │ ┌───────────────────────────────────────────┐ │
-│   ├─ [Due Today]          │ │ │ Action Bar:                               │ │
-│   ├─ [3-Day Follow-up]    │ │ │ [Mark Sent] [Seen 👀] [Replied] [Open]    │ │
-│   ├─ [7-Day Follow-up]    │ │ └───────────────────────────────────────────┘ │
-│   └─ [Completed/Archive]  │ └───────────────────────────────────────────────┘
-│ • Mockup (Sub-page E)     │
-└───────────────────────────┘
+│                            CHANNEL LEAD RECORD                              │
+│  {                                                                          │
+│    id: "IG-1",                                                              │
+│    name: "Artisan Bakery",                                                  │
+│    link: "instagram.com/artisanbakery",                                     │
+│    scheduledDate: "2026-10-24", // Normalized local date                    │
+│    dismissedDate: "2026-10-24", // Stamped when user clicks "Remove"        │
+│    ...                                                                      │
+│  }                                                                          │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                ┌──────────────────────┴──────────────────────┐
+                ▼                                             ▼
+┌──────────────────────────────┐              ┌──────────────────────────────┐
+│ TODAY'S SCHEDULE QUEUE       │              │ LEADS TAB DATABASE           │
+│ • Filter condition:          │              │ • Displays ALL leads         │
+│   scheduledDate matches today│              │ • Permanent "Delete" button  │
+│   AND                        │              │ • Unaffected by dismissal    │
+│   dismissedDate !== today    │              │                              │
+│ • "Remove" button stamps     │              └──────────────────────────────┘
+│   dismissedDate = localToday │
+└──────────────────────────────┘
 ```
 
-#### Cadence Engine State Transitions
+#### Lifecycle State Transitions
 
-| Action | Current State | New State & Side Effects |
-|---|---|---|
-| Click "Mark as Sent" (Initial) | `status = 'not_sent'` | `initialSentDate = today`, `followup1Date = today+3`, `followup2Date = today+7`, `leadStatus = 'waiting_reply'` |
-| Click "Seen" | any active lead | `isSeen = true` (retains timers, shows `👀 Seen` badge) |
-| Click "Mark FU Sent" (Day 3) | `followupCount = 0` | `followupCount = 1`, `followup1SentDate = today`, stays in `waiting_reply` until Day 7 |
-| Click "Mark FU Sent" (Day 7) | `followupCount = 1` | `followupCount = 2`, `followup2SentDate = today`, `leadStatus = 'completed'`, `isCompleted = true` |
-| Click "Replied" | any lead | `leadStatus = 'replied'`, `isCompleted = true`, cleared from pending queues |
+| Lead Scheduled Date | `dismissedDate` | System Local Date | Visible in Today's Schedule? | Visible in Leads Tab? |
+|---|---|---|---|---|
+| `2026-10-24` | `undefined` | `2026-10-24` | **YES** (New Outreach Due) | **YES** |
+| `2026-10-24` | `2026-10-24` (Clicked Remove) | `2026-10-24` | **NO** (Dismissed for today) | **YES** |
+| `2026-10-24` (Unsent) | `2026-10-24` | `2026-10-25` (Tomorrow) | **YES** (Reappears as Overdue) | **YES** |
+
+---
+
+### 4. Technical Implementation Steps
+
+1. **`src/utils/cadenceEngine.ts`**:
+   - Add `normalizeToLocalDateStr(rawInput)` to parse `MM/DD/YYYY`, `M/D/YYYY`, and `YYYY-MM-DD` safely.
+   - Refactor `getLocalTodayStr()`, `addDays()`, `getDayDifference()`, `isDateToday()`, and `isDateOverdue()` to strictly use normalized local dates.
+   - Add `dismissLeadForToday(lead)` and `restoreDismissedLead(lead)` helpers.
+2. **`src/types.ts`**:
+   - Add `dismissedDate?: string` to `ChannelLead`.
+3. **`src/components/TodaysSchedulePage.tsx`**:
+   - Update queue filters to exclude leads where `lead.dismissedDate === getLocalTodayStr()`.
+   - Add `"Remove"` button on every card in Overdue, New Outreach Due, and Follow-Ups Due sections.
+   - Add "Dismissed for Today" drawer/banner with 1-click restore.
+4. **`src/components/channel/FollowupScheduleSubPage.tsx`**:
+   - Update `due_today` tab to respect `dismissedDate !== getLocalTodayStr()`.
+   - Add `"Remove"` button on each card.
+5. **`src/components/channel/ScheduleSubPage.tsx`**:
+   - Ensure date selection and quick preset buttons (`Today`, `Tomorrow`, `+3 Days`) generate normalized local dates without UTC drift.

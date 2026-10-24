@@ -14,10 +14,12 @@ import {
   Flame,
   CalendarDays,
   RotateCcw,
+  X,
+  EyeOff,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import {
-  getTodayStr,
+  getLocalTodayStr,
   isDateToday,
   isDateOverdue,
   getDayDifference,
@@ -25,6 +27,9 @@ import {
   markFollowupSent,
   markLeadReplied,
   toggleLeadSeen,
+  dismissLeadForToday,
+  restoreDismissedLead,
+  isLeadDismissedToday,
   getCadenceMessageTemplates,
 } from '../../utils/cadenceEngine';
 import { getChannelLabel } from '../../utils/channelStorage';
@@ -47,7 +52,7 @@ export function FollowupScheduleSubPage({
   const [activeCadenceTab, setActiveCadenceTab] = useState<FollowupCadenceTab>('due_today');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  const todayStr = getTodayStr();
+  const todayStr = getLocalTodayStr();
 
   const handleCopy = (key: string, text: string) => {
     navigator.clipboard.writeText(text);
@@ -60,23 +65,27 @@ export function FollowupScheduleSubPage({
     onUpdateLeads(nextList);
   };
 
+  // Leads dismissed for today only (safely kept in database & Leads tab)
+  const dismissedTodayLeads = leads.filter((l) => isLeadDismissedToday(l));
+
   // 1. Sub-tab: DUE TODAY
   // Leads requiring action today or overdue (Initial sends + 3-day + 7-day)
   const dueTodayLeads = leads.filter((l) => {
     if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+    if (isLeadDismissedToday(l)) return false;
 
     // Initial outreach due today or overdue
-    if (!l.initialSentDate && l.scheduledDate && l.scheduledDate <= todayStr) {
+    if (!l.initialSentDate && l.scheduledDate && (isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate))) {
       return true;
     }
 
     // Follow-up 1 due today or overdue
-    if (l.initialSentDate && l.followupCount === 0 && l.followup1Date && l.followup1Date <= todayStr) {
+    if (l.initialSentDate && (l.followupCount === 0 || l.followupCount === undefined) && l.followup1Date && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date))) {
       return true;
     }
 
     // Follow-up 2 due today or overdue
-    if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && l.followup2Date <= todayStr) {
+    if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date))) {
       return true;
     }
 
@@ -185,6 +194,29 @@ export function FollowupScheduleSubPage({
           );
         })}
       </div>
+
+      {/* Dismissed Notification Banner */}
+      {dismissedTodayLeads.length > 0 && (
+        <div className="p-3 rounded-xl border border-white/10 bg-slate-900/60 backdrop-blur-md flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-slate-400">
+            <EyeOff className="w-4 h-4 text-slate-500" />
+            <span>
+              <strong className="text-slate-200">{dismissedTodayLeads.length}</strong> lead{dismissedTodayLeads.length === 1 ? '' : 's'} removed from today's queue (still safely stored in Leads tab).
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const next = leads.map((l) => (isLeadDismissedToday(l) ? restoreDismissedLead(l) : l));
+              onUpdateLeads(next);
+            }}
+            className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>Restore All</span>
+          </button>
+        </div>
+      )}
 
       {/* SUB-TAB 1: DUE TODAY */}
       {activeCadenceTab === 'due_today' && (
@@ -300,6 +332,17 @@ export function FollowupScheduleSubPage({
                     </span>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* Non-Destructive Remove / Dismiss Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateLeadItem(dismissLeadForToday(lead))}
+                        className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                        title="Remove from today's queue (lead remains safely in your database)"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>Remove</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => handleUpdateLeadItem(toggleLeadSeen(lead))}
@@ -439,6 +482,29 @@ export function FollowupScheduleSubPage({
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* Non-Destructive Remove / Dismiss Button */}
+                      {isLeadDismissedToday(lead) ? (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateLeadItem(restoreDismissedLead(lead))}
+                          className="px-2.5 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                          title="Re-include in today's active schedule"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Restore</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateLeadItem(dismissLeadForToday(lead))}
+                          className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                          title="Remove from today's queue (lead remains safely in your database)"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>Remove</span>
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => handleUpdateLeadItem(toggleLeadSeen(lead))}
@@ -568,6 +634,29 @@ export function FollowupScheduleSubPage({
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* Non-Destructive Remove / Dismiss Button */}
+                      {isLeadDismissedToday(lead) ? (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateLeadItem(restoreDismissedLead(lead))}
+                          className="px-2.5 py-1.5 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                          title="Re-include in today's active schedule"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Restore</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateLeadItem(dismissLeadForToday(lead))}
+                          className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                          title="Remove from today's queue (lead remains safely in your database)"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>Remove</span>
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => handleUpdateLeadItem(toggleLeadSeen(lead))}

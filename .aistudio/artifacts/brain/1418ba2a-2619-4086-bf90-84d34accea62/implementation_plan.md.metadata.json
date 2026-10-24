@@ -1,6 +1,6 @@
 {
-  "summary":  "Architectural plan for upgrading the multi-channel application with an Automated 3-Day & 7-Day Sales Cadence Engine, a unified cross-channel Today's Schedule Execution Dashboard with separate Overdue priority grouping, and 4-tab internal Follow-Up Schedule sub-pages inside each channel workspace.",
-  "updatedAt":  "2026-10-24T10:07:48.481651518Z",
+  "summary":  "Implementation plan for fixing the local timezone date matching bug across Today's Schedule and adding a non-destructive 'Remove' / 'Dismiss' button for the daily queue that preserves leads in the database.",
+  "updatedAt":  "2026-10-24T10:29:00.797795761Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

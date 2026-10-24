@@ -8,6 +8,12 @@ import {
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import { getChannelLabel } from '../../utils/channelStorage';
+import {
+  getLocalTodayStr,
+  addDays,
+  normalizeToLocalDateStr,
+  isDateToday,
+} from '../../utils/cadenceEngine';
 
 interface ScheduleSubPageProps {
   channel: MultiChannelType;
@@ -16,14 +22,16 @@ interface ScheduleSubPageProps {
 }
 
 export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPageProps) {
-  const getTodayStr = () => new Date().toISOString().split('T')[0];
+  const todayStr = getLocalTodayStr();
 
   const handleDateChange = (leadId: string, newDate: string) => {
+    const normalized = normalizeToLocalDateStr(newDate);
     const updated = leads.map((l) => {
       if (l.id === leadId) {
         return {
           ...l,
-          scheduledDate: newDate || undefined,
+          scheduledDate: normalized || undefined,
+          dismissedDate: undefined, // Clear any prior dismissal when rescheduling
         };
       }
       return l;
@@ -32,10 +40,8 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
   };
 
   const handleQuickSet = (leadId: string, daysAhead: number) => {
-    const d = new Date();
-    d.setDate(d.getDate() + daysAhead);
-    const dateStr = d.toISOString().split('T')[0];
-    handleDateChange(leadId, dateStr);
+    const targetDateStr = addDays(todayStr, daysAhead);
+    handleDateChange(leadId, targetDateStr);
   };
 
   const scheduledCount = leads.filter((l) => !!l.scheduledDate).length;
@@ -81,7 +87,7 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
               <tbody className="divide-y divide-white/[0.04]">
                 {leads.map((lead) => {
                   const hasDate = Boolean(lead.scheduledDate);
-                  const isToday = lead.scheduledDate === getTodayStr();
+                  const isToday = isDateToday(lead.scheduledDate);
 
                   return (
                     <tr key={lead.id} className="hover:bg-white/[0.02] transition-colors">

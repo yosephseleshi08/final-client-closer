@@ -14,7 +14,12 @@ import {
   loadChannelLeads,
   saveChannelLeads,
 } from './utils/channelStorage';
-import { getTodayStr } from './utils/cadenceEngine';
+import {
+  getLocalTodayStr,
+  isDateToday,
+  isDateOverdue,
+  isLeadDismissedToday,
+} from './utils/cadenceEngine';
 
 export default function App() {
   const [activeNavTab, setActiveNavTab] = useState<GlobalNavTab>('today');
@@ -47,26 +52,27 @@ export default function App() {
     saveChannelLeads('facebook', updated);
   };
 
-  const todayStr = getTodayStr();
+  const todayStr = getLocalTodayStr();
 
   // Calculate live daily tasks due across all channels
   const todayTaskCount = useMemo(() => {
     const all = [...emailLeads, ...instagramLeads, ...facebookLeads];
     return all.filter((l) => {
       if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+      if (isLeadDismissedToday(l)) return false;
 
       // 1. Initial outreach due today or overdue
-      if (!l.initialSentDate && l.scheduledDate && l.scheduledDate <= todayStr) {
+      if (!l.initialSentDate && l.scheduledDate && (isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate))) {
         return true;
       }
 
       // 2. Follow-Up #1 due today or overdue
-      if (l.initialSentDate && (l.followupCount === 0 || l.followupCount === undefined) && l.followup1Date && l.followup1Date <= todayStr) {
+      if (l.initialSentDate && (l.followupCount === 0 || l.followupCount === undefined) && l.followup1Date && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date))) {
         return true;
       }
 
       // 3. Follow-Up #2 due today or overdue
-      if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && l.followup2Date <= todayStr) {
+      if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date))) {
         return true;
       }
 
