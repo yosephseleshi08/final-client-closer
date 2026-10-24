@@ -1,0 +1,6 @@
+{
+  "name": "Outreach Engine Pro - High Velocity Client Closer",
+  "description": "High-velocity client acquisition, lead link management, and Lead Research Assistant with official Google Maps Places API lookup, ToS-compliant social profile paste & parse, and CRM follow-up copilot.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

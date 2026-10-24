@@ -1,0 +1,6 @@
+{
+  "summary":  "Architectural blueprint for refactoring the application into a multi-channel outreach command center with 5 global top navigation buttons, isolated channel workspaces (Email, Instagram, Facebook), 5 internal sub-pages per channel (Leads with DnD sortable table, DM custom pitch editor, Schedule date assignment, Follow-up Schedule with overdue alerts, Mockup screenshot upload/preview/download), Executive Dashboard, Insights & Analysis, and persistent IndexedDB + Firebase data storage.",
+  "updatedAt":  "2026-10-24T09:00:40.406705083Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
