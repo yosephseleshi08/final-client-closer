@@ -67,10 +67,14 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads }: ChannelWorks
   const theme = getChannelTheme();
   const todayStr = new Date().toISOString().split('T')[0];
 
-  // Calculate urgent items in this channel for badge
-  const urgentCount = leads.filter(
-    (l) => !l.isCompleted && Boolean(l.scheduledDate) && l.scheduledDate! <= todayStr
-  ).length;
+  // Calculate actionable items in this channel for badge (Initial due + Day 3 + Day 7)
+  const urgentCount = leads.filter((l) => {
+    if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+    if (!l.initialSentDate && l.scheduledDate && l.scheduledDate <= todayStr) return true;
+    if (l.initialSentDate && (l.followupCount === 0 || l.followupCount === undefined) && l.followup1Date && l.followup1Date <= todayStr) return true;
+    if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && l.followup2Date <= todayStr) return true;
+    return false;
+  }).length;
 
   const subTabs: { id: MultiChannelSubTab; label: string; icon: React.ReactNode; badge?: number }[] = [
     {

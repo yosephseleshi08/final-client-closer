@@ -3,6 +3,7 @@ import {
   Mail,
   Instagram,
   Facebook,
+  CalendarDays,
   LayoutDashboard,
   LineChart,
   Layers,
@@ -16,6 +17,7 @@ interface HeaderProps {
   emailLeadCount?: number;
   instagramLeadCount?: number;
   facebookLeadCount?: number;
+  todayTaskCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -24,12 +26,14 @@ export const Header: React.FC<HeaderProps> = ({
   emailLeadCount = 0,
   instagramLeadCount = 0,
   facebookLeadCount = 0,
+  todayTaskCount = 0,
 }) => {
   const navButtons: {
     id: GlobalNavTab;
     label: string;
     icon: React.ReactNode;
     badge?: number;
+    badgeColor?: string;
     colorClass: string;
   }[] = [
     {
@@ -54,10 +58,18 @@ export const Header: React.FC<HeaderProps> = ({
       colorClass: 'text-sky-400',
     },
     {
+      id: 'today',
+      label: "Today's Schedule",
+      icon: <CalendarDays className="w-4 h-4" />,
+      badge: todayTaskCount,
+      badgeColor: todayTaskCount > 0 ? 'bg-amber-500 text-slate-950 font-black animate-pulse' : undefined,
+      colorClass: 'text-amber-400',
+    },
+    {
       id: 'dashboard',
       label: 'Executive Dashboard',
       icon: <LayoutDashboard className="w-4 h-4" />,
-      colorClass: 'text-amber-400',
+      colorClass: 'text-purple-400',
     },
     {
       id: 'insights',
@@ -81,7 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
                 Outreach Engine Pro
               </h1>
               <p className="text-xs text-slate-400">
-                Multi-Channel Outreach Command Center
+                Multi-Channel Outreach & Sales Cadence Command Center
               </p>
             </div>
           </div>
@@ -90,7 +102,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Global Top Navigation: STRICTLY 5 Buttons */}
+        {/* Global Top Navigation */}
         <nav className="flex items-center gap-1.5 overflow-x-auto no-scrollbar p-1 bg-slate-950/60 rounded-xl border border-white/5">
           {navButtons.map((btn) => {
             const isActive = activeTab === btn.id;
@@ -110,7 +122,11 @@ export const Header: React.FC<HeaderProps> = ({
                 </span>
                 <span>{btn.label}</span>
                 {typeof btn.badge !== 'undefined' && btn.badge > 0 && (
-                  <span className="font-mono text-[10px] bg-white/10 text-slate-300 px-1.5 py-0.2 rounded-full tabular-nums">
+                  <span
+                    className={`font-mono text-[10px] px-1.5 py-0.2 rounded-full tabular-nums ${
+                      btn.badgeColor || 'bg-white/10 text-slate-300'
+                    }`}
+                  >
                     {btn.badge}
                   </span>
                 )}

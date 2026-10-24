@@ -23,6 +23,7 @@ interface ExecutiveDashboardProps {
   instagramLeads: ChannelLead[];
   facebookLeads: ChannelLead[];
   onNavigateToChannel: (channel: MultiChannelType) => void;
+  onNavigateToToday?: () => void;
 }
 
 export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
@@ -30,6 +31,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   instagramLeads,
   facebookLeads,
   onNavigateToChannel,
+  onNavigateToToday,
 }) => {
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -280,9 +282,20 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
               Priority Follow-Up Queue (Across Channels)
             </h3>
           </div>
-          <span className="text-xs font-mono text-slate-400">
-            {urgentLeads.length} Actionable Items
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-mono text-slate-400">
+              {urgentLeads.length} Actionable Items
+            </span>
+            {onNavigateToToday && (
+              <button
+                type="button"
+                onClick={onNavigateToToday}
+                className="px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition cursor-pointer flex items-center gap-1"
+              >
+                <span>Today's Command Center &rarr;</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {urgentLeads.length === 0 ? (

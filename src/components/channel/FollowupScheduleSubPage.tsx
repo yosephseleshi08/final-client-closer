@@ -1,14 +1,32 @@
 import React, { useState } from 'react';
 import {
-  AlertCircle,
-  CheckCircle2,
   Clock,
   Calendar,
+  AlertCircle,
+  CheckCircle2,
   ExternalLink,
   Check,
-  Filter,
+  CheckCheck,
+  Copy,
+  Send,
+  Archive,
+  Zap,
+  Flame,
+  CalendarDays,
+  RotateCcw,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
+import {
+  getTodayStr,
+  isDateToday,
+  isDateOverdue,
+  getDayDifference,
+  markInitialSent,
+  markFollowupSent,
+  markLeadReplied,
+  toggleLeadSeen,
+  getCadenceMessageTemplates,
+} from '../../utils/cadenceEngine';
 import { getChannelLabel } from '../../utils/channelStorage';
 
 interface FollowupScheduleSubPageProps {
@@ -18,222 +36,221 @@ interface FollowupScheduleSubPageProps {
   onNavigateToSchedule: () => void;
 }
 
+type FollowupCadenceTab = 'due_today' | 'day3' | 'day7' | 'completed';
+
 export function FollowupScheduleSubPage({
   channel,
   leads,
   onUpdateLeads,
   onNavigateToSchedule,
 }: FollowupScheduleSubPageProps) {
-  const [filterMode, setFilterMode] = useState<'all' | 'pending' | 'completed'>('all');
+  const [activeCadenceTab, setActiveCadenceTab] = useState<FollowupCadenceTab>('due_today');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getTodayStr();
 
-  // Only consider leads with an assigned scheduledDate
-  const scheduledLeads = leads
-    .filter((l) => Boolean(l.scheduledDate))
-    .sort((a, b) => {
-      const dateA = a.scheduledDate || '';
-      const dateB = b.scheduledDate || '';
-      return dateA.localeCompare(dateB);
-    });
-
-  const handleToggleCompleted = (leadId: string) => {
-    const updated = leads.map((l) => {
-      if (l.id === leadId) {
-        const isNowCompleted = !l.isCompleted;
-        return {
-          ...l,
-          isCompleted: isNowCompleted,
-          completedAt: isNowCompleted ? new Date().toISOString() : undefined,
-        };
-      }
-      return l;
-    });
-    onUpdateLeads(updated);
+  const handleCopy = (key: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  const getDayDiff = (dateStr: string) => {
-    const target = new Date(dateStr).setHours(0, 0, 0, 0);
-    const today = new Date().setHours(0, 0, 0, 0);
-    const diffMs = target - today;
-    return Math.round(diffMs / (1000 * 60 * 60 * 24));
+  const handleUpdateLeadItem = (updated: ChannelLead) => {
+    const nextList = leads.map((l) => (l.id === updated.id ? updated : l));
+    onUpdateLeads(nextList);
   };
 
-  const overdueCount = scheduledLeads.filter(
-    (l) => !l.isCompleted && l.scheduledDate! < todayStr
-  ).length;
+  // 1. Sub-tab: DUE TODAY
+  // Leads requiring action today or overdue (Initial sends + 3-day + 7-day)
+  const dueTodayLeads = leads.filter((l) => {
+    if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
 
-  const dueTodayCount = scheduledLeads.filter(
-    (l) => !l.isCompleted && l.scheduledDate === todayStr
-  ).length;
+    // Initial outreach due today or overdue
+    if (!l.initialSentDate && l.scheduledDate && l.scheduledDate <= todayStr) {
+      return true;
+    }
 
-  const filteredList = scheduledLeads.filter((l) => {
-    if (filterMode === 'pending') return !l.isCompleted;
-    if (filterMode === 'completed') return l.isCompleted;
-    return true;
+    // Follow-up 1 due today or overdue
+    if (l.initialSentDate && l.followupCount === 0 && l.followup1Date && l.followup1Date <= todayStr) {
+      return true;
+    }
+
+    // Follow-up 2 due today or overdue
+    if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && l.followup2Date <= todayStr) {
+      return true;
+    }
+
+    return false;
   });
+
+  // 2. Sub-tab: 3-DAY FOLLOW-UP
+  // Leads whose initial send occurred and are pending Follow-up #1 (Day 3)
+  const day3Leads = leads.filter((l) => {
+    if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+    return Boolean(l.initialSentDate) && (l.followupCount === 0 || l.followupCount === undefined);
+  });
+
+  // 3. Sub-tab: 7-DAY FOLLOW-UP
+  // Leads whose Follow-up #1 was completed and are pending Follow-up #2 (Day 7)
+  const day7Leads = leads.filter((l) => {
+    if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+    return Boolean(l.initialSentDate) && l.followupCount === 1;
+  });
+
+  // 4. Sub-tab: COMPLETED / ARCHIVED
+  // Leads that replied or concluded their cadence
+  const completedLeads = leads.filter((l) => {
+    return l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed';
+  });
+
+  const subTabs: { id: FollowupCadenceTab; label: string; count: number; icon: React.ReactNode }[] = [
+    {
+      id: 'due_today',
+      label: 'Due Today',
+      count: dueTodayLeads.length,
+      icon: <CalendarDays className="w-3.5 h-3.5" />,
+    },
+    {
+      id: 'day3',
+      label: '3-Day Follow-Up',
+      count: day3Leads.length,
+      icon: <Zap className="w-3.5 h-3.5" />,
+    },
+    {
+      id: 'day7',
+      label: '7-Day Follow-Up',
+      count: day7Leads.length,
+      icon: <Flame className="w-3.5 h-3.5" />,
+    },
+    {
+      id: 'completed',
+      label: 'Completed / Archived',
+      count: completedLeads.length,
+      icon: <Archive className="w-3.5 h-3.5" />,
+    },
+  ];
 
   return (
     <div className="space-y-6">
-      {/* Header and Alert Summary */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-white font-['Outfit']">
-            {getChannelLabel(channel)} Follow-Up Chronology & Dispatch Queue
+            {getChannelLabel(channel)} Automated Follow-Up Schedule
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Leads sorted chronologically by dispatch date. Immediate visual alerts for today and overdue outreach.
+            Strict 2-step automated sales cadence: Day 3 (Quick Check) and Day 7 (Final Loom Touch).
           </p>
         </div>
 
-        {/* Filter Toggle */}
-        <div className="flex items-center gap-1 p-1 bg-slate-900 border border-white/10 rounded-xl self-start sm:self-auto">
-          <button
-            type="button"
-            onClick={() => setFilterMode('all')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-              filterMode === 'all'
-                ? 'bg-indigo-600 text-white'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            All ({scheduledLeads.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterMode('pending')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-              filterMode === 'pending'
-                ? 'bg-indigo-600 text-white'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Pending ({scheduledLeads.filter((l) => !l.isCompleted).length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterMode('completed')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-              filterMode === 'completed'
-                ? 'bg-indigo-600 text-white'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            Completed ({scheduledLeads.filter((l) => l.isCompleted).length})
-          </button>
-        </div>
+        {dueTodayLeads.length > 0 && (
+          <span className="text-xs font-bold text-rose-300 bg-rose-500/20 px-3 py-1 rounded-xl border border-rose-500/30 flex items-center gap-1.5 self-start sm:self-auto animate-pulse">
+            <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+            <span>{dueTodayLeads.length} Actionable Today</span>
+          </span>
+        )}
       </div>
 
-      {/* Critical Overdue / Due Today Alert Banner if applicable */}
-      {(overdueCount > 0 || dueTodayCount > 0) && (
-        <div className="p-4 rounded-xl border border-rose-500/40 bg-rose-950/40 backdrop-blur-md flex items-center justify-between gap-4 animate-pulse-slow">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">
-              <AlertCircle className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-rose-200">
-                Action Required in {getChannelLabel(channel)} Queue
-              </h3>
-              <p className="text-xs text-rose-300/80">
-                {overdueCount > 0 && `${overdueCount} lead${overdueCount > 1 ? 's are' : ' is'} OVERDUE. `}
-                {dueTodayCount > 0 && `${dueTodayCount} lead${dueTodayCount > 1 ? 's are' : ' is'} scheduled for TODAY.`}
-              </p>
-            </div>
-          </div>
-          <span className="text-xs font-mono font-bold text-rose-400 bg-rose-500/10 px-2.5 py-1 rounded border border-rose-500/20 shrink-0">
-            {overdueCount + dueTodayCount} Urgent
-          </span>
-        </div>
-      )}
+      {/* Internal Sub-Tabs Navigation (Strictly 4 Sub-Tabs) */}
+      <div className="flex items-center gap-1.5 p-1 bg-slate-900 border border-white/10 rounded-xl overflow-x-auto no-scrollbar shadow-inner">
+        {subTabs.map((tab) => {
+          const isActive = activeCadenceTab === tab.id;
+          const isUrgent = tab.id === 'due_today' && tab.count > 0;
 
-      {/* List / Table */}
-      {scheduledLeads.length === 0 ? (
-        <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 p-12 text-center text-slate-400">
-          <Calendar className="w-8 h-8 text-slate-600 mx-auto mb-3" />
-          <p className="text-sm font-semibold text-slate-300">No scheduled follow-ups yet</p>
-          <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto mb-4">
-            Assign planned outreach dates to your leads in the "Schedule" sub-tab to see them chronologically here.
-          </p>
-          <button
-            type="button"
-            onClick={onNavigateToSchedule}
-            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer"
-          >
-            Go to Schedule Sub-Page
-          </button>
-        </div>
-      ) : filteredList.length === 0 ? (
-        <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 p-8 text-center text-slate-500 text-xs">
-          No leads match the "{filterMode}" status filter.
-        </div>
-      ) : (
-        <div className="space-y-2.5">
-          {filteredList.map((lead) => {
-            const dateStr = lead.scheduledDate!;
-            const isCompleted = Boolean(lead.isCompleted);
-            const isOverdue = !isCompleted && dateStr < todayStr;
-            const isToday = !isCompleted && dateStr === todayStr;
-            const diffDays = getDayDiff(dateStr);
-
-            return (
-              <div
-                key={lead.id}
-                className={`p-4 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                  isCompleted
-                    ? 'border-white/[0.06] bg-slate-900/30 opacity-75'
-                    : isOverdue
-                    ? 'border-rose-500/60 bg-rose-950/30 shadow-lg shadow-rose-950/20'
-                    : isToday
-                    ? 'border-rose-500/50 bg-rose-950/20 shadow-md shadow-rose-950/10'
-                    : 'border-white/[0.08] bg-slate-900/50 hover:bg-slate-900/80'
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveCadenceTab(tab.id)}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition cursor-pointer ${
+                isActive
+                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+              <span
+                className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full tabular-nums ${
+                  isUrgent
+                    ? 'bg-rose-500 text-white font-black animate-pulse'
+                    : isActive
+                    ? 'bg-white/20 text-white'
+                    : 'bg-white/5 text-slate-400'
                 }`}
               >
-                {/* Left: Checkbox + Lead Info */}
-                <div className="flex items-start sm:items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleToggleCompleted(lead.id)}
-                    className={`mt-0.5 sm:mt-0 w-6 h-6 rounded-lg border flex items-center justify-center transition cursor-pointer shrink-0 ${
-                      isCompleted
-                        ? 'bg-emerald-600 border-emerald-500 text-white'
-                        : isOverdue || isToday
-                        ? 'border-rose-500/60 hover:border-rose-400 bg-rose-950/40 text-transparent hover:text-rose-400'
-                        : 'border-white/20 hover:border-indigo-400 bg-white/5 text-transparent hover:text-slate-400'
-                    }`}
-                    title={isCompleted ? 'Mark as Pending' : 'Mark as Sent/Completed'}
-                  >
-                    <Check className="w-3.5 h-3.5 stroke-[3]" />
-                  </button>
+                {tab.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2 flex-wrap">
+      {/* SUB-TAB 1: DUE TODAY */}
+      {activeCadenceTab === 'due_today' && (
+        <div className="space-y-3">
+          {dueTodayLeads.length === 0 ? (
+            <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 p-12 text-center text-slate-400">
+              <CheckCircle2 className="w-8 h-8 text-emerald-400/60 mx-auto mb-3" />
+              <p className="text-sm font-semibold text-slate-300">All caught up for today!</p>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                No initial outreach or follow-ups are due today in {getChannelLabel(channel)}. Check the 3-Day and 7-Day tabs for upcoming pipeline touchpoints.
+              </p>
+            </div>
+          ) : (
+            dueTodayLeads.map((lead) => {
+              const templates = getCadenceMessageTemplates(lead);
+              const isInitial = !lead.initialSentDate;
+              const isDay3 = lead.initialSentDate && lead.followupCount === 0;
+              const targetDate = isInitial
+                ? lead.scheduledDate!
+                : isDay3
+                ? lead.followup1Date!
+                : lead.followup2Date!;
+              const isOverdue = targetDate < todayStr;
+              const isToday = targetDate === todayStr;
+              const copyText = isInitial ? templates.initialPitch : isDay3 ? templates.day3Bump : templates.day7Loom;
+
+              return (
+                <div
+                  key={lead.id}
+                  className={`rounded-2xl border p-4 space-y-3 shadow-lg transition ${
+                    isOverdue
+                      ? 'border-rose-500/50 bg-rose-950/20'
+                      : isToday
+                      ? 'border-amber-500/40 bg-amber-950/20'
+                      : 'border-white/10 bg-slate-950/80'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 flex-wrap">
                       <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
                         {lead.id}
                       </span>
-                      <span className="text-sm font-bold text-slate-100 font-['Outfit']">
+                      <h3 className="font-bold text-white text-sm sm:text-base font-['Outfit']">
                         {lead.name}
-                      </span>
-
-                      {/* Visual Alert Badge */}
-                      {isCompleted ? (
-                        <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" />
-                          <span>Sent & Completed</span>
+                      </h3>
+                      {lead.isSeen && (
+                        <span className="text-xs font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30">
+                          👀 Seen
                         </span>
-                      ) : isOverdue ? (
-                        <span className="text-[11px] font-bold text-rose-300 bg-rose-600/30 px-2.5 py-0.5 rounded border border-rose-500/50 flex items-center gap-1 animate-pulse">
-                          <AlertCircle className="w-3 h-3 text-rose-400" />
-                          <span>OVERDUE ({Math.abs(diffDays)}d ago)</span>
+                      )}
+                      {isInitial ? (
+                        <span className="text-[10px] font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
+                          Initial Outreach
                         </span>
-                      ) : isToday ? (
-                        <span className="text-[11px] font-bold text-rose-300 bg-rose-500/20 px-2.5 py-0.5 rounded border border-rose-500/40 flex items-center gap-1">
-                          <Clock className="w-3 h-3 text-rose-400" />
-                          <span>DUE TODAY</span>
+                      ) : isDay3 ? (
+                        <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40 font-mono">
+                          ⚡ Day 3 Follow-Up
                         </span>
                       ) : (
-                        <span className="text-[11px] font-medium text-slate-400 bg-white/5 px-2 py-0.5 rounded border border-white/10">
-                          In {diffDays} days
+                        <span className="text-[10px] font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded border border-rose-500/40 font-mono">
+                          🔥 Day 7 Follow-Up
+                        </span>
+                      )}
+                      {isOverdue && (
+                        <span className="text-[10px] font-bold text-rose-300 bg-rose-600/30 px-2 py-0.5 rounded border border-rose-500/50 font-mono">
+                          Overdue ({targetDate})
                         </span>
                       )}
                     </div>
@@ -242,58 +259,431 @@ export function FollowupScheduleSubPage({
                       href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-indigo-400 transition-colors"
+                      className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 self-start sm:self-auto"
                     >
-                      <span className="truncate max-w-sm">{lead.link}</span>
+                      <span className="truncate max-w-xs">{lead.link}</span>
                       <ExternalLink className="w-3 h-3 shrink-0" />
                     </a>
                   </div>
-                </div>
 
-                {/* Right: Date Display & Action */}
-                <div className="flex items-center gap-4 sm:justify-end shrink-0 pl-9 sm:pl-0">
-                  <div className="text-right">
-                    <div
-                      className={`text-xs font-mono font-bold tabular-nums ${
-                        isCompleted
-                          ? 'text-slate-400 line-through'
-                          : isOverdue || isToday
-                          ? 'text-rose-400'
-                          : 'text-slate-300'
-                      }`}
-                    >
-                      {new Date(dateStr + 'T00:00:00').toLocaleDateString(undefined, {
-                        weekday: 'short',
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                      })}
+                  {/* Pre-staged Copy Box */}
+                  <div className="rounded-xl border border-white/5 bg-slate-900/90 p-2.5 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
+                      <span>Message Template</span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(lead.id, copyText)}
+                        className="flex items-center gap-1 text-xs text-indigo-400 hover:text-white transition cursor-pointer"
+                      >
+                        {copiedKey === lead.id ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-400" />
+                            <span className="text-emerald-400">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Copy Message</span>
+                          </>
+                        )}
+                      </button>
                     </div>
-                    {lead.completedAt && (
-                      <div className="text-[10px] text-slate-500">
-                        Finished {new Date(lead.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    )}
+                    <p className="text-xs text-slate-300 italic select-all font-sans leading-relaxed">
+                      "{copyText}"
+                    </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleToggleCompleted(lead.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-                      isCompleted
-                        ? 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
-                        : isOverdue || isToday
-                        ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-600/30'
-                        : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20'
-                    }`}
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>{isCompleted ? 'Completed' : 'Mark as Sent'}</span>
-                  </button>
+                  {/* Actions */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5">
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      Target Date: {targetDate}
+                    </span>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateLeadItem(toggleLeadSeen(lead))}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          lead.isSeen
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
+                        }`}
+                      >
+                        <span>👀 Seen</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateLeadItem(markLeadReplied(lead))}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition cursor-pointer flex items-center gap-1"
+                      >
+                        <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Replied!</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isInitial) {
+                            handleUpdateLeadItem(markInitialSent(lead));
+                          } else if (isDay3) {
+                            handleUpdateLeadItem(markFollowupSent(lead, 1));
+                          } else {
+                            handleUpdateLeadItem(markFollowupSent(lead, 2));
+                          }
+                        }}
+                        className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-600/30 transition cursor-pointer"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>
+                          {isInitial ? 'Mark Initial Sent' : isDay3 ? 'Mark FU 1 Sent (Day 3)' : 'Mark FU 2 Sent (Day 7)'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* SUB-TAB 2: 3-DAY FOLLOW-UP */}
+      {activeCadenceTab === 'day3' && (
+        <div className="space-y-3">
+          {day3Leads.length === 0 ? (
+            <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 p-12 text-center text-slate-400">
+              <Zap className="w-8 h-8 text-amber-400/50 mx-auto mb-3" />
+              <p className="text-sm font-semibold text-slate-300">No leads currently in 3-Day Cadence</p>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                When you mark initial outreach as sent, leads automatically move here with their exact +3 day follow-up timer.
+              </p>
+            </div>
+          ) : (
+            day3Leads.map((lead) => {
+              const templates = getCadenceMessageTemplates(lead);
+              const fu1Date = lead.followup1Date || '';
+              const diff = getDayDifference(fu1Date);
+              const isDue = fu1Date <= todayStr;
+
+              return (
+                <div
+                  key={lead.id}
+                  className={`rounded-2xl border p-4 space-y-3 shadow-lg transition ${
+                    isDue
+                      ? 'border-amber-500/40 bg-amber-950/20'
+                      : 'border-white/10 bg-slate-950/80'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                        {lead.id}
+                      </span>
+                      <h3 className="font-bold text-white text-sm sm:text-base font-['Outfit']">
+                        {lead.name}
+                      </h3>
+                      {lead.isSeen && (
+                        <span className="text-xs font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30">
+                          👀 Seen
+                        </span>
+                      )}
+                      <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 font-mono">
+                        {isDue ? '⚡ Due Now (Day 3)' : `Due in ${diff} day${diff === 1 ? '' : 's'}`}
+                      </span>
+                    </div>
+
+                    <a
+                      href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 self-start sm:self-auto"
+                    >
+                      <span className="truncate max-w-xs">{lead.link}</span>
+                      <ExternalLink className="w-3 h-3 shrink-0" />
+                    </a>
+                  </div>
+
+                  {/* Follow-up 1 Copy */}
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-950/20 p-2.5 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-amber-300">
+                      <span>Follow-Up #1 Quick Bump Copy</span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(`${lead.id}-day3`, templates.day3Bump)}
+                        className="flex items-center gap-1 text-xs text-amber-300 hover:text-white transition cursor-pointer"
+                      >
+                        {copiedKey === `${lead.id}-day3` ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-400" />
+                            <span className="text-emerald-400">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Copy Bump</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-300 italic select-all font-sans leading-relaxed">
+                      "{templates.day3Bump}"
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5">
+                    <div className="text-[11px] text-slate-400 font-mono flex items-center gap-2">
+                      <span>Sent: {lead.initialSentDate}</span>
+                      <span>•</span>
+                      <span>FU1 Date: {fu1Date}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateLeadItem(toggleLeadSeen(lead))}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          lead.isSeen
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
+                        }`}
+                      >
+                        <span>👀 Seen</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateLeadItem(markLeadReplied(lead))}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition cursor-pointer flex items-center gap-1"
+                      >
+                        <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Replied!</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateLeadItem(markFollowupSent(lead, 1))}
+                        className="px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-600/30 transition cursor-pointer"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Mark FU 1 Sent (Day 3)</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* SUB-TAB 3: 7-DAY FOLLOW-UP */}
+      {activeCadenceTab === 'day7' && (
+        <div className="space-y-3">
+          {day7Leads.length === 0 ? (
+            <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 p-12 text-center text-slate-400">
+              <Flame className="w-8 h-8 text-rose-400/50 mx-auto mb-3" />
+              <p className="text-sm font-semibold text-slate-300">No leads currently in 7-Day Cadence</p>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                After completing Follow-Up #1, prospects advance here for their final 7-Day video touch.
+              </p>
+            </div>
+          ) : (
+            day7Leads.map((lead) => {
+              const templates = getCadenceMessageTemplates(lead);
+              const fu2Date = lead.followup2Date || '';
+              const diff = getDayDifference(fu2Date);
+              const isDue = fu2Date <= todayStr;
+
+              return (
+                <div
+                  key={lead.id}
+                  className={`rounded-2xl border p-4 space-y-3 shadow-lg transition ${
+                    isDue
+                      ? 'border-rose-500/40 bg-rose-950/20'
+                      : 'border-white/10 bg-slate-950/80'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                        {lead.id}
+                      </span>
+                      <h3 className="font-bold text-white text-sm sm:text-base font-['Outfit']">
+                        {lead.name}
+                      </h3>
+                      {lead.isSeen && (
+                        <span className="text-xs font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30">
+                          👀 Seen
+                        </span>
+                      )}
+                      <span className="text-[10px] font-bold text-rose-300 bg-rose-500/15 px-2 py-0.5 rounded border border-rose-500/30 font-mono">
+                        {isDue ? '🔥 Due Now (Day 7 Final)' : `Due in ${diff} day${diff === 1 ? '' : 's'}`}
+                      </span>
+                    </div>
+
+                    <a
+                      href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 self-start sm:self-auto"
+                    >
+                      <span className="truncate max-w-xs">{lead.link}</span>
+                      <ExternalLink className="w-3 h-3 shrink-0" />
+                    </a>
+                  </div>
+
+                  {/* Follow-up 2 Copy */}
+                  <div className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-2.5 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-rose-300">
+                      <span>Follow-Up #2 (Day 7 Loom Screen Recording Touch)</span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(`${lead.id}-day7`, templates.day7Loom)}
+                        className="flex items-center gap-1 text-xs text-rose-300 hover:text-white transition cursor-pointer"
+                      >
+                        {copiedKey === `${lead.id}-day7` ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-400" />
+                            <span className="text-emerald-400">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Copy Message</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-300 italic select-all font-sans leading-relaxed">
+                      "{templates.day7Loom}"
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5">
+                    <div className="text-[11px] text-slate-400 font-mono flex items-center gap-2">
+                      <span>FU1 Sent: {lead.followup1SentDate || 'Done'}</span>
+                      <span>•</span>
+                      <span>FU2 Target: {fu2Date}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateLeadItem(toggleLeadSeen(lead))}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          lead.isSeen
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
+                        }`}
+                      >
+                        <span>👀 Seen</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateLeadItem(markLeadReplied(lead))}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition cursor-pointer flex items-center gap-1"
+                      >
+                        <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Replied!</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateLeadItem(markFollowupSent(lead, 2))}
+                        className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-rose-600/30 transition cursor-pointer"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Complete Cadence (Day 7)</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* SUB-TAB 4: COMPLETED / ARCHIVED */}
+      {activeCadenceTab === 'completed' && (
+        <div className="space-y-3">
+          {completedLeads.length === 0 ? (
+            <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 p-12 text-center text-slate-400">
+              <Archive className="w-8 h-8 text-slate-600 mx-auto mb-3" />
+              <p className="text-sm font-semibold text-slate-300">No completed or archived leads yet</p>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                Leads that reply or complete their full 2-step follow-up cadence will appear in this archive.
+              </p>
+            </div>
+          ) : (
+            completedLeads.map((lead) => {
+              const isReplied = lead.leadStatus === 'replied';
+
+              return (
+                <div
+                  key={lead.id}
+                  className="rounded-2xl border border-white/[0.06] bg-slate-950/60 p-4 space-y-2 opacity-85 hover:opacity-100 transition"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                        {lead.id}
+                      </span>
+                      <h3 className="font-bold text-white text-sm sm:text-base font-['Outfit']">
+                        {lead.name}
+                      </h3>
+                      {isReplied ? (
+                        <span className="text-xs font-bold text-emerald-300 bg-emerald-500/15 px-2.5 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1">
+                          <CheckCheck className="w-3 h-3 text-emerald-400" />
+                          <span>Replied!</span>
+                        </span>
+                      ) : (
+                        <span className="text-xs font-bold text-slate-300 bg-white/10 px-2.5 py-0.5 rounded border border-white/10 flex items-center gap-1">
+                          <Check className="w-3 h-3 text-indigo-400" />
+                          <span>Cadence Finished</span>
+                        </span>
+                      )}
+                    </div>
+
+                    <a
+                      href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-white transition px-2 py-1 rounded bg-white/5"
+                    >
+                      <span className="truncate max-w-xs">{lead.link}</span>
+                      <ExternalLink className="w-3 h-3 shrink-0" />
+                    </a>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-white/5">
+                    <span>
+                      {lead.completedAt
+                        ? `Concluded on ${new Date(lead.completedAt).toLocaleDateString()}`
+                        : 'Archived'}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleUpdateLeadItem({
+                          ...lead,
+                          isCompleted: false,
+                          leadStatus: 'waiting_reply',
+                        })
+                      }
+                      className="text-xs text-slate-400 hover:text-indigo-300 flex items-center gap-1 transition cursor-pointer"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Re-open Cadence</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       )}
     </div>

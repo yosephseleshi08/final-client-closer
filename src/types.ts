@@ -225,9 +225,11 @@ export interface WeeklyAnalysisSummary {
 // Multi-Channel Outreach Command Center Types
 export type MultiChannelType = 'email' | 'instagram' | 'facebook';
 
-export type GlobalNavTab = 'email' | 'instagram' | 'facebook' | 'dashboard' | 'insights';
+export type GlobalNavTab = 'email' | 'instagram' | 'facebook' | 'today' | 'dashboard' | 'insights';
 
 export type MultiChannelSubTab = 'leads' | 'dm' | 'schedule' | 'followup' | 'mockup';
+
+export type CadenceLeadStatus = 'not_sent' | 'waiting_reply' | 'seen' | 'replied' | 'completed';
 
 export interface ChannelLead {
   id: string; // e.g. "IG-1", "EM-1", "FB-1"
@@ -243,11 +245,20 @@ export interface ChannelLead {
   pitchSavedAt?: string;
 
   // Sub-page C: Schedule Date
-  scheduledDate?: string; // YYYY-MM-DD format
+  scheduledDate?: string; // YYYY-MM-DD format (planned initial outreach date)
 
-  // Sub-page D: Follow-up Status
+  // Sub-page D: Follow-up & Cadence Status
   isCompleted?: boolean;
   completedAt?: string;
+  leadStatus?: CadenceLeadStatus; // 'not_sent' | 'waiting_reply' | 'seen' | 'replied' | 'completed'
+  isSeen?: boolean; // 👀 Seen toggle (retains cadence timers)
+  initialSentDate?: string; // YYYY-MM-DD
+  followup1Date?: string; // exactly initialSentDate + 3 days
+  followup2Date?: string; // exactly initialSentDate + 7 days
+  followup1SentDate?: string;
+  followup2SentDate?: string;
+  followupCount?: number; // 0 = initial, 1 = Day 3 sent, 2 = Day 7 sent
+  repliedAt?: string;
 
   // Sub-page E: Mockup
   hasMockup?: boolean;
