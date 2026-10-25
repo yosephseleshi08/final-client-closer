@@ -8,6 +8,11 @@ import {
   Sparkles,
   X,
   FileText,
+  Loader2,
+  Send,
+  Clock,
+  HeartHandshake,
+  CheckCircle2,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import { getChannelLabel } from '../../utils/channelStorage';
@@ -20,25 +25,45 @@ interface DmSubPageProps {
 
 export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
-  const [pitchDraft, setPitchDraft] = useState('');
+
+  // 3-Step Sequence States
+  const [initialDraft, setInitialDraft] = useState('');
+  const [followup3Draft, setFollowup3Draft] = useState('');
+  const [followup7Draft, setFollowup7Draft] = useState('');
+  const [activeStepTab, setActiveStepTab] = useState<'all' | 'step1' | 'step2' | 'step3'>('all');
+  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+
   const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const selectedLead = leads.find((l) => l.id === selectedLeadId);
 
   const handleOpenPitchEditor = (lead: ChannelLead) => {
     setSelectedLeadId(lead.id);
-    setPitchDraft(lead.customPitch || '');
+    setInitialDraft(lead.initialDM || lead.customPitch || '');
+    setFollowup3Draft(lead.followup3DM || '');
+    setFollowup7Draft(lead.followup7DM || '');
+    setGenerationError(null);
+    setActiveStepTab('all');
   };
 
   const handleSavePitch = () => {
     if (!selectedLeadId) return;
 
+    const trimmedInitial = initialDraft.trim();
+    const trimmedFollowup3 = followup3Draft.trim();
+    const trimmedFollowup7 = followup7Draft.trim();
+
     const updated = leads.map((l) => {
       if (l.id === selectedLeadId) {
         return {
           ...l,
-          customPitch: pitchDraft.trim(),
+          initialDM: trimmedInitial || undefined,
+          followup3DM: trimmedFollowup3 || undefined,
+          followup7DM: trimmedFollowup7 || undefined,
+          // Backwards compatibility: synchronize customPitch with initialDM
+          customPitch: trimmedInitial || l.customPitch,
           pitchSavedAt: new Date().toISOString(),
         };
       }
@@ -51,41 +76,104 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
     setSelectedLeadId(null);
   };
 
-  const handleCopyPitch = (lead: ChannelLead) => {
-    if (!lead.customPitch) return;
-    navigator.clipboard.writeText(lead.customPitch);
-    setCopiedId(lead.id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const handleGenerateAiSequence = async () => {
+    if (!selectedLead) return;
+    setIsGeneratingAi(true);
+    setGenerationError(null);
+
+    try {
+      const response = await fetch('/api/gemini/sequence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel,
+          leadName: selectedLead.name,
+          leadLink: selectedLead.link,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.initialDM) setInitialDraft(data.initialDM);
+      if (data.followup3DM) setFollowup3Draft(data.followup3DM);
+      if (data.followup7DM) setFollowup7Draft(data.followup7DM);
+    } catch (err) {
+      console.error('Failed to generate AI sequence:', err);
+      // Fallback local heuristic generation
+      const name = selectedLead.name || 'there';
+      setInitialDraft(
+        `Hey ${name}! Loved your profile. Built a 0.3s interactive prototype showing how you can capture 3x more bookings directly: mind if I share the 20-second preview?`
+      );
+      setFollowup3Draft(
+        `Hey ${name}, bumping this quick! Wondering if you had 30 seconds to click through the interactive demo I put together for ${name}? No pressure at all!`
+      );
+      setFollowup7Draft(
+        `Hey ${name}, wanted to send one final quick note! Recorded a 45-second screen recording showing exactly how the setup works for ${name}. Should I drop the link here or leave you be?`
+      );
+    } finally {
+      setIsGeneratingAi(false);
+    }
   };
 
-  const insertToken = (token: string) => {
-    setPitchDraft((prev) => `${prev} ${token} `);
+  const handleCopyText = (key: string, text?: string) => {
+    if (!text || !text.trim()) return;
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
   };
+
+  const insertToken = (token: string, targetStep?: '1' | '2' | '3') => {
+    if (!targetStep || targetStep === '1') {
+      setInitialDraft((prev) => (prev ? `${prev} ${token}` : token));
+    }
+    if (targetStep === '2') {
+      setFollowup3Draft((prev) => (prev ? `${prev} ${token}` : token));
+    }
+    if (targetStep === '3') {
+      setFollowup7Draft((prev) => (prev ? `${prev} ${token}` : token));
+    }
+  };
+
+  // Helper to count how many steps in the sequence are written
+  const getSequenceStepCount = (lead: ChannelLead) => {
+    let count = 0;
+    if (lead.initialDM?.trim() || lead.customPitch?.trim()) count++;
+    if (lead.followup3DM?.trim()) count++;
+    if (lead.followup7DM?.trim()) count++;
+    return count;
+  };
+
+  const completeSequencesCount = leads.filter((l) => getSequenceStepCount(l) === 3).length;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold text-white font-['Outfit']">
-            {getChannelLabel(channel)} Direct Messages & Outreach Pitches
+          <h2 className="text-base font-bold text-white font-['Outfit'] flex items-center gap-2">
+            <span>{getChannelLabel(channel)} 3-Step Outreach Sequence</span>
+            <span className="text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">
+              Day 1 · Day 3 · Day 7
+            </span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Craft, customize, and bind dedicated pitches directly to each Lead ID.
+            Craft full 3-touch cadence messages (Initial DM, 3-Day Bump, 7-Day Breakup) per prospect.
           </p>
         </div>
-        <div className="text-xs font-mono text-slate-400">
-          Pitches written:{' '}
-          <span className="text-indigo-400 font-bold">
-            {leads.filter((l) => !!l.customPitch).length}
-          </span>{' '}
-          / {leads.length}
+        <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+          <span>Full 3-Step Sequences:</span>
+          <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/20">
+            {completeSequencesCount} / {leads.length}
+          </span>
         </div>
       </div>
 
       {leads.length === 0 ? (
         <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 p-12 text-center text-slate-400">
           <MessageSquare className="w-8 h-8 text-slate-600 mx-auto mb-3" />
-          <p className="text-sm font-semibold text-slate-300">No leads available for DM authoring</p>
+          <p className="text-sm font-semibold text-slate-300">No leads available for sequence authoring</p>
           <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
             Switch to the "Leads" sub-tab to paste prospect links first. They will immediately appear here.
           </p>
@@ -96,17 +184,19 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-4 text-left w-32">Lead ID</th>
-                  <th className="py-3 px-4 text-left w-64">Name</th>
-                  <th className="py-3 px-4 text-left">Pitch Status & Preview</th>
-                  <th className="py-3 px-4 text-right w-44">Actions</th>
+                  <th className="py-3 px-4 text-left w-28">Lead ID</th>
+                  <th className="py-3 px-4 text-left w-56">Name &amp; Profile</th>
+                  <th className="py-3 px-4 text-left">3-Step Sequence Status &amp; Previews</th>
+                  <th className="py-3 px-4 text-right w-48">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
                 {leads.map((lead) => {
-                  const hasPitch = Boolean(lead.customPitch && lead.customPitch.trim().length > 0);
+                  const stepCount = getSequenceStepCount(lead);
                   const isSavedJustNow = savedSuccessId === lead.id;
-                  const isCopied = copiedId === lead.id;
+                  const initialMsg = lead.initialDM || lead.customPitch;
+                  const step2Msg = lead.followup3DM;
+                  const step3Msg = lead.followup7DM;
 
                   return (
                     <tr key={lead.id} className="hover:bg-white/[0.02] transition-colors">
@@ -133,50 +223,93 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                         </a>
                       </td>
 
-                      {/* Pitch Status & Snippet */}
+                      {/* 3-Step Sequence Status & Snippets */}
                       <td className="py-3.5 px-4 text-left">
-                        {hasPitch ? (
-                          <div className="space-y-1">
-                            <p className="text-xs text-slate-300 line-clamp-2 italic bg-slate-950/40 p-2 rounded-lg border border-white/5">
-                              "{lead.customPitch}"
-                            </p>
-                            {lead.pitchSavedAt && (
-                              <span className="text-[10px] text-slate-500">
-                                Saved {new Date(lead.pitchSavedAt).toLocaleDateString()}
-                              </span>
-                            )}
+                        <div className="space-y-2">
+                          {/* Step Badges Row */}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
+                                stepCount === 3
+                                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                  : stepCount > 0
+                                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                  : 'bg-white/5 text-slate-400 border-white/10'
+                              }`}
+                            >
+                              {stepCount === 3 ? '✓ 3/3 Steps Ready' : `${stepCount}/3 Steps Set`}
+                            </span>
+
+                            {/* Mini indicator pills for each step */}
+                            <span
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                initialMsg
+                                  ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                                  : 'bg-white/5 text-slate-500'
+                              }`}
+                              title={initialMsg ? `Initial DM: ${initialMsg}` : 'Initial DM not written'}
+                            >
+                              1. Initial
+                            </span>
+                            <span
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                step2Msg
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                  : 'bg-white/5 text-slate-500'
+                              }`}
+                              title={step2Msg ? `3-Day Follow-Up: ${step2Msg}` : '3-Day Follow-Up not written'}
+                            >
+                              2. Day 3
+                            </span>
+                            <span
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                step3Msg
+                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                  : 'bg-white/5 text-slate-500'
+                              }`}
+                              title={step3Msg ? `7-Day Breakup: ${step3Msg}` : '7-Day Breakup not written'}
+                            >
+                              3. Day 7
+                            </span>
                           </div>
-                        ) : (
-                          <span className="text-xs text-slate-500 flex items-center gap-1.5">
-                            <FileText className="w-3.5 h-3.5 opacity-60" />
-                            <span>No pitch drafted yet</span>
-                          </span>
-                        )}
+
+                          {/* Preview snippet of the initial DM */}
+                          {initialMsg ? (
+                            <p className="text-xs text-slate-300 line-clamp-2 italic bg-slate-950/40 p-2 rounded-lg border border-white/5">
+                              "{initialMsg}"
+                            </p>
+                          ) : (
+                            <span className="text-xs text-slate-500 flex items-center gap-1.5">
+                              <FileText className="w-3.5 h-3.5 opacity-60" />
+                              <span>No sequence drafted yet (defaults will be used in Today's Schedule)</span>
+                            </span>
+                          )}
+                        </div>
                       </td>
 
-                      {/* Action: Edit Pitch Button & Copy */}
+                      {/* Action Buttons */}
                       <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {hasPitch && (
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {initialMsg && (
                             <button
                               type="button"
-                              onClick={() => handleCopyPitch(lead)}
-                              className={`p-2 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-                                isCopied
+                              onClick={() => handleCopyText(`${lead.id}-step1`, initialMsg)}
+                              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+                                copiedKey === `${lead.id}-step1`
                                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                                   : 'bg-white/5 text-slate-300 hover:text-white hover:bg-white/10 border border-white/10'
                               }`}
-                              title="Copy pitch to clipboard"
+                              title="Copy Initial DM"
                             >
-                              {isCopied ? (
+                              {copiedKey === `${lead.id}-step1` ? (
                                 <>
                                   <Check className="w-3.5 h-3.5 text-emerald-400" />
-                                  <span className="hidden sm:inline">Copied</span>
+                                  <span className="text-[10px]">Copied</span>
                                 </>
                               ) : (
                                 <>
                                   <Copy className="w-3.5 h-3.5" />
-                                  <span className="hidden sm:inline">Copy</span>
+                                  <span className="text-[10px]">Copy DM</span>
                                 </>
                               )}
                             </button>
@@ -188,13 +321,13 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                             className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-indigo-600/20"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
-                            <span>{hasPitch ? 'Edit Pitch' : 'Write Pitch'}</span>
+                            <span>{stepCount > 0 ? 'Edit 3-Step' : 'Write 3-Step'}</span>
                           </button>
                         </div>
 
                         {isSavedJustNow && (
                           <div className="text-[10px] text-emerald-400 font-semibold mt-1">
-                            Pitch Saved!
+                            Sequence Saved!
                           </div>
                         )}
                       </td>
@@ -207,22 +340,23 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
         </div>
       )}
 
-      {/* Pitch Editor Modal */}
+      {/* 3-Step Sequence Editor Modal */}
       {selectedLead && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-xl rounded-2xl bg-slate-900 border border-white/10 p-6 shadow-2xl space-y-4">
-            <div className="flex items-start justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-2xl bg-slate-900 border border-white/10 p-5 sm:p-6 shadow-2xl space-y-4 my-8 max-h-[92vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-white/10 pb-3">
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-mono font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
                     {selectedLead.id}
                   </span>
-                  <h3 className="text-lg font-bold text-white font-['Outfit']">
-                    {selectedLead.name}
+                  <h3 className="text-base sm:text-lg font-bold text-white font-['Outfit']">
+                    3-Step Sequence: {selectedLead.name}
                   </h3>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
-                  Compose the custom DM copy that will persist and stay bound to Lead #{selectedLead.id}.
+                  Draft the 3 sequential messages sent across the outreach cadence for {getChannelLabel(channel)}.
                 </p>
               </div>
               <button
@@ -234,73 +368,174 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
               </button>
             </div>
 
-            {/* Quick Helper Tokens */}
-            <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
-              <span className="text-[11px] font-semibold text-slate-500">Insert:</span>
+            {/* AI Generator Action Banner */}
+            <div className="rounded-xl border border-indigo-500/30 bg-gradient-to-r from-indigo-950/50 via-slate-900/60 to-purple-950/40 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shrink-0">
+                  <Sparkles className="w-4 h-4 text-indigo-300" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white">1-Click AI Sequence Generator</h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Generate tailored copy for Day 1, Day 3, and Day 7 in one click.
+                  </p>
+                </div>
+              </div>
+
               <button
                 type="button"
-                onClick={() => insertToken(selectedLead.name)}
+                onClick={handleGenerateAiSequence}
+                disabled={isGeneratingAi}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/30 cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                {isGeneratingAi ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Generating...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>⚡ Generate 3-Step Sequence</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {generationError && (
+              <div className="p-2.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs">
+                {generationError}
+              </div>
+            )}
+
+            {/* Quick Helper Tokens */}
+            <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
+              <span className="text-[11px] font-semibold text-slate-500">Insert token into active step:</span>
+              <button
+                type="button"
+                onClick={() => insertToken(selectedLead.name, '1')}
                 className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] text-indigo-300 cursor-pointer"
               >
-                {selectedLead.name}
+                Lead Name
               </button>
               <button
                 type="button"
-                onClick={() => insertToken(selectedLead.link)}
+                onClick={() => insertToken(selectedLead.link, '1')}
                 className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] text-indigo-300 cursor-pointer"
               >
                 Link
               </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setPitchDraft(
-                    `Hey ${selectedLead.name}! Love what you're doing. Built a 0.3s interactive prototype for you: mind if I share the 20-second preview?`
-                  )
-                }
-                className="px-2 py-1 rounded bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 text-[11px] text-indigo-300 cursor-pointer flex items-center gap-1"
-              >
-                <Sparkles className="w-3 h-3 text-indigo-400" />
-                <span>Quick Template</span>
-              </button>
             </div>
 
-            {/* Textarea */}
-            <div>
-              <textarea
-                rows={6}
-                value={pitchDraft}
-                onChange={(e) => setPitchDraft(e.target.value)}
-                placeholder="Write your custom outreach DM here..."
-                className="w-full p-4 bg-slate-950 border border-white/10 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 leading-relaxed font-sans"
-              />
-              <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
-                <span>
-                  Words: <strong className="text-slate-400">{pitchDraft.trim() ? pitchDraft.trim().split(/\s+/).length : 0}</strong>
-                </span>
-                <span>
-                  Characters: <strong className="text-slate-400">{pitchDraft.length}</strong>
-                </span>
+            {/* 3 DISTINCT TEXTAREAS */}
+            <div className="space-y-4 pt-1">
+              {/* Message 1: Initial DM */}
+              <div className="rounded-xl border border-indigo-500/20 bg-slate-950/60 p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                      <Send className="w-3.5 h-3.5" />
+                    </span>
+                    <label className="text-xs font-bold text-white uppercase tracking-wider">
+                      Message 1: Initial DM (Day 1)
+                    </label>
+                  </div>
+                  <span className="text-[10px] font-mono text-indigo-400 font-semibold bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                    Sent First
+                  </span>
+                </div>
+                <textarea
+                  rows={3}
+                  value={initialDraft}
+                  onChange={(e) => setInitialDraft(e.target.value)}
+                  placeholder="Hey {name}! Loved what you're doing. Built a 0.3s interactive prototype for you: mind if I share the 20-second preview?"
+                  className="w-full p-3 bg-slate-900 border border-white/10 rounded-lg text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 leading-relaxed font-sans"
+                />
+                <div className="flex items-center justify-between text-[10px] text-slate-500">
+                  <span>Initial outreach hook tailored to their business</span>
+                  <span>{initialDraft.length} chars</span>
+                </div>
+              </div>
+
+              {/* Message 2: 3-Day Follow-Up */}
+              <div className="rounded-xl border border-amber-500/20 bg-slate-950/60 p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                      <Clock className="w-3.5 h-3.5" />
+                    </span>
+                    <label className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                      Message 2: 3-Day Follow-Up (Day 3)
+                    </label>
+                  </div>
+                  <span className="text-[10px] font-mono text-amber-400 font-semibold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                    Day +3 Bump
+                  </span>
+                </div>
+                <textarea
+                  rows={3}
+                  value={followup3Draft}
+                  onChange={(e) => setFollowup3Draft(e.target.value)}
+                  placeholder="Hey {name}, bumping this quick! Wondering if you had 30 seconds to click through the interactive demo I put together for you? No pressure at all!"
+                  className="w-full p-3 bg-slate-900 border border-white/10 rounded-lg text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 leading-relaxed font-sans"
+                />
+                <div className="flex items-center justify-between text-[10px] text-slate-500">
+                  <span>Quick low-friction check-in with zero pressure</span>
+                  <span>{followup3Draft.length} chars</span>
+                </div>
+              </div>
+
+              {/* Message 3: 7-Day Breakup */}
+              <div className="rounded-xl border border-rose-500/20 bg-slate-950/60 p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                      <HeartHandshake className="w-3.5 h-3.5" />
+                    </span>
+                    <label className="text-xs font-bold text-rose-300 uppercase tracking-wider">
+                      Message 3: 7-Day Breakup (Day 7)
+                    </label>
+                  </div>
+                  <span className="text-[10px] font-mono text-rose-400 font-semibold bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
+                    Day +7 Final
+                  </span>
+                </div>
+                <textarea
+                  rows={3}
+                  value={followup7Draft}
+                  onChange={(e) => setFollowup7Draft(e.target.value)}
+                  placeholder="Hey {name}, wanted to send one final quick note! Recorded a 45-second screen recording showing exactly how the setup works for your spot. Should I drop the link here or leave you be?"
+                  className="w-full p-3 bg-slate-900 border border-white/10 rounded-lg text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-rose-500 leading-relaxed font-sans"
+                />
+                <div className="flex items-center justify-between text-[10px] text-slate-500">
+                  <span>Final touch offering a personalized video preview or graceful signoff</span>
+                  <span>{followup7Draft.length} chars</span>
+                </div>
               </div>
             </div>
 
             {/* Footer Buttons */}
-            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-white/5">
-              <button
-                type="button"
-                onClick={() => setSelectedLeadId(null)}
-                className="px-4 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSavePitch}
-                className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-indigo-600/30"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>Save Pitch</span>
-              </button>
+            <div className="flex items-center justify-between pt-3 border-t border-white/10">
+              <span className="text-xs text-slate-400">
+                All 3 messages will dynamically appear in <strong>Today's Schedule</strong> when cadence reaches each day.
+              </span>
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedLeadId(null)}
+                  className="px-4 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSavePitch}
+                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-indigo-600/30"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Save 3-Step Sequence</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

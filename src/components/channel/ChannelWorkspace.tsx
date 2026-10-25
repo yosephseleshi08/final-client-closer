@@ -22,9 +22,10 @@ interface ChannelWorkspaceProps {
   channel: MultiChannelType;
   leads: ChannelLead[];
   onUpdateLeads: (leads: ChannelLead[]) => void;
+  onNavigateToChannel?: (channel: MultiChannelType) => void;
 }
 
-export function ChannelWorkspace({ channel, leads, onUpdateLeads }: ChannelWorkspaceProps) {
+export function ChannelWorkspace({ channel, leads, onUpdateLeads, onNavigateToChannel }: ChannelWorkspaceProps) {
   const [activeSubTab, setActiveSubTab] = useState<MultiChannelSubTab>('leads');
 
   const getChannelIcon = () => {
@@ -197,6 +198,7 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads }: ChannelWorks
             channel={channel}
             leads={leads}
             onUpdateLeads={onUpdateLeads}
+            onNavigateToChannel={onNavigateToChannel}
           />
         )}
 

@@ -102,6 +102,7 @@ export default function App() {
               channel="email"
               leads={emailLeads}
               onUpdateLeads={handleUpdateEmailLeads}
+              onNavigateToChannel={(channel) => setActiveNavTab(channel)}
             />
           )}
 
@@ -110,6 +111,7 @@ export default function App() {
               channel="instagram"
               leads={instagramLeads}
               onUpdateLeads={handleUpdateInstagramLeads}
+              onNavigateToChannel={(channel) => setActiveNavTab(channel)}
             />
           )}
 
@@ -118,6 +120,7 @@ export default function App() {
               channel="facebook"
               leads={facebookLeads}
               onUpdateLeads={handleUpdateFacebookLeads}
+              onNavigateToChannel={(channel) => setActiveNavTab(channel)}
             />
           )}
 

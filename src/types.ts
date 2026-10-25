@@ -133,6 +133,10 @@ export interface Lead {
   stagedFollowup2?: string;
   stagedFollowup3?: string;
   customMessageDraft?: string;
+  // 3-Step DM Sequence
+  initialDM?: string;
+  followup3DM?: string;
+  followup7DM?: string;
   // Mockup Screenshots & Timestamp
   createdAt?: string | number;
   mockupImage1?: string;
@@ -240,8 +244,11 @@ export interface ChannelLead {
   sortOrder: number; // rank for drag-and-drop ordering
   createdAt: string;
 
-  // Sub-page B: DM Pitch
+  // Sub-page B: DM Pitch & 3-Step Sequence
   customPitch?: string;
+  initialDM?: string;
+  followup3DM?: string;
+  followup7DM?: string;
   pitchSavedAt?: string;
 
   // Sub-page C: Schedule Date

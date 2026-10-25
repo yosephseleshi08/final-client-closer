@@ -238,12 +238,17 @@ export function getCadenceMessageTemplates(lead: ChannelLead) {
   const recipient = lead.name || 'there';
 
   const initialPitch =
+    lead.initialDM?.trim() ||
     lead.customPitch?.trim() ||
     `Hey ${recipient}! Love what you're doing. Built a 0.3s interactive prototype specifically for your business: mind if I share the 20-second preview? (Zero commitment, $299 turnkey if you ever want it live).`;
 
-  const day3Bump = `Hey ${recipient}, bumping this quick! Wondering if you had 30 seconds to click through the interactive demo I put together for ${lead.name}? No pressure at all!`;
+  const day3Bump =
+    lead.followup3DM?.trim() ||
+    `Hey ${recipient}, bumping this quick! Wondering if you had 30 seconds to click through the interactive demo I put together for ${lead.name}? No pressure at all!`;
 
-  const day7Loom = `Hey ${recipient}, wanted to send one final quick note! Recorded a 45-second screen recording showing exactly how the booking upgrade works for ${lead.name}. Should I drop the link here or leave you be?`;
+  const day7Loom =
+    lead.followup7DM?.trim() ||
+    `Hey ${recipient}, wanted to send one final quick note! Recorded a 45-second screen recording showing exactly how the booking upgrade works for ${lead.name}. Should I drop the link here or leave you be?`;
 
   return {
     initialPitch,

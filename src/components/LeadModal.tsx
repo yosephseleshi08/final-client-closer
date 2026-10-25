@@ -32,6 +32,9 @@ export const LeadModal: React.FC<LeadModalProps> = ({
   const [dealValue, setDealValue] = useState(299);
   const [notes, setNotes] = useState('');
   const [pitchHook, setPitchHook] = useState('');
+  const [initialDM, setInitialDM] = useState('');
+  const [followup3DM, setFollowup3DM] = useState('');
+  const [followup7DM, setFollowup7DM] = useState('');
   const [contactDate, setContactDate] = useState(today);
 
   if (!isOpen) return null;
@@ -41,7 +44,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
     if (!restaurantName.trim()) return;
 
     const nextFollowup = calculateNextFollowupDate(contactDate || today, 0);
-    const trimmedPitch = pitchHook.trim();
+    const resolvedInitial = initialDM.trim() || pitchHook.trim();
 
     onAddLead({
       restaurantName: restaurantName.trim(),
@@ -61,8 +64,11 @@ export const LeadModal: React.FC<LeadModalProps> = ({
       followupCount: 0,
       status,
       notes: notes.trim(),
-      pitchHook: trimmedPitch || undefined,
-      stagedDmMiniPitch: trimmedPitch || undefined,
+      pitchHook: resolvedInitial || undefined,
+      stagedDmMiniPitch: resolvedInitial || undefined,
+      initialDM: resolvedInitial || undefined,
+      followup3DM: followup3DM.trim() || undefined,
+      followup7DM: followup7DM.trim() || undefined,
       estimatedDealValue: Number(dealValue) || 299,
       auditChecklist: [false, false, false],
     });
@@ -237,30 +243,75 @@ export const LeadModal: React.FC<LeadModalProps> = ({
             </select>
           </div>
 
-          <div>
-            <div className="flex items-center justify-between mb-1">
+          {/* 3-Step Sequence Textareas */}
+          <div className="space-y-3 rounded-2xl border border-indigo-500/20 bg-slate-950/60 p-3.5">
+            <div className="flex items-center justify-between">
               <label className="text-xs font-bold uppercase tracking-wider text-indigo-300 block">
-                Individual Outreach Pitch / Message
+                3-Step DM Sequence (Day 1, 3 &amp; 7)
               </label>
               <button
                 type="button"
                 onClick={() => {
                   const name = contactName.trim() || restaurantName.trim() || 'there';
                   const slug = (restaurantName || 'business').toLowerCase().replace(/[^a-z0-9]/g, '');
-                  setPitchHook(`Hey ${name}! Loved the vibe at ${restaurantName || 'your spot'}. Put together a 0.3s direct ordering concept for you: https://demo.closer.app/${slug}. Waiving our $299 setup fee completely for 3 local spots in exchange for a short review. Want me to send the preview?`);
+                  const initial = `Hey ${name}! Loved the vibe at ${restaurantName || 'your spot'}. Put together a 0.3s direct ordering concept for you: https://demo.closer.app/${slug}. Waiving our $299 setup fee completely for 3 local spots in exchange for a short review. Want me to send the preview?`;
+                  const fu3 = `Hey ${name}, bumping this quick! Wondering if you had 30 seconds to click through the interactive demo I put together for ${restaurantName || 'your spot'}? No pressure at all!`;
+                  const fu7 = `Hey ${name}, wanted to send one final quick note! Recorded a 45-second screen recording showing exactly how the setup works for ${restaurantName || 'your spot'}. Should I drop the link here or leave you be?`;
+                  setInitialDM(initial);
+                  setPitchHook(initial);
+                  setFollowup3DM(fu3);
+                  setFollowup7DM(fu7);
                 }}
                 className="text-[10px] text-indigo-400 hover:text-white font-bold transition cursor-pointer"
               >
-                + Auto-Fill Pitch
+                + Auto-Fill All 3 Steps
               </button>
             </div>
-            <textarea
-              value={pitchHook}
-              onChange={(e) => setPitchHook(e.target.value)}
-              rows={2}
-              placeholder="Custom tailored pitch message you want to send this specific lead..."
-              className="w-full rounded-xl border border-indigo-500/30 bg-slate-950 p-3 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
-            />
+
+            {/* Step 1 */}
+            <div>
+              <label className="text-[11px] font-semibold text-slate-300 block mb-1">
+                Message 1: Initial DM (Day 1)
+              </label>
+              <textarea
+                value={initialDM}
+                onChange={(e) => {
+                  setInitialDM(e.target.value);
+                  setPitchHook(e.target.value);
+                }}
+                rows={2}
+                placeholder="Initial pitch hook dispatched on Day 1..."
+                className="w-full rounded-xl border border-indigo-500/30 bg-slate-950 p-2.5 text-xs text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+
+            {/* Step 2 */}
+            <div>
+              <label className="text-[11px] font-semibold text-amber-300 block mb-1">
+                Message 2: 3-Day Follow-Up (Day 3)
+              </label>
+              <textarea
+                value={followup3DM}
+                onChange={(e) => setFollowup3DM(e.target.value)}
+                rows={2}
+                placeholder="Day +3 quick bump check-in..."
+                className="w-full rounded-xl border border-amber-500/30 bg-slate-950 p-2.5 text-xs text-white placeholder-slate-500 focus:border-amber-500 focus:outline-none"
+              />
+            </div>
+
+            {/* Step 3 */}
+            <div>
+              <label className="text-[11px] font-semibold text-rose-300 block mb-1">
+                Message 3: 7-Day Breakup (Day 7)
+              </label>
+              <textarea
+                value={followup7DM}
+                onChange={(e) => setFollowup7DM(e.target.value)}
+                rows={2}
+                placeholder="Day +7 final Loom / breakup touchpoint..."
+                className="w-full rounded-xl border border-rose-500/30 bg-slate-950 p-2.5 text-xs text-white placeholder-slate-500 focus:border-rose-500 focus:outline-none"
+              />
+            </div>
           </div>
 
           <div>

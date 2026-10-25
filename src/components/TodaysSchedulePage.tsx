@@ -448,17 +448,28 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                   {/* Pre-staged Copy with 1-click Copy */}
                   <div className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-2.5 space-y-1.5">
                     <div className="flex items-center justify-between text-[11px] font-bold text-rose-300">
-                      <span>
-                        {isInitial
-                          ? 'Initial DM Pitch Copy'
-                          : isDay3
-                          ? 'Follow-Up #1 (Day 3 Bump Copy)'
-                          : 'Follow-Up #2 (Day 7 Video Copy)'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span>
+                          {isInitial
+                            ? 'Message 1: Initial DM (Day 1)'
+                            : isDay3
+                            ? 'Message 2: 3-Day Follow-Up (Day 3)'
+                            : 'Message 3: 7-Day Breakup (Day 7)'}
+                        </span>
+                        {(isInitial ? lead.initialDM : isDay3 ? lead.followup3DM : lead.followup7DM) ? (
+                          <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
+                            Custom Pitch
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.2 rounded">
+                            Default Template
+                          </span>
+                        )}
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleCopyText(`${lead.id}-overdue`, pitchText)}
-                        className="flex items-center gap-1 text-xs text-rose-300 hover:text-white transition cursor-pointer"
+                        className="flex items-center gap-1 text-xs text-rose-300 hover:text-white transition cursor-pointer font-semibold"
                       >
                         {copiedKey === `${lead.id}-overdue` ? (
                           <>
@@ -468,7 +479,13 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         ) : (
                           <>
                             <Copy className="w-3 h-3" />
-                            <span>Copy Message</span>
+                            <span>
+                              {isInitial
+                                ? 'Copy Initial DM'
+                                : isDay3
+                                ? 'Copy 3-Day Follow-Up'
+                                : 'Copy 7-Day Breakup'}
+                            </span>
                           </>
                         )}
                       </button>
@@ -620,11 +637,22 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                   {/* Pre-staged Pitch Copy Box */}
                   <div className="rounded-xl border border-indigo-500/20 bg-slate-900/90 p-2.5 space-y-1.5">
                     <div className="flex items-center justify-between text-[11px] font-bold text-indigo-300">
-                      <span>Initial Outreach Copy</span>
+                      <div className="flex items-center gap-1.5">
+                        <span>Message 1: Initial DM (Day 1)</span>
+                        {lead.initialDM ? (
+                          <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
+                            Custom Pitch
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.2 rounded">
+                            Default Template
+                          </span>
+                        )}
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleCopyText(`${lead.id}-initial`, pitchText)}
-                        className="flex items-center gap-1 text-xs text-indigo-400 hover:text-white transition cursor-pointer"
+                        className="flex items-center gap-1 text-xs text-indigo-400 hover:text-white transition cursor-pointer font-semibold"
                       >
                         {copiedKey === `${lead.id}-initial` ? (
                           <>
@@ -634,7 +662,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         ) : (
                           <>
                             <Copy className="w-3 h-3" />
-                            <span>Copy Pitch</span>
+                            <span>Copy Initial DM</span>
                           </>
                         )}
                       </button>
@@ -793,13 +821,26 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                     }`}
                   >
                     <div className="flex items-center justify-between text-[11px] font-bold">
-                      <span className={isDay3 ? 'text-amber-300' : 'text-rose-300'}>
-                        {isDay3 ? 'Day 3 Bump Copy' : 'Day 7 Final Video Touch'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={isDay3 ? 'text-amber-300' : 'text-rose-300'}>
+                          {isDay3 ? 'Message 2: 3-Day Follow-Up (Day 3)' : 'Message 3: 7-Day Breakup (Day 7)'}
+                        </span>
+                        {(isDay3 ? lead.followup3DM : lead.followup7DM) ? (
+                          <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
+                            Custom Pitch
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.2 rounded">
+                            Default Template
+                          </span>
+                        )}
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleCopyText(`${lead.id}-fu`, followText)}
-                        className="flex items-center gap-1 text-xs text-slate-300 hover:text-white transition cursor-pointer"
+                        className={`flex items-center gap-1 text-xs transition cursor-pointer font-semibold ${
+                          isDay3 ? 'text-amber-300 hover:text-white' : 'text-rose-300 hover:text-white'
+                        }`}
                       >
                         {copiedKey === `${lead.id}-fu` ? (
                           <>
@@ -809,7 +850,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         ) : (
                           <>
                             <Copy className="w-3 h-3" />
-                            <span>Copy Message</span>
+                            <span>{isDay3 ? 'Copy 3-Day Follow-Up' : 'Copy 7-Day Breakup'}</span>
                           </>
                         )}
                       </button>

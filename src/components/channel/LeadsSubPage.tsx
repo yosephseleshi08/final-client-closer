@@ -29,6 +29,7 @@ import {
   FileCode,
   AlertCircle,
   X,
+  ArrowRight,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import {
@@ -38,6 +39,7 @@ import {
   getChannelLabel,
   normalizeUrlForDuplicateCheck,
   formatAddedDate,
+  validateChannelLink,
 } from '../../utils/channelStorage';
 import { playWarningChime } from '../../utils/soundEffects';
 
@@ -45,6 +47,7 @@ interface LeadsSubPageProps {
   channel: MultiChannelType;
   leads: ChannelLead[];
   onUpdateLeads: (leads: ChannelLead[]) => void;
+  onNavigateToChannel?: (channel: MultiChannelType) => void;
 }
 
 interface SortableLeadRowProps {
@@ -129,14 +132,18 @@ function SortableLeadRow({ lead, onDelete }: SortableLeadRowProps) {
   );
 }
 
-export function LeadsSubPage({ channel, leads, onUpdateLeads }: LeadsSubPageProps) {
+export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChannel }: LeadsSubPageProps) {
   const [linkInput, setLinkInput] = useState('');
   const [showNameModal, setShowNameModal] = useState(false);
   const [pendingLink, setPendingLink] = useState('');
   const [pendingName, setPendingName] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [duplicateAlert, setDuplicateAlert] = useState<{ message: string; timestamp: number } | null>(null);
+  const [duplicateAlert, setDuplicateAlert] = useState<{
+    message: string;
+    timestamp: number;
+    detectedChannel?: MultiChannelType;
+  } | null>(null);
 
   // Auto-dismiss the duplicate alert after 6 seconds
   useEffect(() => {
@@ -163,7 +170,19 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads }: LeadsSubPageProp
     const trimmed = linkInput.trim();
     if (!trimmed) return;
 
-    // Check if that exact URL/handle already exists in the leads array
+    // 1. Strict Channel-Specific Link Validation
+    const validation = validateChannelLink(trimmed, channel);
+    if (!validation.isValid) {
+      playWarningChime();
+      setDuplicateAlert({
+        message: validation.errorMessage || 'Invalid link format for this channel.',
+        timestamp: Date.now(),
+        detectedChannel: validation.detectedChannel,
+      });
+      return;
+    }
+
+    // 2. Duplicate Check on Normalized URL
     const normalizedInput = normalizeUrlForDuplicateCheck(trimmed, channel);
     const existingLead = leads.find((l) => {
       const lNorm = normalizeUrlForDuplicateCheck(l.link, channel);
@@ -193,6 +212,23 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads }: LeadsSubPageProp
 
   const handleConfirmAddLead = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 1. Strict Channel Validation check
+    const validation = validateChannelLink(pendingLink, channel);
+    if (!validation.isValid) {
+      playWarningChime();
+      setDuplicateAlert({
+        message: validation.errorMessage || 'Invalid link format for this channel.',
+        timestamp: Date.now(),
+        detectedChannel: validation.detectedChannel,
+      });
+      setShowNameModal(false);
+      setPendingLink('');
+      setPendingName('');
+      return;
+    }
+
+    // 2. Duplicate Check
     const normalizedInput = normalizeUrlForDuplicateCheck(pendingLink, channel);
     const existingLead = leads.find((l) => {
       const lNorm = normalizeUrlForDuplicateCheck(l.link, channel);
@@ -272,16 +308,29 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads }: LeadsSubPageProp
 
   return (
     <div className="space-y-6">
-      {/* Red Alert / Toast Message for Duplicate Link Prevention */}
+      {/* Red Alert / Toast Message for Duplicate Link Prevention or Channel Mismatch */}
       {duplicateAlert && (
         <div
           role="alert"
           aria-live="assertive"
-          className="fixed top-5 right-5 z-50 max-w-md w-[calc(100vw-2.5rem)] rounded-2xl border border-rose-500/50 bg-rose-950/95 p-4 text-xs sm:text-sm font-semibold text-rose-100 shadow-2xl shadow-rose-950/60 backdrop-blur-md animate-in slide-in-from-top-3 flex items-start gap-3"
+          className="fixed top-5 right-5 z-50 max-w-lg w-[calc(100vw-2.5rem)] rounded-2xl border border-rose-500/50 bg-rose-950/95 p-4 text-xs sm:text-sm font-semibold text-rose-100 shadow-2xl shadow-rose-950/60 backdrop-blur-md animate-in slide-in-from-top-3 flex items-start gap-3"
         >
           <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-          <div className="flex-1">
+          <div className="flex-1 space-y-2">
             <p className="leading-snug">{duplicateAlert.message}</p>
+            {duplicateAlert.detectedChannel && onNavigateToChannel && (
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigateToChannel(duplicateAlert.detectedChannel!);
+                  setDuplicateAlert(null);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-sm cursor-pointer"
+              >
+                <span>Switch to {getChannelLabel(duplicateAlert.detectedChannel)} Workspace</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
           <button
             type="button"
@@ -298,20 +347,35 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads }: LeadsSubPageProp
       {duplicateAlert && (
         <div
           role="alert"
-          className="rounded-xl border border-rose-500/50 bg-rose-500/15 p-3.5 text-xs sm:text-sm font-semibold text-rose-200 flex items-center justify-between gap-3 shadow-lg animate-in fade-in"
+          className="rounded-xl border border-rose-500/50 bg-rose-500/15 p-3.5 text-xs sm:text-sm font-semibold text-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg animate-in fade-in"
         >
           <div className="flex items-center gap-2.5">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
             <span>{duplicateAlert.message}</span>
           </div>
-          <button
-            type="button"
-            onClick={() => setDuplicateAlert(null)}
-            className="text-rose-400 hover:text-white p-0.5 rounded transition cursor-pointer shrink-0"
-            aria-label="Dismiss alert"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+            {duplicateAlert.detectedChannel && onNavigateToChannel && (
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigateToChannel(duplicateAlert.detectedChannel!);
+                  setDuplicateAlert(null);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-sm cursor-pointer"
+              >
+                <span>Switch to {getChannelLabel(duplicateAlert.detectedChannel)}</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setDuplicateAlert(null)}
+              className="text-rose-400 hover:text-white p-1 rounded transition cursor-pointer"
+              aria-label="Dismiss alert"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 

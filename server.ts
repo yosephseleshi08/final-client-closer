@@ -204,6 +204,73 @@ Guidelines:
   });
 });
 
+// 3.5. Gemini 3-Step DM Sequence Generator
+app.post('/api/gemini/sequence', async (req: Request, res: Response) => {
+  const {
+    leadName = 'The Prospect',
+    ownerName = '',
+    channel = 'instagram',
+    link = '',
+  } = req.body || {};
+
+  const recipient = ownerName ? ownerName.trim() : leadName.trim();
+
+  const ai = getGeminiClient();
+  if (ai) {
+    try {
+      const prompt = `You are a world-class B2B client closer selling high-velocity website & reservation systems to local businesses.
+Prospect: "${leadName}"
+Contact/Owner: "${ownerName || 'Owner'}"
+Channel: ${channel}
+Link/Handle: ${link || 'N/A'}
+
+Generate a cohesive, high-converting 3-step outreach sequence tailored for ${channel}:
+1. "initialDM": (Day 1) A punchy, low-pressure 40-50 word message highlighting a custom interactive mobile prototype built for ${leadName}. Zero-pressure ask (e.g. "Mind if I send the 20-second preview?").
+2. "followup3DM": (Day 3) A short, friendly 20-30 word bump asking if they had 30 seconds to click through the preview.
+3. "followup7DM": (Day 7 Breakup) A respectful 25-35 word final note offering a 45-second screen recording/Loom before closing the file.
+
+Return strictly a valid JSON object (no markdown formatting, no backticks, just raw JSON) with keys:
+{
+  "initialDM": "string",
+  "followup3DM": "string",
+  "followup7DM": "string"
+}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+      });
+
+      const responseText = response.text || '';
+      const cleanJson = responseText.replace(/```json\n?|\n?```/g, '').trim();
+      const parsed = JSON.parse(cleanJson);
+
+      if (parsed.initialDM && parsed.followup3DM && parsed.followup7DM) {
+        return res.json({
+          ...parsed,
+          source: 'gemini',
+          model: 'gemini-3.8-flash',
+        });
+      }
+    } catch (err) {
+      console.warn('Gemini 3-step sequence generation failed, using preset fallback:', err);
+    }
+  }
+
+  // Heuristic Preset Sequence
+  const initial = `Hey ${recipient}! Love what you're doing. Built a 0.3s interactive prototype specifically for ${leadName}: mind if I share the 20-second preview? (Zero commitment, $299 turnkey if you ever want it live).`;
+  const followup3 = `Hey ${recipient}, bumping this quick! Wondering if you had 30 seconds to click through the interactive demo I put together for ${leadName}? No pressure at all!`;
+  const followup7 = `Hey ${recipient}, wanted to send one final quick note! Recorded a 45-second screen recording showing how the direct booking upgrade works for ${leadName}. Should I drop the link here or leave you be?`;
+
+  return res.json({
+    initialDM: initial,
+    followup3DM: followup3,
+    followup7DM: followup7,
+    source: 'preset',
+  });
+});
+
+
 // 4. Gemini Objection Buster
 app.post('/api/gemini/objection', async (req: Request, res: Response) => {
   const { customQuery = '', leadName = 'The Restaurant', price = '$299' } = req.body || {};

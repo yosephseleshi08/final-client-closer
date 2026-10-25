@@ -215,6 +215,145 @@ export function formatAddedDate(rawDate?: string | null): string {
   return str.split('T')[0] || str;
 }
 
+export interface ChannelValidationResult {
+  isValid: boolean;
+  detectedChannel?: MultiChannelType;
+  errorMessage?: string;
+}
+
+/**
+ * Detects if a raw input is an Instagram handle/link, Facebook link, or Email.
+ */
+export function detectLinkChannel(input: string): MultiChannelType | 'other' {
+  const clean = input.trim().toLowerCase();
+
+  // 1. Check Instagram
+  if (
+    clean.includes('instagram.com') ||
+    clean.includes('instagr.am') ||
+    clean.startsWith('@')
+  ) {
+    return 'instagram';
+  }
+
+  // 2. Check Facebook
+  if (
+    clean.includes('facebook.com') ||
+    clean.includes('fb.com') ||
+    clean.includes('fb.me')
+  ) {
+    return 'facebook';
+  }
+
+  // 3. Check Email
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const strippedMailto = clean.replace(/^mailto:/i, '');
+  if (emailRegex.test(strippedMailto)) {
+    return 'email';
+  }
+
+  return 'other';
+}
+
+/**
+ * Validates a lead link or handle strictly against the active workspace channel.
+ * Returns failure with custom error message and target channel recommendation.
+ */
+export function validateChannelLink(
+  rawInput: string,
+  channel: MultiChannelType
+): ChannelValidationResult {
+  const trimmed = rawInput.trim();
+  if (!trimmed) {
+    return {
+      isValid: false,
+      errorMessage: 'Please enter a valid link, handle, or email.',
+    };
+  }
+
+  const detected = detectLinkChannel(trimmed);
+
+  if (channel === 'email') {
+    if (detected === 'instagram') {
+      return {
+        isValid: false,
+        detectedChannel: 'instagram',
+        errorMessage: 'Error: This is an Instagram link. Please switch to the Instagram workspace.',
+      };
+    }
+    if (detected === 'facebook') {
+      return {
+        isValid: false,
+        detectedChannel: 'facebook',
+        errorMessage: 'Error: This is a Facebook link. Please switch to the Facebook workspace.',
+      };
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const cleanEmail = trimmed.replace(/^mailto:/i, '').trim();
+    if (!emailRegex.test(cleanEmail)) {
+      return {
+        isValid: false,
+        errorMessage: 'Error: This is not an email address. Please enter a valid email address (e.g. contact@business.com).',
+      };
+    }
+    return { isValid: true };
+  }
+
+  if (channel === 'instagram') {
+    if (detected === 'facebook') {
+      return {
+        isValid: false,
+        detectedChannel: 'facebook',
+        errorMessage: 'Error: This is a Facebook link. Please switch to the Facebook workspace.',
+      };
+    }
+    if (detected === 'email') {
+      return {
+        isValid: false,
+        detectedChannel: 'email',
+        errorMessage: 'Error: This is an email address. Please switch to the Email workspace.',
+      };
+    }
+    const lower = trimmed.toLowerCase();
+    const isInsta = lower.includes('instagram.com') || lower.includes('instagr.am') || lower.startsWith('@');
+    if (!isInsta) {
+      return {
+        isValid: false,
+        errorMessage: "Error: This is not an Instagram link or handle. Please enter a link containing 'instagram.com' or starting with '@'.",
+      };
+    }
+    return { isValid: true };
+  }
+
+  if (channel === 'facebook') {
+    if (detected === 'instagram') {
+      return {
+        isValid: false,
+        detectedChannel: 'instagram',
+        errorMessage: 'Error: This is an Instagram link. Please switch to the Instagram workspace.',
+      };
+    }
+    if (detected === 'email') {
+      return {
+        isValid: false,
+        detectedChannel: 'email',
+        errorMessage: 'Error: This is an email address. Please switch to the Email workspace.',
+      };
+    }
+    const lower = trimmed.toLowerCase();
+    const isFb = lower.includes('facebook.com') || lower.includes('fb.com') || lower.includes('fb.me');
+    if (!isFb) {
+      return {
+        isValid: false,
+        errorMessage: "Error: This is not a Facebook link. Please enter a link containing 'facebook.com'.",
+      };
+    }
+    return { isValid: true };
+  }
+
+  return { isValid: true };
+}
+
 
 /**
  * Exports channel leads as CSV or JSON format.
