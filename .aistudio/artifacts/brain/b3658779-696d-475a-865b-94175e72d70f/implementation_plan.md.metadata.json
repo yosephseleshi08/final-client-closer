@@ -1,6 +1,6 @@
 {
-  "summary":  "Architectural plan for Channel-Specific Link Validation, 3-Step DM Sequence (Initial DM, 3-Day Follow-Up, 7-Day Breakup), and Dynamic Cadence Message Display in Today's Schedule.",
-  "updatedAt":  "2026-10-25T14:06:02.909385975Z",
+  "summary":  "Implementation plan for Lead Analysis and Prompt Hub: Adding leadAnalysis field to data models, dedicated Prompt/Analysis modal with raw and DeepSeek sequence prompt copy, table action buttons, and 'Analysis Ready' visual indicator badges.",
+  "updatedAt":  "2026-10-26T07:20:03.752358623Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

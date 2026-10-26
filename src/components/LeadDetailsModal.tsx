@@ -28,6 +28,7 @@ import { getDefaultStagedMessages } from '../utils/stagedMessageHelper';
 import { MockupVault } from './MockupVault';
 import { LeadScreenshotVault } from './LeadScreenshotVault';
 import { Sparkles, RefreshCw, Image as ImageIcon } from 'lucide-react';
+import { LeadAnalysisModal } from './channel/LeadAnalysisModal';
 
 interface LeadDetailsModalProps {
   lead: Lead | null;
@@ -49,6 +50,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({
   const [activeTab, setActiveTab] = useState<'overview' | 'screenshots' | 'mockups'>('overview');
   const [isEditing, setIsEditing] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [showPromptModal, setShowPromptModal] = useState(false);
 
   // Editable Form State
   const [editPlatform, setEditPlatform] = useState<Lead['platform']>(lead?.platform || 'Instagram');
@@ -60,6 +62,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({
   const [editCity, setEditCity] = useState(lead?.city || '');
   const [editAddress, setEditAddress] = useState(lead?.address || '');
   const [editNotes, setEditNotes] = useState(lead?.notes || '');
+  const [editLeadAnalysis, setEditLeadAnalysis] = useState(lead?.leadAnalysis || '');
   const [editServices, setEditServices] = useState(lead?.services?.join(', ') || '');
   const [editStatus, setEditStatus] = useState<LeadStatus>(lead?.status || 'sent');
   const [editDealValue, setEditDealValue] = useState<number>(lead?.estimatedDealValue || 299);
@@ -88,6 +91,7 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({
       setEditCity(lead.city || '');
       setEditAddress(lead.address || '');
       setEditNotes(lead.notes || '');
+      setEditLeadAnalysis(lead.leadAnalysis || '');
       setEditServices(lead.services?.join(', ') || '');
       setEditStatus(lead.status || 'sent');
       setEditDealValue(lead.estimatedDealValue || 299);
@@ -140,6 +144,8 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({
       city: editCity.trim() || lead.city,
       address: editAddress.trim() || undefined,
       notes: editNotes.trim(),
+      leadAnalysis: editLeadAnalysis.trim() || undefined,
+      analysisSavedAt: editLeadAnalysis.trim() ? (lead.analysisSavedAt || new Date().toISOString()) : undefined,
       services: formattedServices.length > 0 ? formattedServices : undefined,
       status: editStatus,
       estimatedDealValue: editDealValue || 299,
@@ -169,6 +175,12 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({
               <span className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-bold text-emerald-400 uppercase">
                 {lead.status.replace('_', ' ')}
               </span>
+              {lead.leadAnalysis && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  Analysis Ready
+                </span>
+              )}
             </div>
             <h2 className="text-2xl font-black text-white">{lead.restaurantName}</h2>
             <p className="text-xs text-slate-400 mt-0.5">
@@ -177,6 +189,19 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowPromptModal(true)}
+              className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+                lead.leadAnalysis
+                  ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 shadow-sm'
+                  : 'border-white/10 bg-white/5 hover:bg-white/10 text-slate-300'
+              }`}
+              title="Open Gemini Lead Analysis & DeepSeek prompt hub"
+            >
+              <span>📋 Prompt</span>
+              {lead.leadAnalysis && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+            </button>
             {onUpdateLead && (
               <button
                 type="button"
@@ -452,6 +477,28 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({
               />
             </div>
 
+            {/* Gemini Lead Analysis Block in Edit Mode */}
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                  <Sparkles className="h-4 w-4 text-emerald-400" />
+                  <span>Gemini Lead Analysis &amp; Research</span>
+                </label>
+                {editLeadAnalysis && (
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {editLeadAnalysis.trim().split(/\s+/).filter(Boolean).length} words
+                  </span>
+                )}
+              </div>
+              <textarea
+                rows={4}
+                value={editLeadAnalysis}
+                onChange={(e) => setEditLeadAnalysis(e.target.value)}
+                placeholder="Paste Gemini Lead Analysis here (menu audit, pain points, website friction, review quotes)..."
+                className="w-full rounded-xl border border-emerald-500/30 bg-slate-950/90 p-3 text-xs font-mono text-slate-100 placeholder-slate-600 focus:border-emerald-400 focus:outline-none leading-relaxed"
+              />
+            </div>
+
             {/* Stored Message Vault Section in Edit Mode */}
             <div className="rounded-2xl border border-indigo-500/30 bg-indigo-950/20 p-4 space-y-3">
               <div className="flex items-center justify-between">
@@ -683,6 +730,50 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({
                         <span>Open Link</span>
                       </a>
                     </div>
+                  )}
+                </div>
+
+                {/* Gemini Lead Analysis & DeepSeek Prompt Section */}
+                <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/15 p-4 space-y-3 shadow-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400">
+                        <Sparkles className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-emerald-300">
+                            Gemini Lead Analysis
+                          </span>
+                          {lead.leadAnalysis ? (
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+                              Analysis Ready
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-500">No analysis stored</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowPromptModal(true)}
+                      className="flex items-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/20 hover:bg-emerald-500/30 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:text-white transition cursor-pointer shadow-sm"
+                    >
+                      <span>📋 Prompt / DeepSeek Hub</span>
+                    </button>
+                  </div>
+
+                  {lead.leadAnalysis ? (
+                    <div className="rounded-xl border border-white/5 bg-slate-950/80 p-3.5 text-xs font-mono text-slate-200 max-h-36 overflow-y-auto whitespace-pre-wrap leading-relaxed shadow-inner">
+                      {lead.leadAnalysis}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">
+                      No Gemini analysis stored for this lead yet. Click "📋 Prompt / DeepSeek Hub" to paste research and generate sequence copy.
+                    </p>
                   )}
                 </div>
 
@@ -1040,6 +1131,31 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({
           </>
         )}
       </div>
+
+      {/* Gemini Lead Analysis & DeepSeek Prompt Hub Modal */}
+      <LeadAnalysisModal
+        isOpen={showPromptModal}
+        onClose={() => setShowPromptModal(false)}
+        lead={{
+          id: lead.id,
+          name: lead.restaurantName,
+          link: storedLink,
+          channel: lead.platform,
+          leadAnalysis: lead.leadAnalysis,
+          analysisSavedAt: lead.analysisSavedAt,
+        }}
+        channel={lead.platform}
+        onSaveAnalysis={(_id, text) => {
+          if (onUpdateLead) {
+            onUpdateLead({
+              ...lead,
+              leadAnalysis: text.trim() || undefined,
+              analysisSavedAt: text.trim() ? new Date().toISOString() : undefined,
+            });
+          }
+          setEditLeadAnalysis(text);
+        }}
+      />
     </div>
   );
 };

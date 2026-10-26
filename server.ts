@@ -211,6 +211,7 @@ app.post('/api/gemini/sequence', async (req: Request, res: Response) => {
     ownerName = '',
     channel = 'instagram',
     link = '',
+    leadAnalysis = '',
   } = req.body || {};
 
   const recipient = ownerName ? ownerName.trim() : leadName.trim();
@@ -223,7 +224,7 @@ Prospect: "${leadName}"
 Contact/Owner: "${ownerName || 'Owner'}"
 Channel: ${channel}
 Link/Handle: ${link || 'N/A'}
-
+${leadAnalysis ? `Lead Research & Analysis:\n${leadAnalysis}\n` : ''}
 Generate a cohesive, high-converting 3-step outreach sequence tailored for ${channel}:
 1. "initialDM": (Day 1) A punchy, low-pressure 40-50 word message highlighting a custom interactive mobile prototype built for ${leadName}. Zero-pressure ask (e.g. "Mind if I send the 20-second preview?").
 2. "followup3DM": (Day 3) A short, friendly 20-30 word bump asking if they had 30 seconds to click through the preview.
@@ -237,7 +238,7 @@ Return strictly a valid JSON object (no markdown formatting, no backticks, just 
 }`;
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-2.5-flash',
         contents: prompt,
       });
 
@@ -249,7 +250,7 @@ Return strictly a valid JSON object (no markdown formatting, no backticks, just 
         return res.json({
           ...parsed,
           source: 'gemini',
-          model: 'gemini-3.8-flash',
+          model: 'gemini-2.5-flash',
         });
       }
     } catch (err) {

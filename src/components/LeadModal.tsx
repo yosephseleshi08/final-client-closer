@@ -35,6 +35,7 @@ export const LeadModal: React.FC<LeadModalProps> = ({
   const [initialDM, setInitialDM] = useState('');
   const [followup3DM, setFollowup3DM] = useState('');
   const [followup7DM, setFollowup7DM] = useState('');
+  const [leadAnalysis, setLeadAnalysis] = useState('');
   const [contactDate, setContactDate] = useState(today);
 
   if (!isOpen) return null;
@@ -64,6 +65,8 @@ export const LeadModal: React.FC<LeadModalProps> = ({
       followupCount: 0,
       status,
       notes: notes.trim(),
+      leadAnalysis: leadAnalysis.trim() || undefined,
+      analysisSavedAt: leadAnalysis.trim() ? new Date().toISOString() : undefined,
       pitchHook: resolvedInitial || undefined,
       stagedDmMiniPitch: resolvedInitial || undefined,
       initialDM: resolvedInitial || undefined,
@@ -312,6 +315,28 @@ export const LeadModal: React.FC<LeadModalProps> = ({
                 className="w-full rounded-xl border border-rose-500/30 bg-slate-950 p-2.5 text-xs text-white placeholder-slate-500 focus:border-rose-500 focus:outline-none"
               />
             </div>
+          </div>
+
+          {/* Gemini Lead Analysis Block */}
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-3.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Gemini Lead Analysis Block (Optional)</span>
+              </label>
+              {leadAnalysis && (
+                <span className="text-[10px] text-slate-400 font-mono">
+                  {leadAnalysis.trim().split(/\s+/).filter(Boolean).length} words
+                </span>
+              )}
+            </div>
+            <textarea
+              value={leadAnalysis}
+              onChange={(e) => setLeadAnalysis(e.target.value)}
+              rows={3}
+              placeholder="Paste raw Gemini Lead Analysis here to pre-load prospect research & DeepSeek sequences..."
+              className="w-full rounded-xl border border-emerald-500/30 bg-slate-950 p-2.5 text-xs font-mono text-white placeholder-slate-600 focus:border-emerald-400 focus:outline-none"
+            />
           </div>
 
           <div>

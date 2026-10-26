@@ -42,6 +42,7 @@ import {
   validateChannelLink,
 } from '../../utils/channelStorage';
 import { playWarningChime } from '../../utils/soundEffects';
+import { LeadAnalysisModal } from './LeadAnalysisModal';
 
 interface LeadsSubPageProps {
   channel: MultiChannelType;
@@ -53,9 +54,10 @@ interface LeadsSubPageProps {
 interface SortableLeadRowProps {
   lead: ChannelLead;
   onDelete: (id: string) => void;
+  onOpenAnalysis: (lead: ChannelLead) => void;
 }
 
-function SortableLeadRow({ lead, onDelete }: SortableLeadRowProps) {
+function SortableLeadRow({ lead, onDelete, onOpenAnalysis }: SortableLeadRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: lead.id });
 
@@ -98,9 +100,21 @@ function SortableLeadRow({ lead, onDelete }: SortableLeadRowProps) {
         </div>
       </td>
 
-      {/* Name */}
-      <td className="py-3.5 px-4 text-left text-sm font-medium text-slate-100">
-        <span className="truncate max-w-xs block font-['Outfit']">{lead.name}</span>
+      {/* Name & Visual Indicator (Green dot + Analysis Ready badge) */}
+      <td className="py-3.5 px-4 text-left">
+        <div className="flex flex-col gap-1">
+          <span className="truncate max-w-xs text-sm font-medium text-slate-100 font-['Outfit']">{lead.name}</span>
+          {lead.leadAnalysis ? (
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+                Analysis Ready
+              </span>
+            </div>
+          ) : (
+            <span className="text-[10px] text-slate-500">No analysis yet</span>
+          )}
+        </div>
       </td>
 
       {/* Link */}
@@ -116,17 +130,33 @@ function SortableLeadRow({ lead, onDelete }: SortableLeadRowProps) {
         </a>
       </td>
 
-      {/* Delete Button */}
+      {/* Action Column: Prompt Button & Delete */}
       <td className="py-3.5 px-4 text-right">
-        <button
-          type="button"
-          onClick={() => onDelete(lead.id)}
-          className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-          title="Delete lead"
-          aria-label={`Delete ${lead.name}`}
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => onOpenAnalysis(lead)}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+              lead.leadAnalysis
+                ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 shadow-sm'
+                : 'border-white/10 bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700'
+            }`}
+            title="Open Gemini Lead Analysis & DeepSeek prompt hub"
+            aria-label={`Open prompt analysis for ${lead.name}`}
+          >
+            <span>📋 Prompt</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onDelete(lead.id)}
+            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+            title="Delete lead"
+            aria-label={`Delete ${lead.name}`}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -144,6 +174,36 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     timestamp: number;
     detectedChannel?: MultiChannelType;
   } | null>(null);
+
+  // Gemini Lead Analysis Modal state
+  const [selectedLeadForAnalysis, setSelectedLeadForAnalysis] = useState<ChannelLead | null>(null);
+  const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
+
+  const handleOpenAnalysis = (lead: ChannelLead) => {
+    setSelectedLeadForAnalysis(lead);
+    setIsAnalysisModalOpen(true);
+  };
+
+  const handleSaveAnalysis = (leadId: string, analysisText: string) => {
+    const updated = leads.map((l) => {
+      if (l.id === leadId) {
+        return {
+          ...l,
+          leadAnalysis: analysisText,
+          analysisSavedAt: new Date().toISOString(),
+        };
+      }
+      return l;
+    });
+    onUpdateLeads(updated);
+    if (selectedLeadForAnalysis && selectedLeadForAnalysis.id === leadId) {
+      setSelectedLeadForAnalysis({
+        ...selectedLeadForAnalysis,
+        leadAnalysis: analysisText,
+        analysisSavedAt: new Date().toISOString(),
+      });
+    }
+  };
 
   // Auto-dismiss the duplicate alert after 6 seconds
   useEffect(() => {
@@ -488,7 +548,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                   <th className="py-3 px-4 text-left w-32">ID</th>
                   <th className="py-3 px-4 text-left">Name</th>
                   <th className="py-3 px-4 text-left">Link</th>
-                  <th className="py-3 px-4 text-right w-24">Action</th>
+                  <th className="py-3 px-4 text-right w-44">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
@@ -519,6 +579,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                         key={lead.id}
                         lead={lead}
                         onDelete={handleDeleteLead}
+                        onOpenAnalysis={handleOpenAnalysis}
                       />
                     ))}
                   </SortableContext>
@@ -595,6 +656,15 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
           </div>
         </div>
       )}
+
+      {/* Gemini Lead Analysis & Prompt Hub Modal */}
+      <LeadAnalysisModal
+        isOpen={isAnalysisModalOpen}
+        onClose={() => setIsAnalysisModalOpen(false)}
+        lead={selectedLeadForAnalysis}
+        channel={channel}
+        onSaveAnalysis={handleSaveAnalysis}
+      />
     </div>
   );
 }

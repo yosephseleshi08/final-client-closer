@@ -89,6 +89,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
           channel,
           leadName: selectedLead.name,
           leadLink: selectedLead.link,
+          leadAnalysis: selectedLead.leadAnalysis,
         }),
       });
 
@@ -209,8 +210,16 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
 
                       {/* Name & Link */}
                       <td className="py-3.5 px-4 text-left">
-                        <div className="font-medium text-sm text-slate-100 font-['Outfit'] truncate max-w-xs">
-                          {lead.name}
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm text-slate-100 font-['Outfit'] truncate max-w-xs">
+                            {lead.name}
+                          </span>
+                          {lead.leadAnalysis && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                              Analysis Ready
+                            </span>
+                          )}
                         </div>
                         <a
                           href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}

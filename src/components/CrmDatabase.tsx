@@ -39,6 +39,7 @@ import { Lead, LeadStatus, FollowupLog, Weekday } from '../types';
 import { DayBadge } from './DayBadge';
 import { LeadMessageVaultModal } from './LeadMessageVaultModal';
 import { MockupVault } from './MockupVault';
+import { LeadAnalysisModal } from './channel/LeadAnalysisModal';
 import { getDefaultStagedMessages } from '../utils/stagedMessageHelper';
 import { findDuplicateLeadGroups } from '../utils/duplicateDetector';
 import { downloadComprehensiveCsv, downloadComprehensiveJson } from '../utils/exportService';
@@ -113,6 +114,7 @@ export const CrmDatabase: React.FC<CrmDatabaseProps> = ({
   const [confirmingTrashAll, setConfirmingTrashAll] = useState<boolean>(false);
   const [sortOrder, setSortOrder] = useState<LeadSortMode>('latest_paste');
   const [mockupModalLead, setMockupModalLead] = useState<Lead | null>(null);
+  const [analysisModalLead, setAnalysisModalLead] = useState<Lead | null>(null);
   const [selectedLeadIdForSidebar, setSelectedLeadIdForSidebar] = useState<number | null>(
     leads.length > 0 ? leads[0].id : null
   );
@@ -701,6 +703,14 @@ export const CrmDatabase: React.FC<CrmDatabaseProps> = ({
                         <div className="text-[11px] text-slate-400 mt-0.5">
                           {lead.city} • <span className="text-slate-300">{lead.contactName || 'Owner'}</span>
                         </div>
+                        {lead.leadAnalysis && (
+                          <div className="mt-1 flex items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+                              Analysis Ready
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Stored Page / Platform Selector Dropdown */}
@@ -853,6 +863,19 @@ export const CrmDatabase: React.FC<CrmDatabaseProps> = ({
 
                       <td className="px-4 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            title="Open Gemini Lead Analysis & DeepSeek prompt hub"
+                            onClick={() => setAnalysisModalLead(lead)}
+                            className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-bold transition cursor-pointer ${
+                              lead.leadAnalysis
+                                ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 shadow-sm'
+                                : 'border-white/10 bg-slate-800/60 text-slate-300 hover:text-white'
+                            }`}
+                          >
+                            <span>📋 Prompt</span>
+                            {lead.leadAnalysis && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />}
+                          </button>
+
                           <button
                             title="Mockup Screenshots (2 slots) & Permission Pitch"
                             onClick={() => setMockupModalLead(lead)}
@@ -1512,6 +1535,40 @@ export const CrmDatabase: React.FC<CrmDatabaseProps> = ({
           </div>
         </div>
       )}
+
+      {/* Gemini Lead Analysis & DeepSeek Prompt Hub Modal */}
+      <LeadAnalysisModal
+        isOpen={!!analysisModalLead}
+        onClose={() => setAnalysisModalLead(null)}
+        lead={
+          analysisModalLead
+            ? {
+                id: analysisModalLead.id,
+                name: analysisModalLead.restaurantName,
+                link:
+                  analysisModalLead.profileUrl ||
+                  analysisModalLead.handle ||
+                  analysisModalLead.website ||
+                  '',
+                channel: analysisModalLead.platform,
+                leadAnalysis: analysisModalLead.leadAnalysis,
+                analysisSavedAt: analysisModalLead.analysisSavedAt,
+              }
+            : null
+        }
+        channel={analysisModalLead?.platform}
+        onSaveAnalysis={(_id, text) => {
+          if (analysisModalLead && onUpdateLead) {
+            const updatedLead = {
+              ...analysisModalLead,
+              leadAnalysis: text.trim() || undefined,
+              analysisSavedAt: text.trim() ? new Date().toISOString() : undefined,
+            };
+            onUpdateLead(updatedLead);
+            setAnalysisModalLead(updatedLead);
+          }
+        }}
+      />
     </div>
   );
 };

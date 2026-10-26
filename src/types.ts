@@ -137,6 +137,9 @@ export interface Lead {
   initialDM?: string;
   followup3DM?: string;
   followup7DM?: string;
+  // Gemini Lead Analysis & Prompt Hub
+  leadAnalysis?: string;
+  analysisSavedAt?: string;
   // Mockup Screenshots & Timestamp
   createdAt?: string | number;
   mockupImage1?: string;
@@ -250,6 +253,10 @@ export interface ChannelLead {
   followup3DM?: string;
   followup7DM?: string;
   pitchSavedAt?: string;
+
+  // Gemini Lead Analysis & Prompt Hub
+  leadAnalysis?: string;
+  analysisSavedAt?: string;
 
   // Sub-page C: Schedule Date
   scheduledDate?: string; // YYYY-MM-DD format (planned initial outreach date)
