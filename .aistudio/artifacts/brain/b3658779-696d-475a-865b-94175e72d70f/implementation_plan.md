@@ -1,23 +1,22 @@
-# Quick Notes System for Today's Schedule & Outreach Leads
+# Sunday Prep Mode for Today's Schedule
 
-A fast, low-friction **Quick Notes** system across Today's Execution Schedule, Sent Today log, Follow-Up queues, and channel Leads tables, allowing operators to capture high-value prospect intelligence (call times, owner objections, gatekeeper details) immediately after sending DMs.
+A dedicated Sunday experience for the outreach engine that pauses active daily outreach queues to respect rest, while keeping lead research, import, and AI prompt engineering fully active. Replaces the active schedule with a calming preparation dashboard featuring motivational rest quotes, weekly recap metrics, a locked Monday queue preview, and one-click navigation to channel lead pipelines.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The following product decisions were confirmed during the interactive clarification phase:
-
-- **Confirmed Decision 1 (Scope & Ubiquity)**: Quick Notes will be accessible **everywhere**—both across all sections of Today's Schedule (Sent Today log, Follow-Ups Due, Overdue, and New Outreach) and directly in the Channel Leads tables.
-- **Confirmed Decision 2 (Visual Presentation)**: Leads with saved notes will display a prominent **Amber Sticky Note Box** directly on their cards showing full note text, timestamp, and a quick-edit trigger for instant reading without modal clicks.
-- **Confirmed Decision 3 (Preset Tags)**: The note editor modal will feature **1-click quick-tag buttons** (`Call Booked`, `Gatekeeper`, `Check Next Week`, `Pricing Question`, `Owner Direct`) to rapidly append standardized context with a single tap.
+> The following choices were confirmed during Phase 1 interactive clarification:
+> - **Preview & Testing**: A dedicated "Sunday Mode Preview" toggle switch will be placed on the page so you can test and demonstrate the Sunday experience anytime, even though today is Monday.
+> - **Weekly Stats Calculation**: Automatically computed from your actual lead database in localStorage (DMs sent in the last 7 days, replies logged, and mockup requests tracked) with sensible zero-state fallbacks.
+> - **Prep Pipeline Navigation**: Clicking "📥 Go to Leads to Prep for Monday" directly routes to your active channel's Leads intake tab (or Instagram by default) so you can immediately begin importing and analyzing prospects.
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Enables sales operators to record qualitative prospect responses and outreach context in real time. Clicking `"📝 Add Note"` on any lead card opens an editor with 1-click preset tag chips and a note text area. Saved notes render immediately as amber sticky notes on the card and persist across all browser sessions in `localStorage`.
-- **Target Persona**: High-velocity agency closers and SDRs who need immediate note capture without opening heavyweight CRM profile screens or interrupting their daily dispatch flow.
-- **Key Value**: Prevents context loss between Day 1 outreach and Day 3/Day 7 follow-ups, ensuring operators remember previous interactions and scheduled call times.
+- **What It Does**: On Sundays (or when Sunday Preview is toggled on), the Today's Schedule view transforms into **🌿 Sunday Prep Mode**. All active dispatch queues ("New Outreach Due Today", "Follow-Ups Due Today", "Overdue Priority", and "Sent Today") are tucked away safely. The user sees a restorative, emerald-and-slate workspace dedicated to sharpening tools for the week ahead.
+- **Target Audience**: Solopreneurs and agency operators balancing high-volume outreach cadences who need intentional boundary protection on rest days without losing the ability to batch-prep prospects.
+- **Key Value**: Prevents burnout and accidental weekend outreach mistakes while providing a frictionless launchpad to load Monday's pipeline.
 
 ---
 
@@ -25,89 +24,82 @@ A fast, low-friction **Quick Notes** system across Today's Execution Schedule, S
 
 ### Key User Flows
 
-1. **Adding a Note After Sending a DM**:
-   - Operator clicks `"Mark Initial Sent"` on a prospect in *Today's Schedule*.
-   - Lead transitions to the **"✅ Sent Today"** log.
-   - Operator clicks `"📝 Add Note"` on the card.
-   - The **Quick Note Modal** appears with prospect details, 1-click preset tag chips (`Call Booked`, `Gatekeeper`, etc.), and a focused text area.
-   - Operator clicks a preset or types: `"Owner said call Tuesday 2 PM"` and clicks `"Save Note"`.
-   - The card instantly renders the **Amber Sticky Note Box** with full text and a small note icon.
+1. **Sunday Ingress / Preview Toggle**:
+   - The app detects `new Date().getDay() === 0` or reads the `Sunday Mode Preview` toggle switch.
+   - If active, the standard dispatch queues are hidden, and the calming **Sunday Prep Mode** card is rendered.
+2. **Motivational Quote Rotation**:
+   - A centered quote card displays wisdom on rest, reflection, and strategic preparation (Abraham Lincoln, Anne Lamott, John Lubbock, etc.) with a subtle "New Quote" button to cycle through selections.
+3. **Weekly Performance Summary**:
+   - Clean horizontal metric strip displaying:
+     - **DMs Sent Last Week**: Number of initial outreach touches completed in the prior 7 days.
+     - **Replies Received**: Total prospects marked as replied.
+     - **Mockups / Audits**: Total leads with prompt analyses or mockup tags.
+4. **Locked Monday Queue Preview**:
+   - A safeguarded list displaying leads scheduled for Monday (or next in line). Each prospect displays their business name, channel origin, and a locked safeguard indicator to guarantee no accidental triggers.
+5. **Pipeline Action**:
+   - Prominent primary action button: `"📥 Go to Leads to Prep for Monday"` navigates straight into the active channel's lead intake view.
 
-2. **Reading at a Glance During Follow-Ups**:
-   - When reviewing **Follow-Ups Due Today** or the **3-Day Follow-Up** queue, operator immediately sees the amber note box on the lead card.
-   - No need to click modals or switch tabs to recall who they spoke to or what was agreed upon.
+### Visual Identity & Theme
 
-3. **Editing or Deleting a Note**:
-   - Operator clicks `"✏️ Edit Note"` or the sticky note box directly.
-   - Modal opens with existing text populated.
-   - Operator can modify text and save, or click `"Delete Note"` to remove it cleanly.
-
-### Visual Styling & Theme
-
-- **Aesthetic Direction**: Utilitarian, high-contrast dark operations console (`#080c14`, `slate-900`, `slate-950`).
-- **Amber Sticky Note Box**:
-  - Background: `bg-amber-950/30 border border-amber-500/30` with subtle golden glow.
-  - Icon: `StickyNote` icon in `text-amber-400`.
-  - Typography: Crisp, high-contrast text in `text-amber-200/90` with font-mono metadata footer showing save timestamp.
-- **Modal Design**:
-  - Backdrop blur overlay (`backdrop-blur-md bg-slate-950/80`).
-  - Preset tag pills: subtle hover states (`bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30`).
-  - Delete button: `text-rose-400 hover:bg-rose-500/10 border border-rose-500/30`.
+- **Palette**: Dark slate canvas (`#080c14`), deep forest & emerald accents (`emerald-500/10`, `emerald-500/20`, `border-emerald-500/30`, `text-emerald-300`), muted slate secondary text (`text-slate-400`).
+- **Typography**: Display headings in `Outfit` / `Plus Jakarta Sans`, tabular numerals for metric counters (`font-mono tabular-nums`), clean unboxed metadata with bullet separators (`·`).
+- **Zero-Pill Restraint**: No bulky colored badge sandwiches; clean inline metadata with subtle contrast borders.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Direct On-Card Sticky Note vs. Hover Tooltip**:
-  - *Chosen Approach*: Render an on-card amber sticky note box displaying the full note text.
-  - *Why*: In high-speed outbound workflows, hover tooltips create friction and fail on touch devices. Having the text readable directly on the card allows zero-click scanning.
-- **Decision 2: Preset Tag Append System**:
-  - *Chosen Approach*: Clicking preset tag chips appends them to the note with clean bracket formatting (e.g., `[Call Booked] ...`).
-  - *Why*: Allows rapid categorization without restricting custom freeform typing.
-- **Decision 3: Universal Channel Storage Integration**:
-  - *Chosen Approach*: Persist `quickNote` and `quickNoteSavedAt` inside the `ChannelLead` and `Lead` objects via existing `saveChannelLeads` and `localStorage`.
-  - *Why*: Eliminates secondary state stores, avoids synchronization lag, and guarantees persistence across all views.
+- **Decision 1: Client-Side Day Detection with Simulation Toggle**:
+  - *Chosen Approach*: Automatic activation on Sundays (`getDay() === 0`) paired with an instant preview toggle button at the top right of the page.
+  - *Why*: Allows the user to inspect and test the entire Sunday UI today (Monday) without altering machine clocks, while remaining completely automated in production.
+  - *Alternatives Considered*: Pure system date check only (would leave the feature untestable until Sunday).
+- **Decision 2: Non-Destructive Queue Suspension**:
+  - *Chosen Approach*: Only conditionally alter the render tree in `TodaysSchedulePage.tsx`. All lead objects, time-locks, and scheduled dates remain intact in localStorage.
+  - *Why*: Zero risk of data corruption or dropped cadences; queues resume automatically on Monday morning.
+- **Decision 3: Retaining Channel Tabs and Workspace Sub-Pages**:
+  - *Chosen Approach*: The global Header navigation (Instagram, Facebook, Email, Analytics) remains fully functional so the user can freely use the Leads table, Prompt Hub, and DM customizer.
 
 ---
 
 ## 4. Technical Architecture & Data Strategy
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        Quick Notes Architecture                        │
-│                                                                        │
-│  ┌───────────────────────┐      ┌───────────────────────────────────┐  │
-│  │ ChannelLead Model     │      │ QuickNoteModal Component          │  │
-│  │  - quickNote?: string │ ───► │  - Preset Tags (1-click append)   │  │
-│  │  - quickNoteSavedAt?  │      │  - Freeform Text Area             │  │
-│  └───────────────────────┘      │  - Save / Delete / Cancel Actions │  │
-│             │                   └───────────────────────────────────┘  │
-│             ▼                                     │                    │
-│  ┌──────────────────────────────────────────────┐ │ (State Mutation)   │
-│  │ Today's Schedule & Sent Today Cards          │ │                    │
-│  │  - Amber Sticky Note Box (Full Text Preview) │◄┘                    │
-│  │  - "📝 Add Note" / "✏️ Edit Note" Trigger    │                      │
-│  └──────────────────────────────────────────────┘                      │
-│             │                                                          │
-│             ▼                                                          │
-│  ┌──────────────────────────────────────────────┐                      │
-│  │ Persistence Layer (localStorage)             │                      │
-│  │  - email_leads_v2, instagram_leads_v2, ...   │                      │
-│  └──────────────────────────────────────────────┘                      │
-└────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    Top Navigation (Header)                  │
+│   Today's Schedule  │  Instagram  │  Facebook  │  Email ... │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+            ┌──────────────────┴──────────────────┐
+            │                                     │
+    [Monday–Saturday]                         [Sunday]
+            │                                     │
+┌───────────▼──────────────┐         ┌────────────▼──────────────┐
+│  Standard Daily Queues   │         │     Sunday Prep Mode      │
+│  - Sent Today Log        │         │  - Restful Hero Header    │
+│  - New Outreach Due      │         │  - Motivational Quotes    │
+│  - Follow-Ups Due Today  │         │  - Weekly Recap Metrics   │
+│  - Overdue Priority      │         │  - Locked Monday Preview  │
+└──────────────────────────┘         │  - "Prep Pipeline" CTA    │
+                                     └────────────┬──────────────┘
+                                                  │ (Routes to)
+                                     ┌────────────▼──────────────┐
+                                     │ Channel Workspace (Leads) │
+                                     │ - Link Intake & Analysis  │
+                                     │ - DeepSeek Prompt Hub     │
+                                     └───────────────────────────┘
 ```
 
-### Component & State Mapping
+### Components & Handlers
 
-1. **`src/types.ts`**:
-   - Add `quickNote?: string;` and `quickNoteSavedAt?: string;` to `ChannelLead` and `Lead`.
-2. **`src/components/QuickNoteModal.tsx`**:
-   - Props: `isOpen`, `onClose`, `lead: ChannelLead | null`, `onSave: (note: string) => void`, `onDelete: () => void`.
-   - Preset chips: `"Call Booked"`, `"Gatekeeper"`, `"Check Next Week"`, `"Pricing Question"`, `"Owner Direct"`.
-3. **`src/components/TodaysSchedulePage.tsx`**:
-   - Add `activeNoteLead: ChannelLead | null` state.
-   - Render the amber sticky note box when `lead.quickNote` is present.
-   - Render the `"📝 Add Note"` button when no note exists.
-   - Mount `<QuickNoteModal />` with live update handler.
-4. **`src/components/channel/FollowupScheduleSubPage.tsx` & `LeadsSubPage.tsx`**:
-   - Render note previews and edit triggers across all channel sub-tabs.
+- **`src/components/SundayPrepView.tsx`** (New Component):
+  - Calming hero card with emerald accents.
+  - Curated collection of rest & preparation quotes with rotation state.
+  - Weekly statistics calculator parsing leads from the last 7 calendar days.
+  - Monday Queue preview query: filters leads with `scheduledDate` matching tomorrow (or next Monday) or unsent leads ready for launch.
+  - Primary CTA button dispatching `onNavigateToChannel(activeChannel)`.
+- **`src/components/TodaysSchedulePage.tsx`**:
+  - Integrates `isActualSunday` detection + `forceSundayPreview` state.
+  - Adds preview switch in header.
+  - Conditionally renders `<SundayPrepView>` when active, bypassing the standard outreach queues.
+- **`src/utils/cadenceEngine.ts`**:
+  - Helper functions `isTodaySunday()`, `getMondayDateStr()`, and `getWeeklyOutreachStats(allLeads)`.
