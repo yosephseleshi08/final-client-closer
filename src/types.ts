@@ -140,6 +140,9 @@ export interface Lead {
   // Gemini Lead Analysis & Prompt Hub
   leadAnalysis?: string;
   analysisSavedAt?: string;
+  // Quick Notes (Daily Schedule & Dispatch Log)
+  quickNote?: string;
+  quickNoteSavedAt?: string;
   // Mockup Screenshots & Timestamp
   createdAt?: string | number;
   mockupImage1?: string;
@@ -257,6 +260,10 @@ export interface ChannelLead {
   // Gemini Lead Analysis & Prompt Hub
   leadAnalysis?: string;
   analysisSavedAt?: string;
+
+  // Quick Notes (Daily Schedule & Dispatch Log)
+  quickNote?: string;
+  quickNoteSavedAt?: string;
 
   // Sub-page C: Schedule Date
   scheduledDate?: string; // YYYY-MM-DD format (planned initial outreach date)

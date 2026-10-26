@@ -15,13 +15,20 @@ import {
   X,
   RotateCcw,
   EyeOff,
+  Target,
+  Trophy,
+  Sparkles,
+  CalendarCheck2,
+  StickyNote,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../types';
+import { QuickNoteModal } from './QuickNoteModal';
 import {
   getLocalTodayStr,
   isDateToday,
   isDateOverdue,
   getDayDifference,
+  addDays,
   markInitialSent,
   markFollowupSent,
   markLeadReplied,
@@ -29,6 +36,11 @@ import {
   dismissLeadForToday,
   restoreDismissedLead,
   isLeadDismissedToday,
+  isInitialSentToday,
+  isDay3FollowupDue,
+  isDay7FollowupDue,
+  setDay3Reminder,
+  revertInitialSent,
   getCadenceMessageTemplates,
 } from '../utils/cadenceEngine';
 
@@ -54,6 +66,8 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [channelFilter, setChannelFilter] = useState<'all' | 'email' | 'instagram' | 'facebook'>('all');
   const [showDismissedDrawer, setShowDismissedDrawer] = useState(false);
+  const [reminderSavedId, setReminderSavedId] = useState<string | null>(null);
+  const [noteModalLead, setNoteModalLead] = useState<ChannelLead | null>(null);
 
   const todayStr = getLocalTodayStr();
 
@@ -76,6 +90,40 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const handleSetDay3Reminder = (lead: ChannelLead) => {
+    const updated = setDay3Reminder(lead);
+    handleUpdateLead(updated);
+    setReminderSavedId(lead.id);
+    setTimeout(() => setReminderSavedId(null), 2500);
+  };
+
+  const handleUndoSent = (lead: ChannelLead) => {
+    const updated = revertInitialSent(lead);
+    handleUpdateLead(updated);
+  };
+
+  const handleSaveQuickNote = (leadId: string, noteText: string) => {
+    const targetLead = allLeads.find((l) => l.id === leadId);
+    if (!targetLead) return;
+    const updated: ChannelLead = {
+      ...targetLead,
+      quickNote: noteText || undefined,
+      quickNoteSavedAt: noteText ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
+    };
+    handleUpdateLead(updated);
+  };
+
+  const handleDeleteQuickNote = (leadId: string) => {
+    const targetLead = allLeads.find((l) => l.id === leadId);
+    if (!targetLead) return;
+    const updated: ChannelLead = {
+      ...targetLead,
+      quickNote: undefined,
+      quickNoteSavedAt: undefined,
+    };
+    handleUpdateLead(updated);
   };
 
   const allLeads: (ChannelLead & { channelLabel: string })[] = [
@@ -102,12 +150,12 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       return true;
     }
 
-    // Check if follow-up 1 is overdue
+    // Check if follow-up 1 is overdue (strict time-lock: must be past followup1Date)
     if (l.initialSentDate && l.followupCount === 0 && l.followup1Date && isDateOverdue(l.followup1Date)) {
       return true;
     }
 
-    // Check if follow-up 2 is overdue
+    // Check if follow-up 2 is overdue (strict time-lock: must be past followup2Date)
     if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && isDateOverdue(l.followup2Date)) {
       return true;
     }
@@ -116,24 +164,29 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   });
 
   // 2. NEW OUTREACH DUE TODAY (Section 1)
+  // Leads whose scheduled date is today, not completed, and not yet sent
   const newOutreachDueToday = filteredAllLeads.filter((l) => {
     if (l.isCompleted || l.initialSentDate) return false;
     if (isLeadDismissedToday(l)) return false;
     return isDateToday(l.scheduledDate);
   });
 
-  // 3. FOLLOW-UPS DUE TODAY (Section 2)
+  // 3. SENT TODAY LOG (Section - Sent Today Progress Tracker)
+  // Leads whose initial outreach was dispatched today in the user's local timezone
+  const sentTodayLeads = filteredAllLeads.filter((l) => isInitialSentToday(l, todayStr));
+
+  // 4. FOLLOW-UPS DUE TODAY (Section 2 - Strict Time-Lock Enforced)
   const followupsDueToday = filteredAllLeads.filter((l) => {
     if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
     if (isLeadDismissedToday(l)) return false;
     if (!l.initialSentDate) return false;
 
-    // Day 3 check
+    // Day 3 check: strictly due today
     if (l.followupCount === 0 && isDateToday(l.followup1Date)) {
       return true;
     }
 
-    // Day 7 check
+    // Day 7 check: strictly due today
     if (l.followupCount === 1 && isDateToday(l.followup2Date)) {
       return true;
     }
@@ -142,6 +195,15 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   });
 
   const totalActionableToday = overdueLeads.length + newOutreachDueToday.length + followupsDueToday.length;
+
+  // Daily Progress Math: sent today / total scheduled today (sent + remaining due)
+  const sentTodayCount = sentTodayLeads.length;
+  const newDueTodayCount = newOutreachDueToday.length;
+  const dailyTargetTotal = sentTodayCount + newDueTodayCount;
+  const progressPercent = dailyTargetTotal > 0
+    ? Math.min(100, Math.round((sentTodayCount / dailyTargetTotal) * 100))
+    : (sentTodayCount > 0 ? 100 : 0);
+  const isGoalFinished = dailyTargetTotal > 0 && sentTodayCount >= dailyTargetTotal;
 
   const handleRestoreAllDismissed = () => {
     dismissedTodayLeads.forEach((lead) => {
@@ -174,6 +236,55 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
         );
     }
   };
+
+  const renderQuickNoteBox = (lead: ChannelLead) => {
+    if (!lead.quickNote) return null;
+    return (
+      <div
+        onClick={() => setNoteModalLead(lead)}
+        className="rounded-xl border border-amber-500/30 bg-amber-950/25 p-3 flex items-start justify-between gap-3 cursor-pointer hover:bg-amber-950/40 transition group shadow-sm"
+        title="Click to edit quick note"
+      >
+        <div className="flex items-start gap-2.5 text-xs text-amber-200 font-sans">
+          <StickyNote className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <p className="font-medium whitespace-pre-wrap leading-relaxed">{lead.quickNote}</p>
+            {lead.quickNoteSavedAt && (
+              <span className="text-[10px] text-amber-400/70 font-mono block">
+                Note recorded at {lead.quickNoteSavedAt}
+              </span>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setNoteModalLead(lead);
+          }}
+          className="px-2 py-0.5 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-[11px] font-semibold border border-amber-500/20 shrink-0 transition"
+        >
+          Edit Note
+        </button>
+      </div>
+    );
+  };
+
+  const renderNoteButton = (lead: ChannelLead) => (
+    <button
+      type="button"
+      onClick={() => setNoteModalLead(lead)}
+      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+        lead.quickNote
+          ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30'
+          : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
+      }`}
+      title={lead.quickNote ? 'Edit existing note' : 'Add quick note (e.g. call appointment, owner context)'}
+    >
+      <StickyNote className="w-3.5 h-3.5 text-amber-400" />
+      <span>{lead.quickNote ? 'Edit Note' : '📝 Add Note'}</span>
+    </button>
+  );
 
   return (
     <div className="space-y-6">
@@ -252,11 +363,71 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
         </div>
       </div>
 
+      {/* Daily Progress Finish Line Widget */}
+      <div className="rounded-3xl border border-emerald-500/30 bg-gradient-to-r from-emerald-950/40 via-slate-900/95 to-slate-900/95 p-5 sm:p-6 backdrop-blur-xl shadow-2xl space-y-3.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-950/50">
+              <Target className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono">
+                  Daily Execution Objective
+                </span>
+                {isGoalFinished && dailyTargetTotal > 0 && (
+                  <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold font-mono">
+                    <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Goal Finished!</span>
+                  </span>
+                )}
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black text-white font-['Outfit'] flex items-center gap-2 mt-0.5">
+                <span>Today's Progress:</span>
+                <span className="font-mono text-emerald-400">
+                  {sentTodayCount} / {dailyTargetTotal} DMs Sent
+                </span>
+                <span className="text-base font-mono text-slate-400 font-semibold">
+                  ({progressPercent}%)
+                </span>
+              </h2>
+            </div>
+          </div>
+
+          <div className="text-xs text-slate-400 font-mono sm:text-right">
+            {dailyTargetTotal === 0 ? (
+              <span>No outreaches scheduled for {todayStr}</span>
+            ) : isGoalFinished ? (
+              <span className="text-emerald-300 font-bold flex items-center gap-1.5 sm:justify-end">
+                <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>You've hit your finish line for today! Great work.</span>
+              </span>
+            ) : (
+              <span className="text-slate-300">
+                <strong className="text-white font-bold">{newDueTodayCount}</strong> initial DM{newDueTodayCount === 1 ? '' : 's'} remaining today
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Visual Progress Bar */}
+        <div className="w-full h-3.5 bg-slate-950/80 rounded-full overflow-hidden border border-white/10 p-0.5 shadow-inner">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${
+              isGoalFinished && dailyTargetTotal > 0
+                ? 'bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-300 shadow-lg shadow-emerald-500/60'
+                : 'bg-gradient-to-r from-indigo-500 via-emerald-500 to-teal-400 shadow-md shadow-emerald-500/30'
+            }`}
+            style={{ width: `${dailyTargetTotal === 0 ? 0 : progressPercent}%` }}
+          />
+        </div>
+      </div>
+
       {/* KPI Stats Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
         <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-xl">
           <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-            <span>Total Daily Tasks</span>
+            <span>Total Tasks</span>
             <CalendarDays className="w-4 h-4 text-amber-400" />
           </div>
           <div className="mt-2 text-2xl sm:text-3xl font-black text-slate-100 font-mono tabular-nums">
@@ -264,6 +435,19 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
           </div>
           <div className="mt-1 text-[11px] text-slate-500">
             Due in local timezone
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-4 shadow-xl">
+          <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center justify-between">
+            <span>Sent Today</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          </div>
+          <div className="mt-2 text-2xl sm:text-3xl font-black text-emerald-400 font-mono tabular-nums">
+            {sentTodayCount}
+          </div>
+          <div className="mt-1 text-[11px] text-emerald-300/80">
+            {dailyTargetTotal > 0 ? `${progressPercent}% complete` : 'Outreaches done'}
           </div>
         </div>
 
@@ -280,7 +464,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
             {overdueLeads.length}
           </div>
           <div className="mt-1 text-[11px] text-slate-400">
-            Pending past scheduled date
+            Pending past target
           </div>
         </div>
 
@@ -306,7 +490,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
             {followupsDueToday.length}
           </div>
           <div className="mt-1 text-[11px] text-slate-500">
-            3-Day &amp; 7-Day touchpoints
+            Strict 3-Day &amp; 7-Day touchpoints
           </div>
         </div>
       </div>
@@ -368,6 +552,138 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* SECTION: SENT TODAY LOG (Progress Tracker)                                */}
+      {/* ========================================================================= */}
+      <div className="rounded-3xl border border-emerald-500/30 bg-slate-900/80 p-5 sm:p-6 backdrop-blur-xl shadow-2xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/10 pb-3 gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              <CheckCircle2 className="w-5 h-5" />
+            </span>
+            <div>
+              <h2 className="text-base sm:text-lg font-black text-white font-['Outfit'] flex items-center gap-2">
+                <span>✅ Sent Today ({sentTodayLeads.length})</span>
+                <span className="text-xs font-mono font-bold text-emerald-300 bg-emerald-500/20 px-2.5 py-0.5 rounded border border-emerald-500/30">
+                  {sentTodayLeads.length} Logged
+                </span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Initial outreach dispatches completed today ({todayStr}). Time-locks safeguard follow-up intervals.
+              </p>
+            </div>
+          </div>
+
+          <div className="text-xs text-slate-400 font-mono">
+            {sentTodayLeads.length > 0 && (
+              <span className="text-emerald-400 font-semibold">
+                Follow-ups automatically time-locked for +3 days
+              </span>
+            )}
+          </div>
+        </div>
+
+        {sentTodayLeads.length === 0 ? (
+          <div className="py-8 text-center text-slate-500 text-xs">
+            <Send className="w-7 h-7 text-slate-600 mx-auto mb-2 opacity-50" />
+            <p className="text-sm font-semibold text-slate-300">No DMs marked sent yet today</p>
+            <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+              When you click "Mark Initial Sent" on a lead below, it moves here automatically so you can see your daily tally and reminder dates.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {sentTodayLeads.map((lead) => {
+              const day3Target = lead.followup1Date || addDays(lead.initialSentDate || todayStr, 3);
+              const day7Target = lead.followup2Date || addDays(lead.initialSentDate || todayStr, 7);
+              const isReminderSaved = reminderSavedId === lead.id;
+
+              return (
+                <div
+                  key={`sent-${lead.channel}-${lead.id}`}
+                  className="rounded-2xl border border-emerald-500/25 bg-slate-950/80 p-4 space-y-3 hover:border-emerald-500/40 transition shadow-lg"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      {renderChannelBadge(lead.channel)}
+                      <span className="font-mono text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                        {lead.id}
+                      </span>
+                      <h3 className="font-bold text-white text-sm sm:text-base font-['Outfit']">
+                        {lead.name}
+                      </h3>
+                      <span className="text-[11px] font-semibold text-emerald-300 bg-emerald-500/15 px-2 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1 font-mono">
+                        <Check className="w-3 h-3 text-emerald-400" />
+                        <span>Sent Today ({lead.initialSentDate})</span>
+                      </span>
+                      {lead.isSeen && (
+                        <span className="text-xs font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30">
+                          👀 Seen
+                        </span>
+                      )}
+                    </div>
+
+                    <a
+                      href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 self-start sm:self-auto"
+                    >
+                      <span className="truncate max-w-xs">{lead.link}</span>
+                      <ExternalLink className="w-3 h-3 shrink-0" />
+                    </a>
+                  </div>
+
+                  {/* Amber Sticky Note Box Preview (if present) */}
+                  {renderQuickNoteBox(lead)}
+
+                  {/* Follow-up reminder & Action Bar */}
+                  <div className="rounded-xl border border-emerald-500/15 bg-emerald-950/15 p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 text-emerald-300 font-mono flex-wrap">
+                      <Clock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Day 3 Follow-Up: <strong className="text-white">{day3Target}</strong></span>
+                      <span className="text-slate-500">·</span>
+                      <span className="text-slate-400">Day 7: {day7Target}</span>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Quick Note Action Button */}
+                      {renderNoteButton(lead)}
+
+                      {/* Set Day 3 Reminder Action Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleSetDay3Reminder(lead)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                          isReminderSaved
+                            ? 'bg-emerald-500 text-slate-950 font-black shadow-md'
+                            : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30'
+                        }`}
+                        title="Auto-calculates +3 days and stores the exact follow-up date"
+                      >
+                        <CalendarCheck2 className="w-3.5 h-3.5" />
+                        <span>{isReminderSaved ? '✓ Day 3 Reminder Saved!' : 'Set Day 3 Reminder'}</span>
+                      </button>
+
+                      {/* Undo Initial Sent in case of misclick */}
+                      <button
+                        type="button"
+                        onClick={() => handleUndoSent(lead)}
+                        className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 text-xs font-medium transition cursor-pointer flex items-center gap-1"
+                        title="Revert back to un-sent status if clicked accidentally"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Undo</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* ========================================================================= */}
       {/* SECTION 0: OVERDUE PRIORITY QUEUE                                         */}
@@ -495,6 +811,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                     </p>
                   </div>
 
+                  {/* Amber Sticky Note Box Preview (if present) */}
+                  {renderQuickNoteBox(lead)}
+
                   {/* Action Bar */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5">
                     <span className="text-[11px] text-slate-400 font-mono">
@@ -502,6 +821,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                     </span>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* Quick Note Action Button */}
+                      {renderNoteButton(lead)}
+
                       {/* Non-Destructive Remove / Dismiss Button */}
                       <button
                         type="button"
@@ -672,6 +994,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                     </p>
                   </div>
 
+                  {/* Amber Sticky Note Box Preview (if present) */}
+                  {renderQuickNoteBox(lead)}
+
                   {/* Action Bar */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5">
                     <span className="text-[11px] text-slate-500 font-mono">
@@ -679,6 +1004,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                     </span>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* Quick Note Action Button */}
+                      {renderNoteButton(lead)}
+
                       {/* Non-Destructive Remove / Dismiss Button */}
                       <button
                         type="button"
@@ -718,7 +1046,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-600/30 transition cursor-pointer"
                       >
                         <Send className="w-3.5 h-3.5" />
-                        <span>Mark as Sent</span>
+                        <span>Mark Initial Sent</span>
                       </button>
                     </div>
                   </div>
@@ -860,6 +1188,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                     </p>
                   </div>
 
+                  {/* Amber Sticky Note Box Preview (if present) */}
+                  {renderQuickNoteBox(lead)}
+
                   {/* Action Bar */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5">
                     <span className="text-[11px] text-slate-400 font-mono">
@@ -867,6 +1198,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                     </span>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* Quick Note Action Button */}
+                      {renderNoteButton(lead)}
+
                       {/* Non-Destructive Remove / Dismiss Button */}
                       <button
                         type="button"
@@ -920,6 +1254,15 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
           </div>
         )}
       </div>
+
+      {/* Quick Note Modal */}
+      <QuickNoteModal
+        isOpen={Boolean(noteModalLead)}
+        lead={noteModalLead}
+        onClose={() => setNoteModalLead(null)}
+        onSave={handleSaveQuickNote}
+        onDelete={handleDeleteQuickNote}
+      />
     </div>
   );
 };

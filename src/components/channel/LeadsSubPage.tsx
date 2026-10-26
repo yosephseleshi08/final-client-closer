@@ -30,6 +30,7 @@ import {
   AlertCircle,
   X,
   ArrowRight,
+  StickyNote,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import {
@@ -43,6 +44,7 @@ import {
 } from '../../utils/channelStorage';
 import { playWarningChime } from '../../utils/soundEffects';
 import { LeadAnalysisModal } from './LeadAnalysisModal';
+import { QuickNoteModal } from '../QuickNoteModal';
 
 interface LeadsSubPageProps {
   channel: MultiChannelType;
@@ -55,9 +57,10 @@ interface SortableLeadRowProps {
   lead: ChannelLead;
   onDelete: (id: string) => void;
   onOpenAnalysis: (lead: ChannelLead) => void;
+  onOpenNote: (lead: ChannelLead) => void;
 }
 
-function SortableLeadRow({ lead, onDelete, onOpenAnalysis }: SortableLeadRowProps) {
+function SortableLeadRow({ lead, onDelete, onOpenAnalysis, onOpenNote }: SortableLeadRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: lead.id });
 
@@ -100,20 +103,32 @@ function SortableLeadRow({ lead, onDelete, onOpenAnalysis }: SortableLeadRowProp
         </div>
       </td>
 
-      {/* Name & Visual Indicator (Green dot + Analysis Ready badge) */}
+      {/* Name & Visual Indicator (Green dot + Analysis Ready badge + Quick Note badge) */}
       <td className="py-3.5 px-4 text-left">
         <div className="flex flex-col gap-1">
           <span className="truncate max-w-xs text-sm font-medium text-slate-100 font-['Outfit']">{lead.name}</span>
-          {lead.leadAnalysis ? (
-            <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            {lead.leadAnalysis ? (
               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
                 Analysis Ready
               </span>
-            </div>
-          ) : (
-            <span className="text-[10px] text-slate-500">No analysis yet</span>
-          )}
+            ) : (
+              <span className="text-[10px] text-slate-500">No analysis yet</span>
+            )}
+
+            {lead.quickNote && (
+              <button
+                type="button"
+                onClick={() => onOpenNote(lead)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[10px] font-medium transition cursor-pointer max-w-xs truncate"
+                title={`Quick Note: ${lead.quickNote} (click to edit)`}
+              >
+                <StickyNote className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                <span className="truncate">"{lead.quickNote}"</span>
+              </button>
+            )}
+          </div>
         </div>
       </td>
 
@@ -130,9 +145,24 @@ function SortableLeadRow({ lead, onDelete, onOpenAnalysis }: SortableLeadRowProp
         </a>
       </td>
 
-      {/* Action Column: Prompt Button & Delete */}
+      {/* Action Column: Quick Note, Prompt Button & Delete */}
       <td className="py-3.5 px-4 text-right">
         <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => onOpenNote(lead)}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+              lead.quickNote
+                ? 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 shadow-sm'
+                : 'border-white/10 bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700'
+            }`}
+            title={lead.quickNote ? 'Edit Quick Note' : 'Add Quick Note'}
+            aria-label={`Note for ${lead.name}`}
+          >
+            <StickyNote className="w-3.5 h-3.5 text-amber-400" />
+            <span>{lead.quickNote ? 'Note' : '+ Note'}</span>
+          </button>
+
           <button
             type="button"
             onClick={() => onOpenAnalysis(lead)}
@@ -178,6 +208,40 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   // Gemini Lead Analysis Modal state
   const [selectedLeadForAnalysis, setSelectedLeadForAnalysis] = useState<ChannelLead | null>(null);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
+
+  // Quick Note Modal state
+  const [noteModalLead, setNoteModalLead] = useState<ChannelLead | null>(null);
+
+  const handleSaveQuickNote = (noteText: string) => {
+    if (!noteModalLead) return;
+    const trimmed = noteText.trim();
+    const updated = leads.map((l) =>
+      l.id === noteModalLead.id
+        ? {
+            ...l,
+            quickNote: trimmed || undefined,
+            quickNoteSavedAt: trimmed ? new Date().toISOString() : undefined,
+          }
+        : l
+    );
+    onUpdateLeads(updated);
+    setNoteModalLead(null);
+  };
+
+  const handleDeleteQuickNote = () => {
+    if (!noteModalLead) return;
+    const updated = leads.map((l) =>
+      l.id === noteModalLead.id
+        ? {
+            ...l,
+            quickNote: undefined,
+            quickNoteSavedAt: undefined,
+          }
+        : l
+    );
+    onUpdateLeads(updated);
+    setNoteModalLead(null);
+  };
 
   const handleOpenAnalysis = (lead: ChannelLead) => {
     setSelectedLeadForAnalysis(lead);
@@ -580,6 +644,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                         lead={lead}
                         onDelete={handleDeleteLead}
                         onOpenAnalysis={handleOpenAnalysis}
+                        onOpenNote={setNoteModalLead}
                       />
                     ))}
                   </SortableContext>
@@ -664,6 +729,15 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         lead={selectedLeadForAnalysis}
         channel={channel}
         onSaveAnalysis={handleSaveAnalysis}
+      />
+
+      {/* Quick Note Modal */}
+      <QuickNoteModal
+        isOpen={Boolean(noteModalLead)}
+        lead={noteModalLead}
+        onClose={() => setNoteModalLead(null)}
+        onSave={handleSaveQuickNote}
+        onDelete={handleDeleteQuickNote}
       />
     </div>
   );

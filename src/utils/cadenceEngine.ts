@@ -232,6 +232,73 @@ export function toggleLeadSeen(lead: ChannelLead): ChannelLead {
 }
 
 /**
+ * Checks if a lead's initial outreach was marked sent today in the user's local timezone.
+ */
+export function isInitialSentToday(lead: ChannelLead, today = getLocalTodayStr()): boolean {
+  if (!lead.initialSentDate) return false;
+  return normalizeToLocalDateStr(lead.initialSentDate) === today;
+}
+
+/**
+ * Strict 3-Day Follow-Up Time-Lock:
+ * Returns true ONLY if today is on or after (initialSentDate + 3 days).
+ */
+export function isDay3FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
+  if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
+  if (!lead.initialSentDate) return false;
+  if (lead.followupCount !== undefined && lead.followupCount > 0) return false;
+
+  const targetDate = lead.followup1Date || addDays(lead.initialSentDate, 3);
+  const normalizedTarget = normalizeToLocalDateStr(targetDate);
+  if (!normalizedTarget) return false;
+
+  return today >= normalizedTarget;
+}
+
+/**
+ * Strict 7-Day Follow-Up Time-Lock:
+ * Returns true ONLY if today is on or after (initialSentDate + 7 days) and Follow-Up 1 is completed.
+ */
+export function isDay7FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
+  if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
+  if (!lead.initialSentDate) return false;
+  if (lead.followupCount !== 1) return false;
+
+  const targetDate = lead.followup2Date || addDays(lead.initialSentDate, 7);
+  const normalizedTarget = normalizeToLocalDateStr(targetDate);
+  if (!normalizedTarget) return false;
+
+  return today >= normalizedTarget;
+}
+
+/**
+ * Auto-calculates and persists the exact Day 3 reminder date (initialSentDate + 3 days).
+ */
+export function setDay3Reminder(lead: ChannelLead, daysAhead = 3): ChannelLead {
+  const baseDate = lead.initialSentDate || getLocalTodayStr();
+  const reminderDate = addDays(baseDate, daysAhead);
+  return {
+    ...lead,
+    followup1Date: reminderDate,
+  };
+}
+
+/**
+ * Reverts an initial send back to un-sent status if clicked accidentally.
+ */
+export function revertInitialSent(lead: ChannelLead): ChannelLead {
+  return {
+    ...lead,
+    initialSentDate: undefined,
+    followup1Date: undefined,
+    followup2Date: undefined,
+    followupCount: 0,
+    leadStatus: 'not_sent',
+    isCompleted: false,
+  };
+}
+
+/**
  * Returns high-converting pre-staged copy templates for initial and follow-ups.
  */
 export function getCadenceMessageTemplates(lead: ChannelLead) {
