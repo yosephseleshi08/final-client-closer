@@ -19,6 +19,7 @@ import {
   isDateToday,
   isDateOverdue,
   isLeadDismissedToday,
+  isTodaySunday,
 } from './utils/cadenceEngine';
 
 export default function App() {
@@ -56,6 +57,7 @@ export default function App() {
 
   // Calculate live daily tasks due across all channels
   const todayTaskCount = useMemo(() => {
+    if (isTodaySunday()) return 0; // Paused on Sunday Rest Mode
     const all = [...emailLeads, ...instagramLeads, ...facebookLeads];
     return all.filter((l) => {
       if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;

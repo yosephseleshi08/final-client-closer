@@ -323,3 +323,84 @@ export function getCadenceMessageTemplates(lead: ChannelLead) {
     day7Loom,
   };
 }
+
+/**
+ * Checks if the current local day is Sunday (day 0)
+ */
+export function isTodaySunday(date = new Date()): boolean {
+  return date.getDay() === 0;
+}
+
+/**
+ * Calculates the upcoming Monday date string (YYYY-MM-DD).
+ * If fromDateStr is a Sunday, returns tomorrow (+1 day).
+ * Otherwise returns the next calendar Monday.
+ */
+export function getMondayDateStr(fromDateStr = getLocalTodayStr()): string {
+  const norm = normalizeToLocalDateStr(fromDateStr) || getLocalTodayStr();
+  const parts = norm.split('-');
+  const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  const day = d.getDay(); // 0 is Sunday, 1 is Monday, etc.
+  const daysUntilMonday = day === 0 ? 1 : (8 - day) % 7 || 7;
+  return addDays(norm, daysUntilMonday);
+}
+
+export interface WeeklyOutreachStats {
+  dmsSentLast7Days: number;
+  repliesReceived: number;
+  mockupsAuditsCount: number;
+}
+
+/**
+ * Computes weekly outreach performance metrics from the actual lead database.
+ */
+export function getWeeklyOutreachStats(
+  allLeads: ChannelLead[],
+  referenceDateStr = getLocalTodayStr()
+): WeeklyOutreachStats {
+  const cutoffDateStr = addDays(referenceDateStr, -7);
+
+  let dmsSentLast7Days = 0;
+  let repliesReceived = 0;
+  let mockupsAuditsCount = 0;
+
+  for (const lead of allLeads) {
+    // 1. Initial outreach sent within last 7 days
+    if (lead.initialSentDate) {
+      const normSent = normalizeToLocalDateStr(lead.initialSentDate);
+      if (normSent && normSent >= cutoffDateStr && normSent <= referenceDateStr) {
+        dmsSentLast7Days++;
+      }
+    }
+    // 2. Follow-ups sent within last 7 days
+    if (lead.followup1SentDate) {
+      const normF1 = normalizeToLocalDateStr(lead.followup1SentDate);
+      if (normF1 && normF1 >= cutoffDateStr && normF1 <= referenceDateStr) {
+        dmsSentLast7Days++;
+      }
+    }
+    if (lead.followup2SentDate) {
+      const normF2 = normalizeToLocalDateStr(lead.followup2SentDate);
+      if (normF2 && normF2 >= cutoffDateStr && normF2 <= referenceDateStr) {
+        dmsSentLast7Days++;
+      }
+    }
+
+    // 3. Replied leads
+    if (lead.leadStatus === 'replied') {
+      repliesReceived++;
+    }
+
+    // 4. Mockups & Analysis ready
+    if (lead.hasMockup || lead.mockupFileName || lead.leadAnalysis) {
+      mockupsAuditsCount++;
+    }
+  }
+
+  return {
+    dmsSentLast7Days,
+    repliesReceived,
+    mockupsAuditsCount,
+  };
+}
+

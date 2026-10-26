@@ -20,15 +20,18 @@ import {
   Sparkles,
   CalendarCheck2,
   StickyNote,
+  Coffee,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../types';
 import { QuickNoteModal } from './QuickNoteModal';
+import { SundayPrepView } from './SundayPrepView';
 import {
   getLocalTodayStr,
   isDateToday,
   isDateOverdue,
   getDayDifference,
   addDays,
+  isTodaySunday,
   markInitialSent,
   markFollowupSent,
   markLeadReplied,
@@ -68,8 +71,11 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const [showDismissedDrawer, setShowDismissedDrawer] = useState(false);
   const [reminderSavedId, setReminderSavedId] = useState<string | null>(null);
   const [noteModalLead, setNoteModalLead] = useState<ChannelLead | null>(null);
+  const [forceSundayPreview, setForceSundayPreview] = useState<boolean>(false);
 
   const todayStr = getLocalTodayStr();
+  const isActualSunday = isTodaySunday();
+  const isSundayMode = isActualSunday || forceSundayPreview;
 
   // Helper to update a lead in its respective channel store
   const handleUpdateLead = (updated: ChannelLead) => {
@@ -286,6 +292,62 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     </button>
   );
 
+  if (isSundayMode) {
+    return (
+      <div className="space-y-6">
+        {/* Top Banner Deck */}
+        <div className="rounded-3xl border border-emerald-500/30 bg-gradient-to-r from-emerald-950/40 via-slate-900/90 to-slate-900/90 p-5 sm:p-6 backdrop-blur-xl shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-300 shadow-lg shadow-emerald-950/40">
+                <Coffee className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-xl sm:text-2xl font-black text-white font-['Outfit']">
+                    Today's Execution Schedule
+                  </h1>
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-mono font-bold">
+                    {isActualSunday ? `${todayStr} (Sunday)` : `${todayStr} (Sunday Simulation)`}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Rest day mode active. Daily outreach triggers are paused to protect energy. Lead research and prompt drafting are active.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+            <button
+              type="button"
+              onClick={() => setForceSundayPreview(!forceSundayPreview)}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
+                forceSundayPreview
+                  ? 'bg-emerald-500/25 text-emerald-300 border-emerald-500/40 shadow-md'
+                  : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+              }`}
+              title="Toggle Sunday Prep Mode simulation"
+            >
+              <Coffee className="w-3.5 h-3.5 text-emerald-400" />
+              <span>{forceSundayPreview ? '🌿 Sunday Preview: ON' : '🌿 Sunday Mode Preview'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Dedicated Sunday Prep View */}
+        <SundayPrepView
+          emailLeads={emailLeads}
+          instagramLeads={instagramLeads}
+          facebookLeads={facebookLeads}
+          onNavigateToChannel={onNavigateToChannel}
+          isPreviewMode={!isActualSunday && forceSundayPreview}
+          onExitPreview={() => setForceSundayPreview(false)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Top Banner Deck */}
@@ -311,55 +373,68 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
           </div>
         </div>
 
-        {/* Channel Filter Pills */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-950/70 border border-white/10 rounded-xl self-start md:self-auto">
+        <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
+          {/* Sunday Preview Simulation Toggle */}
           <button
             type="button"
-            onClick={() => setChannelFilter('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-              channelFilter === 'all'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
+            onClick={() => setForceSundayPreview(true)}
+            className="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border bg-white/5 hover:bg-emerald-500/15 hover:border-emerald-500/30 text-slate-300 hover:text-emerald-300 border-white/10"
+            title="Preview and test the Sunday Prep Mode experience anytime"
           >
-            All Channels
+            <Coffee className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Sunday Mode Preview</span>
           </button>
-          <button
-            type="button"
-            onClick={() => setChannelFilter('email')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-              channelFilter === 'email'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Mail className="w-3 h-3" />
-            <span>Email</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setChannelFilter('instagram')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-              channelFilter === 'instagram'
-                ? 'bg-pink-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Instagram className="w-3 h-3" />
-            <span>Insta</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setChannelFilter('facebook')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-              channelFilter === 'facebook'
-                ? 'bg-sky-600 text-white shadow-md'
-                : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Facebook className="w-3 h-3" />
-            <span>FB</span>
-          </button>
+
+          {/* Channel Filter Pills */}
+          <div className="flex items-center gap-1.5 p-1 bg-slate-950/70 border border-white/10 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setChannelFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                channelFilter === 'all'
+                  ? 'bg-amber-500 text-slate-950 shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              All Channels
+            </button>
+            <button
+              type="button"
+              onClick={() => setChannelFilter('email')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
+                channelFilter === 'email'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Mail className="w-3 h-3" />
+              <span>Email</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setChannelFilter('instagram')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
+                channelFilter === 'instagram'
+                  ? 'bg-pink-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Instagram className="w-3 h-3" />
+              <span>Insta</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setChannelFilter('facebook')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
+                channelFilter === 'facebook'
+                  ? 'bg-sky-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Facebook className="w-3 h-3" />
+              <span>FB</span>
+            </button>
+          </div>
         </div>
       </div>
 
