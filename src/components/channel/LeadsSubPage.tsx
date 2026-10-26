@@ -477,39 +477,39 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       {/* Table Display: Shows ONLY ID, Name, Link, Delete */}
       <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 backdrop-blur-sm overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                <th className="py-3 px-4 text-left w-32">ID</th>
-                <th className="py-3 px-4 text-left">Name</th>
-                <th className="py-3 px-4 text-left">Link</th>
-                <th className="py-3 px-4 text-right w-24">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/[0.04]">
-              {leads.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="py-16 text-center text-slate-500">
-                    <div className="max-w-sm mx-auto space-y-2">
-                      <p className="text-sm font-medium text-slate-400">No leads in {getChannelLabel(channel)} yet</p>
-                      <p className="text-xs text-slate-500">
-                        Paste any link or handle above and press Enter to instantly intake your first lead.
-                      </p>
-                    </div>
-                  </td>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                  <th className="py-3 px-4 text-left w-32">ID</th>
+                  <th className="py-3 px-4 text-left">Name</th>
+                  <th className="py-3 px-4 text-left">Link</th>
+                  <th className="py-3 px-4 text-right w-24">Action</th>
                 </tr>
-              ) : filteredLeads.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="py-12 text-center text-slate-500 text-xs">
-                    No leads match "{searchQuery}"
-                  </td>
-                </tr>
-              ) : (
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
+              </thead>
+              <tbody className="divide-y divide-white/[0.04]">
+                {leads.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-16 text-center text-slate-500">
+                      <div className="max-w-sm mx-auto space-y-2">
+                        <p className="text-sm font-medium text-slate-400">No leads in {getChannelLabel(channel)} yet</p>
+                        <p className="text-xs text-slate-500">
+                          Paste any link or handle above and press Enter to instantly intake your first lead.
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : filteredLeads.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-12 text-center text-slate-500 text-xs">
+                      No leads match "{searchQuery}"
+                    </td>
+                  </tr>
+                ) : (
                   <SortableContext
                     items={filteredLeads.map((l) => l.id)}
                     strategy={verticalListSortingStrategy}
@@ -522,10 +522,10 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                       />
                     ))}
                   </SortableContext>
-                </DndContext>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </DndContext>
         </div>
 
         {leads.length > 0 && (
