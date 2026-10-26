@@ -21,6 +21,7 @@ import {
   CalendarCheck2,
   StickyNote,
   Coffee,
+  AlertTriangle,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../types';
 import { QuickNoteModal } from './QuickNoteModal';
@@ -71,11 +72,24 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const [showDismissedDrawer, setShowDismissedDrawer] = useState(false);
   const [reminderSavedId, setReminderSavedId] = useState<string | null>(null);
   const [noteModalLead, setNoteModalLead] = useState<ChannelLead | null>(null);
-  const [forceSundayPreview, setForceSundayPreview] = useState<boolean>(false);
+
+  const isActualSunday = isTodaySunday();
+  // Toggle defaults to ON if it is actually Sunday, and OFF on other days
+  const [forceSundayPreview, setForceSundayPreview] = useState<boolean>(() => isActualSunday);
+  const [showQueuesOverride, setShowQueuesOverride] = useState<boolean>(false);
 
   const todayStr = getLocalTodayStr();
-  const isActualSunday = isTodaySunday();
-  const isSundayMode = isActualSunday || forceSundayPreview;
+  const isSundayMode = (isActualSunday || forceSundayPreview) && !showQueuesOverride;
+
+  const handleToggleSundayMode = () => {
+    if (isSundayMode) {
+      setForceSundayPreview(false);
+      setShowQueuesOverride(true);
+    } else {
+      setForceSundayPreview(true);
+      setShowQueuesOverride(false);
+    }
+  };
 
   // Helper to update a lead in its respective channel store
   const handleUpdateLead = (updated: ChannelLead) => {
@@ -308,7 +322,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                     Today's Execution Schedule
                   </h1>
                   <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-mono font-bold">
-                    {isActualSunday ? `${todayStr} (Sunday)` : `${todayStr} (Sunday Simulation)`}
+                    {isActualSunday ? `${todayStr} (Sunday Rest)` : `${todayStr} (Sunday Preview)`}
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">
@@ -321,16 +335,12 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
           <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
             <button
               type="button"
-              onClick={() => setForceSundayPreview(!forceSundayPreview)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
-                forceSundayPreview
-                  ? 'bg-emerald-500/25 text-emerald-300 border-emerald-500/40 shadow-md'
-                  : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
-              }`}
-              title="Toggle Sunday Prep Mode simulation"
+              onClick={handleToggleSundayMode}
+              className="px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border bg-emerald-500/25 text-emerald-300 border-emerald-500/40 shadow-md"
+              title="Toggle Sunday Prep Mode"
             >
               <Coffee className="w-3.5 h-3.5 text-emerald-400" />
-              <span>{forceSundayPreview ? '🌿 Sunday Preview: ON' : '🌿 Sunday Mode Preview'}</span>
+              <span>🌿 Sunday Mode: ON</span>
             </button>
           </div>
         </div>
@@ -342,7 +352,11 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
           facebookLeads={facebookLeads}
           onNavigateToChannel={onNavigateToChannel}
           isPreviewMode={!isActualSunday && forceSundayPreview}
-          onExitPreview={() => setForceSundayPreview(false)}
+          onExitPreview={() => {
+            setForceSundayPreview(false);
+            setShowQueuesOverride(true);
+          }}
+          onShowQueuesAnyway={() => setShowQueuesOverride(true)}
         />
       </div>
     );
@@ -350,6 +364,39 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Persistent Sunday Override Active Banner */}
+      {showQueuesOverride && (isActualSunday || forceSundayPreview) && (
+        <div className="rounded-2xl border-2 border-amber-500/50 bg-amber-950/70 p-4 sm:p-5 backdrop-blur-xl shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-in fade-in duration-200">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5 text-amber-400" />
+            </div>
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-amber-300 uppercase tracking-wider font-mono">
+                  ⚠️ Sunday Override Active
+                </span>
+                <span className="text-[11px] text-amber-400/80 font-mono">
+                  (Showing standard daily queues)
+                </span>
+              </div>
+              <p className="text-xs text-slate-300">
+                Queues are safely displayed so you can handle urgent prospects. All records and cadences remain preserved.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowQueuesOverride(false)}
+            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/50 shrink-0 cursor-pointer active:scale-95"
+          >
+            <Coffee className="w-4 h-4" />
+            <span>Return to Sunday Prep Mode</span>
+          </button>
+        </div>
+      )}
+
       {/* Top Banner Deck */}
       <div className="rounded-3xl border border-amber-500/30 bg-gradient-to-r from-amber-950/40 via-slate-900/90 to-slate-900/90 p-5 sm:p-6 backdrop-blur-xl shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1">
@@ -377,12 +424,16 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
           {/* Sunday Preview Simulation Toggle */}
           <button
             type="button"
-            onClick={() => setForceSundayPreview(true)}
-            className="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border bg-white/5 hover:bg-emerald-500/15 hover:border-emerald-500/30 text-slate-300 hover:text-emerald-300 border-white/10"
+            onClick={handleToggleSundayMode}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer border ${
+              isSundayMode
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-md'
+                : 'bg-white/5 hover:bg-emerald-500/15 hover:border-emerald-500/30 text-slate-300 hover:text-emerald-300 border-white/10'
+            }`}
             title="Preview and test the Sunday Prep Mode experience anytime"
           >
             <Coffee className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Sunday Mode Preview</span>
+            <span>{isSundayMode ? '🌿 Sunday Mode: ON' : '🌿 Sunday Mode Preview'}</span>
           </button>
 
           {/* Channel Filter Pills */}

@@ -58,9 +58,10 @@ interface SortableLeadRowProps {
   onDelete: (id: string) => void;
   onOpenAnalysis: (lead: ChannelLead) => void;
   onOpenNote: (lead: ChannelLead) => void;
+  isJustAdded?: boolean;
 }
 
-function SortableLeadRow({ lead, onDelete, onOpenAnalysis, onOpenNote }: SortableLeadRowProps) {
+function SortableLeadRow({ lead, onDelete, onOpenAnalysis, onOpenNote, isJustAdded }: SortableLeadRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: lead.id });
 
@@ -78,9 +79,11 @@ function SortableLeadRow({ lead, onDelete, onOpenAnalysis, onOpenNote }: Sortabl
     <tr
       ref={setNodeRef}
       style={style}
-      className={`border-b border-white/[0.06] transition-colors group ${
+      className={`border-b border-white/[0.06] transition-all duration-300 group ${
         isDragging
           ? 'bg-indigo-950/60 shadow-xl border-indigo-500/40 opacity-95'
+          : isJustAdded
+          ? 'bg-indigo-950/50 ring-1 ring-indigo-500/70 border-indigo-500/40'
           : 'hover:bg-white/[0.02]'
       }`}
     >
@@ -100,6 +103,11 @@ function SortableLeadRow({ lead, onDelete, onOpenAnalysis, onOpenNote }: Sortabl
           <span className="font-semibold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
             {lead.id}
           </span>
+          {isJustAdded && (
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono animate-pulse">
+              NEW
+            </span>
+          )}
         </div>
       </td>
 
@@ -204,6 +212,13 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     timestamp: number;
     detectedChannel?: MultiChannelType;
   } | null>(null);
+
+  // Floating Action Button Centered Add Lead Modal state
+  const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
+  const [modalLinkInput, setModalLinkInput] = useState('');
+  const [modalNameInput, setModalNameInput] = useState('');
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [justAddedLeadId, setJustAddedLeadId] = useState<string | null>(null);
 
   // Gemini Lead Analysis Modal state
   const [selectedLeadForAnalysis, setSelectedLeadForAnalysis] = useState<ChannelLead | null>(null);
@@ -381,18 +396,95 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       name: finalName,
       link: pendingLink,
       channel,
-      sortOrder: leads.length,
+      sortOrder: 0,
       createdAt: new Date().toISOString(),
     };
 
-    const updated = [...leads, newLead];
+    // Prepend new lead to index 0, strictly preserving all existing leads and their relative order
+    const updated = [newLead, ...leads].map((l, index) => ({
+      ...l,
+      sortOrder: index,
+    }));
     onUpdateLeads(updated);
+
+    // Highlight newly created lead at top
+    setJustAddedLeadId(id);
+    setTimeout(() => setJustAddedLeadId(null), 3000);
 
     // Reset state
     setShowNameModal(false);
     setPendingLink('');
     setPendingName('');
     setLinkInput('');
+  };
+
+  const handleModalLinkChange = (value: string) => {
+    setModalLinkInput(value);
+    setModalError(null);
+    if (!modalNameInput || modalNameInput === extractSuggestedName(modalLinkInput)) {
+      setModalNameInput(extractSuggestedName(value));
+    }
+  };
+
+  const handleCreateLeadFromModal = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedLink = modalLinkInput.trim();
+    if (!trimmedLink) {
+      setModalError('Please enter a link or handle.');
+      return;
+    }
+
+    // 1. Strict Channel Validation check
+    const validation = validateChannelLink(trimmedLink, channel);
+    if (!validation.isValid) {
+      playWarningChime();
+      setModalError(validation.errorMessage || 'Invalid link format for this channel.');
+      return;
+    }
+
+    // 2. Duplicate Check
+    const normalizedInput = normalizeUrlForDuplicateCheck(trimmedLink, channel);
+    const existingLead = leads.find((l) => {
+      const lNorm = normalizeUrlForDuplicateCheck(l.link, channel);
+      return lNorm && lNorm === normalizedInput;
+    });
+
+    if (existingLead) {
+      playWarningChime();
+      const dateFormatted = formatAddedDate(existingLead.createdAt);
+      setModalError(`Warning: This link has already been added. ${existingLead.name} was added on ${dateFormatted}.`);
+      return;
+    }
+
+    const finalName = modalNameInput.trim() || extractSuggestedName(trimmedLink) || 'Prospect';
+    const { id, numericId } = getNextLeadId(channel, leads);
+
+    const newLead: ChannelLead = {
+      id,
+      numericId,
+      name: finalName,
+      link: trimmedLink,
+      channel,
+      sortOrder: 0,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Prepend new lead at index 0, strictly preserving all existing leads and their order
+    const updated = [newLead, ...leads].map((l, index) => ({
+      ...l,
+      sortOrder: index,
+    }));
+    onUpdateLeads(updated);
+
+    // Highlight newly created lead at top
+    setJustAddedLeadId(id);
+    setTimeout(() => setJustAddedLeadId(null), 3000);
+
+    // Close modal & reset
+    setIsAddLeadModalOpen(false);
+    setModalLinkInput('');
+    setModalNameInput('');
+    setModalError(null);
   };
 
   const handleDeleteLead = (id: string) => {
@@ -645,6 +737,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                         onDelete={handleDeleteLead}
                         onOpenAnalysis={handleOpenAnalysis}
                         onOpenNote={setNoteModalLead}
+                        isJustAdded={lead.id === justAddedLeadId}
                       />
                     ))}
                   </SortableContext>
@@ -731,6 +824,101 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         onSaveAnalysis={handleSaveAnalysis}
       />
 
+      {/* Centered Add Lead Modal (Triggered by Floating Action Button) */}
+      {isAddLeadModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-white/10 p-6 sm:p-7 shadow-2xl space-y-5 text-slate-100">
+            <div className="flex items-start justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 flex items-center justify-center">
+                  <Plus className="w-5 h-5 text-indigo-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white font-['Outfit']">
+                    Add {getChannelLabel(channel)} Lead
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Lead will appear immediately at the top of your list.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddLeadModalOpen(false);
+                  setModalError(null);
+                }}
+                className="rounded-xl p-1.5 text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {modalError && (
+              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <span className="leading-snug">{modalError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleCreateLeadFromModal} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Profile Link or Handle <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={modalLinkInput}
+                  onChange={(e) => handleModalLinkChange(e.target.value)}
+                  placeholder={
+                    channel === 'instagram'
+                      ? 'https://instagram.com/business or @handle'
+                      : channel === 'facebook'
+                      ? 'https://facebook.com/business_page'
+                      : 'contact@domain.com or https://website.com'
+                  }
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 font-mono focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                  Business / Contact Name
+                </label>
+                <input
+                  type="text"
+                  value={modalNameInput}
+                  onChange={(e) => setModalNameInput(e.target.value)}
+                  placeholder="e.g. Trattoria Luigi"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddLeadModalOpen(false);
+                    setModalError(null);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/30 active:scale-95"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Save Lead</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Quick Note Modal */}
       <QuickNoteModal
         isOpen={Boolean(noteModalLead)}
@@ -739,6 +927,24 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         onSave={handleSaveQuickNote}
         onDelete={handleDeleteQuickNote}
       />
+
+      {/* Floating Add Lead Circular Button (Visible strictly on Leads tab) */}
+      <div className="fixed bottom-20 right-6 sm:bottom-24 sm:right-8 z-40">
+        <button
+          type="button"
+          onClick={() => {
+            setModalLinkInput('');
+            setModalNameInput('');
+            setModalError(null);
+            setIsAddLeadModalOpen(true);
+          }}
+          className="w-14 h-14 rounded-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-500 hover:from-indigo-500 hover:to-purple-500 text-white shadow-2xl shadow-indigo-950/80 hover:shadow-indigo-500/50 hover:scale-110 active:scale-95 transition-all duration-200 flex items-center justify-center cursor-pointer border border-indigo-400/40 group"
+          title={`Add new ${getChannelLabel(channel)} lead`}
+          aria-label={`Add new ${getChannelLabel(channel)} lead`}
+        >
+          <Plus className="w-7 h-7 text-white group-hover:rotate-90 transition-transform duration-300" />
+        </button>
+      </div>
     </div>
   );
 }

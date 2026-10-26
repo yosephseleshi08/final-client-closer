@@ -18,6 +18,7 @@ import {
   FileText,
   Clock,
   Compass,
+  AlertTriangle,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../types';
 import {
@@ -33,6 +34,7 @@ interface SundayPrepViewProps {
   onNavigateToChannel: (channel: MultiChannelType) => void;
   isPreviewMode?: boolean;
   onExitPreview?: () => void;
+  onShowQueuesAnyway?: () => void;
 }
 
 interface MotivationalQuote {
@@ -100,6 +102,7 @@ export const SundayPrepView: React.FC<SundayPrepViewProps> = ({
   onNavigateToChannel,
   isPreviewMode = false,
   onExitPreview,
+  onShowQueuesAnyway,
 }) => {
   const [quoteIndex, setQuoteIndex] = useState<number>(() =>
     Math.floor(Math.random() * SUNDAY_QUOTES.length)
@@ -492,6 +495,29 @@ export const SundayPrepView: React.FC<SundayPrepViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* ⚠️ Show My Queues Anyway (Advanced) Emergency Override */}
+      {onShowQueuesAnyway && (
+        <div className="rounded-3xl border border-amber-500/30 bg-amber-950/20 p-5 sm:p-6 backdrop-blur-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-amber-300 font-bold text-sm">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Need to check urgent prospects or handle Sunday responses?</span>
+            </div>
+            <p className="text-xs text-slate-400 max-w-xl">
+              Your active outreach queues and cadences are safe and never deleted. You can reveal Today's Schedule queues to view overdue leads, follow-ups, and dispatch logs.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onShowQueuesAnyway}
+            className="px-5 py-2.5 rounded-xl border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-white text-xs font-bold transition flex items-center justify-center gap-2 shrink-0 cursor-pointer shadow-md active:scale-95"
+          >
+            <span>⚠️ Show My Queues Anyway (Advanced)</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };
