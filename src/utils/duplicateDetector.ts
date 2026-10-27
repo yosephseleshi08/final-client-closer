@@ -69,7 +69,7 @@ export function normalizeUrl(rawUrl: string): string {
       const trackingParams = [
         'fref', 'mibextid', 'locale', 'ref', 'source', 'utm_source',
         'utm_medium', 'utm_campaign', 'share_id', 'hrc', 'extid',
-        'rdid', 'paipv', '_rdr', 'sk', '_rdc', 'checkpoint_src',
+        'rdid', 'paipv', '_rdr', 'sk', '_rdc', 'rdc', 'checkpoint_src',
         'hc_ref', 'comment_id', 'notif_id'
       ];
       trackingParams.forEach((tp) => searchParams.delete(tp));

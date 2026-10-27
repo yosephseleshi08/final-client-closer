@@ -118,11 +118,20 @@ export function extractSuggestedName(rawInput: string): string {
     .trim();
 
   if (cleaned.length >= 2) {
-    return cleaned
+    const formatted = cleaned
       .split(' ')
       .filter(Boolean)
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
       .join(' ');
+
+    if (
+      formatted.toLowerCase() === 'profile php' ||
+      formatted.toLowerCase() === 'profile' ||
+      /^[0-9\s]+$/.test(formatted)
+    ) {
+      return 'New Prospect';
+    }
+    return formatted;
   }
 
   return 'New Prospect';
@@ -130,9 +139,14 @@ export function extractSuggestedName(rawInput: string): string {
 
 /**
  * Normalizes URLs and handles for duplicate comparison.
- * Strips protocol (https://, http://), www., m., trailing slashes,
- * query parameters (?...) and hash anchors (#...).
- * Normalizes Instagram and Facebook aliases so handles and URLs match.
+ * - Strips protocol (https://, http://) and mailto:
+ * - Normalizes subdomains (web., m., mobile., touch., l., lm., www.) to canonical domain
+ * - CRITICAL FIX FOR FACEBOOK: If a URL contains "facebook.com/profile.php?id=", it DOES NOT strip the `id` parameter.
+ *   Only strips tracking parameters like `&sk=about`, `&mibextid=...`, `&rdc=1`, `&_rdc=...`, etc.
+ *   Ensures that `profile.php?id=100094275802002` and `profile.php?id=61586199793829` are recognized as distinct unique links.
+ * - For other links, strips all query params and hash fragments
+ * - Strips trailing slashes
+ * - Normalizes handles (@handle) to domain paths
  */
 export function normalizeUrlForDuplicateCheck(
   rawInput: string,
@@ -151,10 +165,31 @@ export function normalizeUrlForDuplicateCheck(
   // Strip protocol
   str = str.replace(/^https?:\/\//i, '');
 
-  // Strip www. or m.
-  str = str.replace(/^(?:www\.|m\.)/i, '');
+  // Normalize common Facebook & Instagram subdomains (web., m., mobile., touch., l., lm., www., etc.)
+  str = str.replace(/^(?:[a-z0-9_-]+\.)*(?:facebook\.com|fb\.com|fb\.me)(?:\/|$)/i, 'facebook.com/');
+  str = str.replace(/^(?:[a-z0-9_-]+\.)*(?:instagram\.com|instagr\.am)(?:\/|$)/i, 'instagram.com/');
+  str = str.replace(/^(?:www\.|m\.|mobile\.|web\.)/i, '');
 
-  // Strip query parameters and hash fragments
+  // If in Facebook channel and starts with profile.php directly
+  if ((channel === 'facebook' || str.startsWith('profile.php')) && !str.startsWith('facebook.com/')) {
+    str = `facebook.com/${str}`;
+  }
+
+  // Handle Facebook profile links with ?id=... (CRITICAL FIX)
+  // Ensures profile.php?id=100094275802002 and profile.php?id=61586199793829 are recognized as distinct unique links
+  // while stripping tracking parameters (&sk=about, &mibextid=..., &rdc=1, &_rdc=1, etc.)
+  if (
+    str.includes('facebook.com/profile.php') ||
+    str.includes('/profile.php') ||
+    (channel === 'facebook' && str.includes('profile.php'))
+  ) {
+    const idMatch = str.match(/[?&]id=([0-9a-zA-Z._-]+)/i);
+    if (idMatch && idMatch[1]) {
+      return `facebook.com/profile.php?id=${idMatch[1]}`;
+    }
+  }
+
+  // Strip query parameters and hash fragments for other links
   str = str.split('?')[0].split('#')[0];
 
   // Strip trailing slashes

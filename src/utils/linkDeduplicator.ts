@@ -34,7 +34,7 @@ export function normalizeLeadUrl(rawUrl: string): string {
       const parts = pathname.replace(/^\/+/, '').split('/').filter(Boolean);
 
       // Strip common Facebook tracking params
-      const trackingParams = ['mibextid', 'rdid', 'ref', 'source', 'utm_source', 'utm_medium', 'utm_campaign', 'share_id', 'hrc', 'paipv', '_rdr', 'sk', 'locale', '_rdc', 'checkpoint_src', 'hc_ref'];
+      const trackingParams = ['mibextid', 'rdid', 'ref', 'source', 'utm_source', 'utm_medium', 'utm_campaign', 'share_id', 'hrc', 'paipv', '_rdr', 'sk', 'locale', '_rdc', 'rdc', 'checkpoint_src', 'hc_ref'];
       trackingParams.forEach((tp) => parsed.searchParams.delete(tp));
 
       // Profile by ID: /profile.php?id=12345
