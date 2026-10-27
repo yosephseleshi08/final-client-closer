@@ -1,22 +1,23 @@
-# Sunday Prep Mode for Today's Schedule
+# History & Streaks Command Center
 
-A dedicated Sunday experience for the outreach engine that pauses active daily outreach queues to respect rest, while keeping lead research, import, and AI prompt engineering fully active. Replaces the active schedule with a calming preparation dashboard featuring motivational rest quotes, weekly recap metrics, a locked Monday queue preview, and one-click navigation to channel lead pipelines.
+A permanent daily tracking system that logs outreach completion rates across 30-day cycles, visualizes historical consistency through an interactive calendar grid and chronological audit list, and calculates unbroken daily streaks with Sunday rest-day immunity. Seeded with the user's verified October 26, 2026 outreach data (6/6 DMs Sent, 100%) as the official origin day.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The following choices were confirmed during Phase 1 interactive clarification:
-> - **Preview & Testing**: A dedicated "Sunday Mode Preview" toggle switch will be placed on the page so you can test and demonstrate the Sunday experience anytime, even though today is Monday.
-> - **Weekly Stats Calculation**: Automatically computed from your actual lead database in localStorage (DMs sent in the last 7 days, replies logged, and mockup requests tracked) with sensible zero-state fallbacks.
-> - **Prep Pipeline Navigation**: Clicking "📥 Go to Leads to Prep for Monday" directly routes to your active channel's Leads intake tab (or Instagram by default) so you can immediately begin importing and analyzing prospects.
+> The following decisions were confirmed during Phase 1 interactive clarification:
+> - **Visual Layout**: Interactive 30-day calendar matrix paired with an expandable chronological day-by-day detail log.
+> - **Completion Logic**: 100% completion is awarded when all scheduled tasks for that day are fulfilled (`completedTasks === totalTasksScheduled`).
+> - **October 26 Baseline & Real Data Preservation**: Rather than populating mock data, the system inspects existing leads sent on October 26, 2026 and writes an authentic 100% completion entry (`6/6 DMs Sent, 100%`) for Oct 26, 2026, establishing an immediate active streak without fabricated history.
+> - **Sunday Immunity**: Sundays are designated as "⚪ Rest Day". Sundays never reset or break a streak; Monday seamlessly carries forward Saturday's streak.
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: On Sundays (or when Sunday Preview is toggled on), the Today's Schedule view transforms into **🌿 Sunday Prep Mode**. All active dispatch queues ("New Outreach Due Today", "Follow-Ups Due Today", "Overdue Priority", and "Sent Today") are tucked away safely. The user sees a restorative, emerald-and-slate workspace dedicated to sharpening tools for the week ahead.
-- **Target Audience**: Solopreneurs and agency operators balancing high-volume outreach cadences who need intentional boundary protection on rest days without losing the ability to batch-prep prospects.
-- **Key Value**: Prevents burnout and accidental weekend outreach mistakes while providing a frictionless launchpad to load Monday's pipeline.
+- **What It Does**: Provides long-term accountability and visual momentum by recording daily outreach completion percentages, calculating active/best streaks, and rendering color-coded day states over rolling 30-day windows.
+- **Target Audience**: Outbound agency operators and solopreneurs executing consistent multi-channel outreach who need permanent historical proof of work and streak gamification.
+- **Key Value**: Replaces transient "today-only" memory with an unshakeable, persistent ledger that rewards discipline while respecting restful Sundays.
 
 ---
 
@@ -24,82 +25,117 @@ A dedicated Sunday experience for the outreach engine that pauses active daily o
 
 ### Key User Flows
 
-1. **Sunday Ingress / Preview Toggle**:
-   - The app detects `new Date().getDay() === 0` or reads the `Sunday Mode Preview` toggle switch.
-   - If active, the standard dispatch queues are hidden, and the calming **Sunday Prep Mode** card is rendered.
-2. **Motivational Quote Rotation**:
-   - A centered quote card displays wisdom on rest, reflection, and strategic preparation (Abraham Lincoln, Anne Lamott, John Lubbock, etc.) with a subtle "New Quote" button to cycle through selections.
-3. **Weekly Performance Summary**:
-   - Clean horizontal metric strip displaying:
-     - **DMs Sent Last Week**: Number of initial outreach touches completed in the prior 7 days.
-     - **Replies Received**: Total prospects marked as replied.
-     - **Mockups / Audits**: Total leads with prompt analyses or mockup tags.
-4. **Locked Monday Queue Preview**:
-   - A safeguarded list displaying leads scheduled for Monday (or next in line). Each prospect displays their business name, channel origin, and a locked safeguard indicator to guarantee no accidental triggers.
-5. **Pipeline Action**:
-   - Prominent primary action button: `"📥 Go to Leads to Prep for Monday"` navigates straight into the active channel's lead intake view.
+1. **Top Navigation Access**:
+   - The user clicks the new **"📊 History"** tab in the main header (positioned next to "Insights & Analysis").
+2. **Streak Counter Dashboard**:
+   - At the top of the History page, two high-impact metric cards display:
+     - **🔥 Current Streak**: Active consecutive days hitting 100% (skipping Sundays). If today (Oct 27) has tasks pending, the streak reflects consecutive days completed up to yesterday (or increments to next level once today hits 100%).
+     - **🏆 Best Streak**: All-time record streak count preserved across cycles.
+     - **30-Day Completion Rate**: Aggregate average percentage across active working days.
+3. **Interactive 30-Day Calendar Grid**:
+   - A 5-week / 30-day calendar grid showing day numbers, completion badges, and status colors:
+     - 🟢 **100%**: Emerald background ring/dot (`6/6 DMs Sent`).
+     - 🟡 **1–99%**: Amber indicator (`Partial outreach`).
+     - 🔴 **0%**: Crimson indicator (`Missed day`).
+     - ⚪ **Sunday**: Slate/dimmed ring marked `Rest Day` (does not break streaks).
+   - Clicking any calendar cell scrolls to or highlights that day's entry in the detailed list below.
+4. **Chronological Detail Log**:
+   - Clean, scannable day cards listed in reverse-chronological order (from today down to 30 days ago).
+   - Each entry shows:
+     - Formatted Date (e.g. `Oct 26, 2026` or `Today, Oct 27, 2026`).
+     - Status dot (🟢, 🟡, 🔴, ⚪).
+     - Breakdown: `100% · 6/6 DMs Sent` or `⚪ Rest Day · Sunday Protocol`.
+     - Timestamp of last sync.
+5. **Automatic Logging from Today's Schedule**:
+   - Every time the user opens Today's Schedule or marks an outreach task as initial sent or follow-up sent, the engine recalculates today's percentage (`completed / totalDue`) and upserts today's entry in `localStorage['outreach_daily_history']`.
+6. **Data Reset Modal**:
+   - A "Reset History" button opens a confirmation modal requiring explicit confirmation ("Reset All History") before clearing the array.
 
 ### Visual Identity & Theme
 
-- **Palette**: Dark slate canvas (`#080c14`), deep forest & emerald accents (`emerald-500/10`, `emerald-500/20`, `border-emerald-500/30`, `text-emerald-300`), muted slate secondary text (`text-slate-400`).
-- **Typography**: Display headings in `Outfit` / `Plus Jakarta Sans`, tabular numerals for metric counters (`font-mono tabular-nums`), clean unboxed metadata with bullet separators (`·`).
-- **Zero-Pill Restraint**: No bulky colored badge sandwiches; clean inline metadata with subtle contrast borders.
+- **Palette**: Dark slate canvas (`#080c14`), container borders (`border-white/10`), flame orange accents (`text-orange-400`, `bg-orange-500/10`), emerald highlights (`text-emerald-400`, `bg-emerald-500/10`), amber warning states (`text-amber-400`).
+- **Typography**: Header titles in `Outfit`, metrics and dates in tabular monospace figures (`font-mono tabular-nums`), clean unboxed metadata with `·` separators (zero-pill discipline).
+- **Accessibility**: Status dots paired with explicit text labels (`100% Complete`, `Rest Day`, `Partial`).
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Client-Side Day Detection with Simulation Toggle**:
-  - *Chosen Approach*: Automatic activation on Sundays (`getDay() === 0`) paired with an instant preview toggle button at the top right of the page.
-  - *Why*: Allows the user to inspect and test the entire Sunday UI today (Monday) without altering machine clocks, while remaining completely automated in production.
-  - *Alternatives Considered*: Pure system date check only (would leave the feature untestable until Sunday).
-- **Decision 2: Non-Destructive Queue Suspension**:
-  - *Chosen Approach*: Only conditionally alter the render tree in `TodaysSchedulePage.tsx`. All lead objects, time-locks, and scheduled dates remain intact in localStorage.
-  - *Why*: Zero risk of data corruption or dropped cadences; queues resume automatically on Monday morning.
-- **Decision 3: Retaining Channel Tabs and Workspace Sub-Pages**:
-  - *Chosen Approach*: The global Header navigation (Instagram, Facebook, Email, Analytics) remains fully functional so the user can freely use the Leads table, Prompt Hub, and DM customizer.
+- **Decision 1: Real-Data Baseline Initialization (Oct 26, 2026)**:
+  - *Chosen Approach*: On first run of the history engine, automatically verify and insert October 26, 2026 as completed (`6/6 DMs Sent, 100%`) alongside any sent items from localStorage.
+  - *Why*: Directly honors the user's specific instruction: October 26 was their official launch day with 6 sent DMs, providing an authentic 1-day starter streak.
+- **Decision 2: Sunday Rest-Day Streak Immunity**:
+  - *Chosen Approach*: The streak calculator iterates backwards day by day. When encountering a Sunday, it skips the day without breaking the chain and without requiring outreach.
+  - *Why*: Supports sustainable work habits and aligns with the app's "Sunday Prep Mode" philosophy.
+- **Decision 3: Today's Dynamic Status vs. Finished Days**:
+  - *Chosen Approach*: If today is in progress (e.g., today is Tuesday Oct 27 and some DMs remain due), today's entry reflects live progress (e.g., `50% - 3/6 Sent`). The current streak counter counts completed days through yesterday, and automatically advances by +1 as soon as today hits 100%.
 
 ---
 
 ## 4. Technical Architecture & Data Strategy
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Top Navigation (Header)                  │
-│   Today's Schedule  │  Instagram  │  Facebook  │  Email ... │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-            ┌──────────────────┴──────────────────┐
-            │                                     │
-    [Monday–Saturday]                         [Sunday]
-            │                                     │
-┌───────────▼──────────────┐         ┌────────────▼──────────────┐
-│  Standard Daily Queues   │         │     Sunday Prep Mode      │
-│  - Sent Today Log        │         │  - Restful Hero Header    │
-│  - New Outreach Due      │         │  - Motivational Quotes    │
-│  - Follow-Ups Due Today  │         │  - Weekly Recap Metrics   │
-│  - Overdue Priority      │         │  - Locked Monday Preview  │
-└──────────────────────────┘         │  - "Prep Pipeline" CTA    │
-                                     └────────────┬──────────────┘
-                                                  │ (Routes to)
-                                     ┌────────────▼──────────────┐
-                                     │ Channel Workspace (Leads) │
-                                     │ - Link Intake & Analysis  │
-                                     │ - DeepSeek Prompt Hub     │
-                                     └───────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Global Header Navigation                        │
+│   Today's Schedule  │  Instagram  │  Facebook  │  Insights  │  History │
+└──────────────────────────────────────┬─────────────────────────────────┘
+                                       │ (activeNavTab === 'history')
+                        ┌──────────────▼──────────────┐
+                        │        HistoryPage          │
+                        │ ┌─────────────────────────┐ │
+                        │ │ Streak & Metric Bar     │ │
+                        │ │ [🔥 Streak] [🏆 Best]   │ │
+                        │ └─────────────────────────┘ │
+                        │ ┌─────────────────────────┐ │
+                        │ │ 30-Day Calendar Matrix  │ │
+                        │ └─────────────────────────┘ │
+                        │ ┌─────────────────────────┐ │
+                        │ │ Chronological Log List  │ │
+                        │ └─────────────────────────┘ │
+                        └──────────────┬──────────────┘
+                                       │
+                        ┌──────────────▼──────────────┐
+                        │   historyStorage Engine     │
+                        │ - loadDailyHistory()        │
+                        │ - recordTodayCompletion()   │
+                        │ - calculateStreaks()        │
+                        │ - initOctober26Baseline()   │
+                        │ - resetHistory()            │
+                        └──────────────┬──────────────┘
+                                       │
+                      localStorage['outreach_daily_history']
 ```
 
-### Components & Handlers
+### Components & Modules
 
-- **`src/components/SundayPrepView.tsx`** (New Component):
-  - Calming hero card with emerald accents.
-  - Curated collection of rest & preparation quotes with rotation state.
-  - Weekly statistics calculator parsing leads from the last 7 calendar days.
-  - Monday Queue preview query: filters leads with `scheduledDate` matching tomorrow (or next Monday) or unsent leads ready for launch.
-  - Primary CTA button dispatching `onNavigateToChannel(activeChannel)`.
-- **`src/components/TodaysSchedulePage.tsx`**:
-  - Integrates `isActualSunday` detection + `forceSundayPreview` state.
-  - Adds preview switch in header.
-  - Conditionally renders `<SundayPrepView>` when active, bypassing the standard outreach queues.
-- **`src/utils/cadenceEngine.ts`**:
-  - Helper functions `isTodaySunday()`, `getMondayDateStr()`, and `getWeeklyOutreachStats(allLeads)`.
+1. **`src/types.ts`**:
+   - Extend `GlobalNavTab` to include `'history'`.
+   - Define `DailyHistoryRecord`:
+     ```typescript
+     export interface DailyHistoryRecord {
+       date: string; // 'YYYY-MM-DD'
+       displayDate: string; // 'Oct 26, 2026'
+       dmsSent: number;
+       dmsTarget: number;
+       percentage: number; // 0 to 100
+       isSunday: boolean;
+       status: 'full' | 'partial' | 'zero' | 'sunday';
+       updatedAt: string;
+     }
+     ```
+2. **`src/utils/historyStorage.ts`**:
+   - `loadDailyHistory()`: Reads records, sorted descending by date.
+   - `saveDailyHistory(records)`: Saves array to `outreach_daily_history`.
+   - `initOctober26Baseline()`: Seeds Oct 26, 2026 record (`dmsSent: 6, dmsTarget: 6, percentage: 100`) if not yet present.
+   - `calculateStreaks(records)`: Computes current streak and best streak respecting Sunday skips.
+   - `recordTodayCompletion(sentCount, targetCount)`: Upserts today's entry with live calculations.
+3. **`src/components/HistoryPage.tsx`**:
+   - Top banner with streak cards: Current Streak (`🔥 X Days`), Best Streak (`🏆 Y Days`), and 30-day Completion Rate.
+   - 30-day interactive calendar grid displaying week day headers (Sun to Sat) with colored indicators and percentage tooltips.
+   - Chronological audit list showing full breakdown for each day.
+   - Reset History modal with two-step confirmation.
+4. **`src/components/Header.tsx`**:
+   - Add `"📊 History"` nav tab with `History` icon.
+5. **`src/App.tsx` & `src/components/TodaysSchedulePage.tsx`**:
+   - Wire route rendering for `'history'`.
+   - Attach automatic `recordTodayCompletion` hook on mount and task completions.

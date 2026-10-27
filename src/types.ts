@@ -235,7 +235,29 @@ export interface WeeklyAnalysisSummary {
 // Multi-Channel Outreach Command Center Types
 export type MultiChannelType = 'email' | 'instagram' | 'facebook';
 
-export type GlobalNavTab = 'email' | 'instagram' | 'facebook' | 'today' | 'dashboard' | 'insights';
+export type GlobalNavTab = 'email' | 'instagram' | 'facebook' | 'today' | 'dashboard' | 'insights' | 'history';
+
+export type DailyHistoryStatus = 'full' | 'partial' | 'zero' | 'sunday';
+
+export interface DailyHistoryRecord {
+  date: string; // 'YYYY-MM-DD'
+  displayDate: string; // e.g. "Oct 26, 2026"
+  dmsSent: number;
+  dmsTarget: number;
+  percentage: number; // 0 to 100
+  isSunday: boolean;
+  status: DailyHistoryStatus;
+  notes?: string;
+  updatedAt: string;
+}
+
+export interface HistoryStreakStats {
+  currentStreak: number;
+  bestStreak: number;
+  completedDaysCount: number;
+  averageCompletionRate: number;
+  totalDMsSent: number;
+}
 
 export type MultiChannelSubTab = 'leads' | 'dm' | 'schedule' | 'followup' | 'mockup';
 

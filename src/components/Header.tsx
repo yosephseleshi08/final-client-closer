@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   LineChart,
   Layers,
+  History,
 } from 'lucide-react';
 import { GlobalNavTab } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -76,6 +77,12 @@ export const Header: React.FC<HeaderProps> = ({
       label: 'Insights & Analysis',
       icon: <LineChart className="w-4 h-4" />,
       colorClass: 'text-emerald-400',
+    },
+    {
+      id: 'history',
+      label: '📊 History',
+      icon: <History className="w-4 h-4" />,
+      colorClass: 'text-orange-400',
     },
   ];
 

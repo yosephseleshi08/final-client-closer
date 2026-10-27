@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CalendarDays,
   Send,
@@ -26,6 +26,7 @@ import {
 import { ChannelLead, MultiChannelType } from '../types';
 import { QuickNoteModal } from './QuickNoteModal';
 import { SundayPrepView } from './SundayPrepView';
+import { recordTodayCompletion } from '../utils/historyStorage';
 import {
   getLocalTodayStr,
   isDateToday,
@@ -224,6 +225,11 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     ? Math.min(100, Math.round((sentTodayCount / dailyTargetTotal) * 100))
     : (sentTodayCount > 0 ? 100 : 0);
   const isGoalFinished = dailyTargetTotal > 0 && sentTodayCount >= dailyTargetTotal;
+
+  // Automatically sync today's date and current completion percentage into persistent daily history
+  useEffect(() => {
+    recordTodayCompletion(sentTodayCount, newDueTodayCount);
+  }, [sentTodayCount, newDueTodayCount]);
 
   const handleRestoreAllDismissed = () => {
     dismissedTodayLeads.forEach((lead) => {

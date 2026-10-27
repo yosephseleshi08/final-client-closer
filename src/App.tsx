@@ -4,6 +4,7 @@ import { ChannelWorkspace } from './components/channel/ChannelWorkspace';
 import { TodaysSchedulePage } from './components/TodaysSchedulePage';
 import { ExecutiveDashboard } from './components/ExecutiveDashboard';
 import { AnalyticsView } from './components/AnalyticsView';
+import { HistoryPage } from './components/HistoryPage';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import {
   ChannelLead,
@@ -153,6 +154,12 @@ export default function App() {
               emailLeads={emailLeads}
               instagramLeads={instagramLeads}
               facebookLeads={facebookLeads}
+            />
+          )}
+
+          {activeNavTab === 'history' && (
+            <HistoryPage
+              onNavigateToToday={() => setActiveNavTab('today')}
             />
           )}
         </main>
