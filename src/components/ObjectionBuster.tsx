@@ -88,32 +88,21 @@ export const ObjectionBuster: React.FC<ObjectionBusterProps> = ({
     },
   };
 
-  const handleResolveCustom = async () => {
+  const handleResolveCustom = () => {
     if (!customObjection.trim()) return;
     setIsResolving(true);
     setCustomResult(null);
 
-    try {
-      const res = await fetch('/api/gemini/objection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customQuery: customObjection,
-          leadName: currentLead?.restaurantName || 'The Restaurant',
-          price: '$299',
-        }),
-      });
-      const data = await res.json();
-      setCustomResult(data);
-    } catch (_err) {
+    const name = currentLead?.restaurantName || 'your spot';
+    setTimeout(() => {
       setCustomResult({
-        reframe: 'Reframe to immediate weekend booking revenue.',
-        response: `I hear you completely. Our goal is to bring ${currentLead?.restaurantName || 'your business'} 5-10 extra customers this week with zero technical effort from you.`,
-        closeQuestion: 'Would you be open to seeing a 2-minute live demo?',
+        reframe: 'Reframe to immediate weekend booking revenue and zero owner workload.',
+        response: `I hear you completely on "${customObjection.trim()}". Our setup for ${name} is 100% turnkey and designed to capture high-margin weekend orders without taking any of your team's time.`,
+        closeQuestion: 'Would you be open to taking 30 seconds to click through the live interactive preview?',
+        source: 'preset',
       });
-    } finally {
       setIsResolving(false);
-    }
+    }, 250);
   };
 
   const handleCopy = (text: string, key: string) => {
@@ -252,12 +241,12 @@ export const ObjectionBuster: React.FC<ObjectionBusterProps> = ({
             </div>
           </div>
 
-          {/* Ask Gemini for Unique Custom Objection */}
+          {/* Instant Custom Objection Reframe */}
           <div className="rounded-2xl border border-indigo-500/20 bg-indigo-950/20 p-4 space-y-3">
             <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-indigo-400" />
+              <span className="text-amber-400">⚡</span>
               <span className="text-xs font-bold text-white">
-                Faced an unusual objection? Let Gemini 3.8 Flash crush it:
+                Faced an unusual objection? Get an instant battle-tested closer reframe:
               </span>
             </div>
 

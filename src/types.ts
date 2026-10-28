@@ -112,6 +112,7 @@ export interface Lead {
   mockupCategory?: string;
   leadScore?: number;
   estimatedDealValue?: number;
+  isWarmedUp?: boolean;
   auditChecklist?: [boolean, boolean, boolean];
   phone?: string;
   email?: string;
@@ -286,6 +287,9 @@ export interface ChannelLead {
   // Quick Notes (Daily Schedule & Dispatch Log)
   quickNote?: string;
   quickNoteSavedAt?: string;
+
+  // Warm-Up System
+  isWarmedUp?: boolean;
 
   // Sub-page C: Schedule Date
   scheduledDate?: string; // YYYY-MM-DD format (planned initial outreach date)

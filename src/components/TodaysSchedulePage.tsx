@@ -989,8 +989,28 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         <span>Replied!</span>
                       </button>
 
+                      {/* Warmed Up Checkbox Requirement */}
+                      <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none border border-white/10 bg-white/5 hover:bg-white/10">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(lead.isWarmedUp)}
+                          onChange={() => {
+                            handleUpdateLead({
+                              ...lead,
+                              isWarmedUp: !lead.isWarmedUp,
+                            });
+                          }}
+                          className="w-3.5 h-3.5 rounded text-amber-500 focus:ring-amber-500/30 cursor-pointer accent-amber-500"
+                        />
+                        <span className={lead.isWarmedUp ? 'text-emerald-300 flex items-center gap-1' : 'text-amber-300 flex items-center gap-1'}>
+                          <span>🔥</span>
+                          <span>{lead.isWarmedUp ? 'Warmed Up' : 'Warmed Up?'}</span>
+                        </span>
+                      </label>
+
                       <button
                         type="button"
+                        disabled={!lead.isWarmedUp}
                         onClick={() => {
                           if (isInitial) {
                             handleUpdateLead(markInitialSent(lead));
@@ -1000,7 +1020,12 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                             handleUpdateLead(markFollowupSent(lead, 2));
                           }
                         }}
-                        className="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-rose-600/30 transition cursor-pointer"
+                        className={`px-4 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition ${
+                          lead.isWarmedUp
+                            ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30 cursor-pointer'
+                            : 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed opacity-60'
+                        }`}
+                        title={!lead.isWarmedUp ? 'Check "Warmed Up?" to unlock sending' : 'Mark outreach as sent'}
                       >
                         <Send className="w-3.5 h-3.5" />
                         <span>
@@ -1172,10 +1197,35 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         <span>Replied!</span>
                       </button>
 
+                      {/* Warmed Up Checkbox Requirement */}
+                      <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none border border-white/10 bg-white/5 hover:bg-white/10">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(lead.isWarmedUp)}
+                          onChange={() => {
+                            handleUpdateLead({
+                              ...lead,
+                              isWarmedUp: !lead.isWarmedUp,
+                            });
+                          }}
+                          className="w-3.5 h-3.5 rounded text-amber-500 focus:ring-amber-500/30 cursor-pointer accent-amber-500"
+                        />
+                        <span className={lead.isWarmedUp ? 'text-emerald-300 flex items-center gap-1' : 'text-amber-300 flex items-center gap-1'}>
+                          <span>🔥</span>
+                          <span>{lead.isWarmedUp ? 'Warmed Up' : 'Warmed Up?'}</span>
+                        </span>
+                      </label>
+
                       <button
                         type="button"
+                        disabled={!lead.isWarmedUp}
                         onClick={() => handleUpdateLead(markInitialSent(lead))}
-                        className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-600/30 transition cursor-pointer"
+                        className={`px-4 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition ${
+                          lead.isWarmedUp
+                            ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30 cursor-pointer'
+                            : 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed opacity-60'
+                        }`}
+                        title={!lead.isWarmedUp ? 'Check "Warmed Up?" to unlock sending' : 'Mark outreach as dispatched'}
                       >
                         <Send className="w-3.5 h-3.5" />
                         <span>Mark Initial Sent</span>
@@ -1366,14 +1416,37 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         <span>Replied!</span>
                       </button>
 
+                      {/* Warmed Up Checkbox Requirement */}
+                      <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none border border-white/10 bg-white/5 hover:bg-white/10">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(lead.isWarmedUp)}
+                          onChange={() => {
+                            handleUpdateLead({
+                              ...lead,
+                              isWarmedUp: !lead.isWarmedUp,
+                            });
+                          }}
+                          className="w-3.5 h-3.5 rounded text-amber-500 focus:ring-amber-500/30 cursor-pointer accent-amber-500"
+                        />
+                        <span className={lead.isWarmedUp ? 'text-emerald-300 flex items-center gap-1' : 'text-amber-300 flex items-center gap-1'}>
+                          <span>🔥</span>
+                          <span>{lead.isWarmedUp ? 'Warmed Up' : 'Warmed Up?'}</span>
+                        </span>
+                      </label>
+
                       <button
                         type="button"
+                        disabled={!lead.isWarmedUp}
                         onClick={() => handleUpdateLead(markFollowupSent(lead, isDay3 ? 1 : 2))}
-                        className={`px-4 py-1.5 rounded-xl text-white font-bold text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer ${
-                          isDay3
-                            ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/30'
-                            : 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30'
+                        className={`px-4 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition ${
+                          !lead.isWarmedUp
+                            ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed opacity-60'
+                            : isDay3
+                            ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30 cursor-pointer'
+                            : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30 cursor-pointer'
                         }`}
+                        title={!lead.isWarmedUp ? 'Check "Warmed Up?" to unlock sending' : 'Mark follow-up as dispatched'}
                       >
                         <Check className="w-3.5 h-3.5" />
                         <span>{isDay3 ? 'Mark FU 1 Sent (Day 3)' : 'Mark FU 2 Sent (Day 7)'}</span>

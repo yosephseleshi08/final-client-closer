@@ -31,6 +31,10 @@ import {
   X,
   ArrowRight,
   StickyNote,
+  Flame,
+  Info,
+  Calendar,
+  CheckCircle2,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import {
@@ -41,7 +45,13 @@ import {
   normalizeUrlForDuplicateCheck,
   formatAddedDate,
   validateChannelLink,
+  resequenceLeadIds,
 } from '../../utils/channelStorage';
+import {
+  getScheduleDayStyle,
+  shouldShowWarmupAlert,
+  isDateToday,
+} from '../../utils/cadenceEngine';
 import { playWarningChime } from '../../utils/soundEffects';
 import { LeadAnalysisModal } from './LeadAnalysisModal';
 import { QuickNoteModal } from '../QuickNoteModal';
@@ -56,12 +66,18 @@ interface LeadsSubPageProps {
 interface SortableLeadRowProps {
   lead: ChannelLead;
   onDelete: (id: string) => void;
-  onOpenAnalysis: (lead: ChannelLead) => void;
-  onOpenNote: (lead: ChannelLead) => void;
+  onOpenDetails: (lead: ChannelLead) => void;
+  onToggleWarmup: (lead: ChannelLead) => void;
   isJustAdded?: boolean;
 }
 
-function SortableLeadRow({ lead, onDelete, onOpenAnalysis, onOpenNote, isJustAdded }: SortableLeadRowProps) {
+function SortableLeadRow({
+  lead,
+  onDelete,
+  onOpenDetails,
+  onToggleWarmup,
+  isJustAdded,
+}: SortableLeadRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: lead.id });
 
@@ -75,16 +91,29 @@ function SortableLeadRow({ lead, onDelete, onOpenAnalysis, onOpenNote, isJustAdd
     ? lead.link
     : `https://${lead.link}`;
 
+  // 1. Color-code leads by scheduled day (Monday: Blue, Tuesday: Purple, etc.)
+  const dayStyle = getScheduleDayStyle(lead.scheduledDate);
+
+  // 2. Highlight Today's Leads with subtle emerald glow / badge
+  const isDueToday = isDateToday(lead.scheduledDate);
+
+  // 3. Smart Warm-Up Alert Check
+  const isWarmupAlert = shouldShowWarmupAlert(lead);
+
   return (
     <tr
       ref={setNodeRef}
       style={style}
-      className={`border-b border-white/[0.06] transition-all duration-300 group ${
+      className={`border-b border-white/[0.06] transition-all duration-200 group ${
+        dayStyle.borderClass
+      } ${dayStyle.tintClass} ${
         isDragging
           ? 'bg-indigo-950/60 shadow-xl border-indigo-500/40 opacity-95'
           : isJustAdded
-          ? 'bg-indigo-950/50 ring-1 ring-indigo-500/70 border-indigo-500/40'
-          : 'hover:bg-white/[0.02]'
+          ? 'bg-indigo-950/50 ring-2 ring-indigo-500/70 border-indigo-500/40'
+          : isDueToday
+          ? 'ring-2 ring-emerald-500/50 bg-emerald-950/20 shadow-[0_0_15px_rgba(16,185,129,0.12)]'
+          : ''
       }`}
     >
       {/* Drag Handle & ID */}
@@ -103,34 +132,58 @@ function SortableLeadRow({ lead, onDelete, onOpenAnalysis, onOpenNote, isJustAdd
           <span className="font-semibold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
             {lead.id}
           </span>
+          {isDueToday && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm animate-pulse">
+              TODAY
+            </span>
+          )}
           {isJustAdded && (
-            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono animate-pulse">
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
               NEW
             </span>
           )}
         </div>
       </td>
 
-      {/* Name & Visual Indicator (Green dot + Analysis Ready badge + Quick Note badge) */}
+      {/* Name, Schedule Day & Quick Note Indicator (Click to open Lead Details) */}
       <td className="py-3.5 px-4 text-left">
         <div className="flex flex-col gap-1">
-          <span className="truncate max-w-xs text-sm font-medium text-slate-100 font-['Outfit']">{lead.name}</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => onOpenDetails(lead)}
+              className="text-left font-medium text-slate-100 hover:text-indigo-300 transition-colors font-['Outfit'] truncate max-w-xs cursor-pointer flex items-center gap-1.5 group/name"
+              title="Click to view Lead Details & Notes"
+            >
+              <span className="truncate">{lead.name}</span>
+            </button>
+
+            {/* Schedule Day Badge */}
+            <span
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold font-mono border ${dayStyle.badgeClass}`}
+              title={`Scheduled for ${dayStyle.dayName} (${lead.scheduledDate || 'Unscheduled'})`}
+            >
+              <span>{dayStyle.dayShort}</span>
+              {lead.scheduledDate && (
+                <span className="opacity-75">· {lead.scheduledDate.split('-').slice(1).join('/')}</span>
+              )}
+            </span>
+          </div>
+
           <div className="flex items-center gap-2 flex-wrap">
             {lead.leadAnalysis ? (
               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
                 Analysis Ready
               </span>
-            ) : (
-              <span className="text-[10px] text-slate-500">No analysis yet</span>
-            )}
+            ) : null}
 
             {lead.quickNote && (
               <button
                 type="button"
-                onClick={() => onOpenNote(lead)}
+                onClick={() => onOpenDetails(lead)}
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[10px] font-medium transition cursor-pointer max-w-xs truncate"
-                title={`Quick Note: ${lead.quickNote} (click to edit)`}
+                title={`Note: "${lead.quickNote}" (click to view details)`}
               >
                 <StickyNote className="w-2.5 h-2.5 text-amber-400 shrink-0" />
                 <span className="truncate">"{lead.quickNote}"</span>
@@ -153,43 +206,48 @@ function SortableLeadRow({ lead, onDelete, onOpenAnalysis, onOpenNote, isJustAdd
         </a>
       </td>
 
-      {/* Action Column: Quick Note, Prompt Button & Delete */}
+      {/* Action Column: Warm Up Button, Details Button & Delete */}
       <td className="py-3.5 px-4 text-right">
         <div className="flex items-center justify-end gap-2">
+          {/* 🔥 Warm-Up System Button */}
           <button
             type="button"
-            onClick={() => onOpenNote(lead)}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
-              lead.quickNote
-                ? 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 shadow-sm'
-                : 'border-white/10 bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700'
+            onClick={() => onToggleWarmup(lead)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95 ${
+              lead.isWarmedUp
+                ? 'border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 shadow-emerald-950/40'
+                : isWarmupAlert
+                ? 'border-amber-500/50 bg-amber-500/25 text-amber-300 hover:bg-amber-500/35 animate-pulse shadow-amber-500/25 ring-1 ring-amber-400/40'
+                : 'border-amber-500/30 bg-amber-500/10 text-amber-300/85 hover:bg-amber-500/20 hover:border-amber-500/40'
             }`}
-            title={lead.quickNote ? 'Edit Quick Note' : 'Add Quick Note'}
-            aria-label={`Note for ${lead.name}`}
+            title={
+              lead.isWarmedUp
+                ? '🔥 Profile Warmed Up! (Click to toggle)'
+                : isWarmupAlert
+                ? '🔥 Warm-up alert! Engage prospect before outreach'
+                : 'Click to mark profile as warmed up'
+            }
           >
-            <StickyNote className="w-3.5 h-3.5 text-amber-400" />
-            <span>{lead.quickNote ? 'Note' : '+ Note'}</span>
+            <span className={!lead.isWarmedUp && isWarmupAlert ? 'animate-bounce' : ''}>🔥</span>
+            <span>{lead.isWarmedUp ? 'Warmed Up' : 'Warm Up'}</span>
           </button>
 
+          {/* Details & Notes Button */}
           <button
             type="button"
-            onClick={() => onOpenAnalysis(lead)}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
-              lead.leadAnalysis
-                ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 shadow-sm'
-                : 'border-white/10 bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700'
-            }`}
-            title="Open Gemini Lead Analysis & DeepSeek prompt hub"
-            aria-label={`Open prompt analysis for ${lead.name}`}
+            onClick={() => onOpenDetails(lead)}
+            className="px-2.5 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+            title="Open Lead Details, Notes & Prompt Hub"
           >
-            <span>📋 Prompt</span>
+            <span>Details</span>
           </button>
 
+          {/* Delete Button */}
           <button
             type="button"
             onClick={() => onDelete(lead.id)}
             className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-            title="Delete lead"
+            title="Delete lead (remaining IDs will re-sequence with no gaps)"
             aria-label={`Delete ${lead.name}`}
           >
             <Trash2 className="w-4 h-4" />
@@ -224,8 +282,76 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   const [selectedLeadForAnalysis, setSelectedLeadForAnalysis] = useState<ChannelLead | null>(null);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
 
-  // Quick Note Modal state
+  // Lead Details & Notes Modal state
+  const [selectedLeadForDetails, setSelectedLeadForDetails] = useState<ChannelLead | null>(null);
+  const [detailsNoteText, setDetailsNoteText] = useState('');
+  const [detailsNoteSaved, setDetailsNoteSaved] = useState(false);
+
+  // Quick Note Modal state (kept for backward compatibility)
   const [noteModalLead, setNoteModalLead] = useState<ChannelLead | null>(null);
+
+  const handleOpenDetails = (lead: ChannelLead) => {
+    setSelectedLeadForDetails(lead);
+    setDetailsNoteText(lead.quickNote || '');
+    setDetailsNoteSaved(false);
+  };
+
+  const handleToggleWarmup = (lead: ChannelLead) => {
+    const nextVal = !lead.isWarmedUp;
+    const updated = leads.map((l) =>
+      l.id === lead.id ? { ...l, isWarmedUp: nextVal } : l
+    );
+    onUpdateLeads(updated);
+    if (selectedLeadForDetails && selectedLeadForDetails.id === lead.id) {
+      setSelectedLeadForDetails({
+        ...selectedLeadForDetails,
+        isWarmedUp: nextVal,
+      });
+    }
+  };
+
+  const handleSaveNoteInDetails = () => {
+    if (!selectedLeadForDetails) return;
+    const trimmed = detailsNoteText.trim();
+    const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const updated = leads.map((l) =>
+      l.id === selectedLeadForDetails.id
+        ? {
+            ...l,
+            quickNote: trimmed || undefined,
+            quickNoteSavedAt: trimmed ? nowStr : undefined,
+          }
+        : l
+    );
+    onUpdateLeads(updated);
+    setSelectedLeadForDetails({
+      ...selectedLeadForDetails,
+      quickNote: trimmed || undefined,
+      quickNoteSavedAt: trimmed ? nowStr : undefined,
+    });
+    setDetailsNoteSaved(true);
+    setTimeout(() => setDetailsNoteSaved(false), 2000);
+  };
+
+  const handleDeleteNoteInDetails = () => {
+    if (!selectedLeadForDetails) return;
+    const updated = leads.map((l) =>
+      l.id === selectedLeadForDetails.id
+        ? {
+            ...l,
+            quickNote: undefined,
+            quickNoteSavedAt: undefined,
+          }
+        : l
+    );
+    onUpdateLeads(updated);
+    setSelectedLeadForDetails({
+      ...selectedLeadForDetails,
+      quickNote: undefined,
+      quickNoteSavedAt: undefined,
+    });
+    setDetailsNoteText('');
+  };
 
   const handleSaveQuickNote = (noteText: string) => {
     if (!noteModalLead) return;
@@ -490,9 +616,12 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   const handleDeleteLead = (id: string) => {
     if (window.confirm('Are you sure you want to delete this lead?')) {
       const filtered = leads.filter((l) => l.id !== id);
-      // Re-normalize sortOrder
-      const reindexed = filtered.map((l, index) => ({ ...l, sortOrder: index }));
-      onUpdateLeads(reindexed);
+      // Re-sequence all lead IDs based on array index to eliminate gaps (e.g. IG-1, IG-2, etc.)
+      const resequenced = resequenceLeadIds(filtered, channel);
+      onUpdateLeads(resequenced);
+      if (selectedLeadForDetails?.id === id) {
+        setSelectedLeadForDetails(null);
+      }
     }
   };
 
@@ -735,8 +864,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                         key={lead.id}
                         lead={lead}
                         onDelete={handleDeleteLead}
-                        onOpenAnalysis={handleOpenAnalysis}
-                        onOpenNote={setNoteModalLead}
+                        onOpenDetails={handleOpenDetails}
+                        onToggleWarmup={handleToggleWarmup}
                         isJustAdded={lead.id === justAddedLeadId}
                       />
                     ))}
@@ -915,6 +1044,193 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Lead Details & Notes Modal */}
+      {selectedLeadForDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
+          <div className="w-full max-w-lg rounded-3xl bg-slate-900 border border-white/10 p-6 sm:p-7 shadow-2xl space-y-5 text-slate-100 max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-white/10 pb-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold text-indigo-400 bg-indigo-500/15 px-2.5 py-0.5 rounded-lg border border-indigo-500/30 text-xs font-mono">
+                    {selectedLeadForDetails.id}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-lg bg-white/5 border border-white/10 text-xs font-medium text-slate-300">
+                    {getChannelLabel(selectedLeadForDetails.channel)}
+                  </span>
+                  {selectedLeadForDetails.isWarmedUp ? (
+                    <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold font-mono flex items-center gap-1">
+                      <span>🔥</span>
+                      <span>Warmed Up</span>
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-bold font-mono flex items-center gap-1">
+                      <span>🔥</span>
+                      <span>Unwarmed</span>
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-xl font-black text-white font-['Outfit'] mt-1">
+                  {selectedLeadForDetails.name}
+                </h3>
+                <a
+                  href={
+                    selectedLeadForDetails.link.startsWith('http')
+                      ? selectedLeadForDetails.link
+                      : `https://${selectedLeadForDetails.link}`
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-mono max-w-md truncate"
+                >
+                  <span className="truncate">{selectedLeadForDetails.link}</span>
+                  <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-75" />
+                </a>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedLeadForDetails(null)}
+                className="rounded-xl p-1.5 text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Schedule Day & Warm-Up Control Strip */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Day info */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-white/10 space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">
+                  Scheduled Day
+                </span>
+                {(() => {
+                  const style = getScheduleDayStyle(selectedLeadForDetails.scheduledDate);
+                  return (
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono border ${style.badgeClass}`}>
+                        {style.dayName}
+                      </span>
+                      <span className="text-xs text-slate-300 font-mono">
+                        {selectedLeadForDetails.scheduledDate || 'Unscheduled'}
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Warm-Up Action */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-white/10 space-y-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">
+                  Warm-Up Status
+                </span>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleWarmup(selectedLeadForDetails)}
+                    className={`w-full py-1.5 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
+                      selectedLeadForDetails.isWarmedUp
+                        ? 'border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
+                        : 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
+                    }`}
+                  >
+                    <span>🔥</span>
+                    <span>
+                      {selectedLeadForDetails.isWarmedUp
+                        ? 'Warmed Up (Click to toggle)'
+                        : 'Mark as Warmed Up'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Note Feature (Moved to Lead Details Modal) */}
+            <div className="p-4 rounded-2xl bg-slate-950/70 border border-amber-500/30 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <StickyNote className="w-4 h-4 text-amber-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-300 font-mono">
+                    Lead Note &amp; Intel
+                  </span>
+                </div>
+                {selectedLeadForDetails.quickNoteSavedAt && (
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    Saved at {selectedLeadForDetails.quickNoteSavedAt}
+                  </span>
+                )}
+              </div>
+
+              <textarea
+                value={detailsNoteText}
+                onChange={(e) => setDetailsNoteText(e.target.value)}
+                placeholder="Add private note, owner name, pain points, or conversation takeaways for this lead..."
+                rows={3}
+                className="w-full p-3 bg-slate-900 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+              />
+
+              <div className="flex items-center justify-between gap-2 pt-1">
+                {selectedLeadForDetails.quickNote ? (
+                  <button
+                    type="button"
+                    onClick={handleDeleteNoteInDetails}
+                    className="text-xs font-semibold text-rose-400 hover:text-rose-300 p-1.5 rounded transition cursor-pointer"
+                  >
+                    Clear Note
+                  </button>
+                ) : (
+                  <div />
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleSaveNoteInDetails}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-950/40 transition cursor-pointer active:scale-95"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>{detailsNoteSaved ? 'Note Saved!' : 'Save Note'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Lead Analysis & Prompt Link */}
+            {selectedLeadForDetails.leadAnalysis ? (
+              <div className="p-4 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-300 uppercase font-mono">
+                    Gemini Lead Analysis
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleOpenAnalysis(selectedLeadForDetails);
+                      setSelectedLeadForDetails(null);
+                    }}
+                    className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
+                  >
+                    Open Full Prompt Hub
+                  </button>
+                </div>
+                <p className="text-xs text-slate-300 line-clamp-3 italic">
+                  "{selectedLeadForDetails.leadAnalysis}"
+                </p>
+              </div>
+            ) : null}
+
+            {/* Modal Actions */}
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setSelectedLeadForDetails(null)}
+                className="px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}

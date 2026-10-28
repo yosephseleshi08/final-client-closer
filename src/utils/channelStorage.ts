@@ -84,6 +84,52 @@ export function getNextLeadId(
 }
 
 /**
+ * Re-sequences all lead IDs and sort orders sequentially with no gaps.
+ * e.g., if IG-3 is deleted, subsequent leads become IG-3, IG-4, etc.
+ * The format stays: IG-1, IG-2, FB-1, EM-1, etc.
+ */
+export function resequenceLeadIds(
+  leads: ChannelLead[],
+  channel: MultiChannelType
+): ChannelLead[] {
+  const prefix = getChannelPrefix(channel);
+  return leads.map((lead, index) => {
+    const seq = index + 1;
+    return {
+      ...lead,
+      numericId: seq,
+      id: `${prefix}-${seq}`,
+      sortOrder: index,
+    };
+  });
+}
+
+/**
+ * Generates the exact DeepSeek outreach strategy prompt for Ridge Creative Web Studio,
+ * wrapping the pasted Gemini lead analysis directly without automatic alteration.
+ */
+export function generateLeadPrompt(
+  lead: ChannelLead,
+  _channel?: MultiChannelType
+): string {
+  const restaurantName = lead?.name?.trim() || '[Restaurant Name]';
+  const pastedAnalysis = (lead?.leadAnalysis || '').trim() || '[MY PASTED ANALYSIS GOES HERE]';
+
+  return `Act as an elite B2B cold outreach strategist for Ridge Creative Web Studio.
+
+I will provide you with a detailed lead analysis. Your goal is to generate a complete 3-message outreach sequence (Initial DM, 3-Day Follow-Up, 7-Day Breakup) based on that analysis.
+
+THE STRATEGY RULES:
+1. Initial DM (Under 75 words): Start with "Hey ${restaurantName} team,". Include the brand compliment from the analysis. Pivot to the core revenue leak and quantify the loss. Mention the custom mockup. End with "Mind if I send the live link?"
+2. 3-Day Follow-Up (Under 60 words): Mention the screenshot. Add a quick case study. Include a chart emoji. CTA: "Want me to send the live link?"
+3. 7-Day Breakup (Under 60 words): Acknowledge they are busy. Close the file. CTA: "Reply Yes, Later, or No."
+
+Lead Analysis:
+${pastedAnalysis}`;
+}
+
+
+/**
  * Extracts a suggested business name from a URL or handle.
  */
 export function extractSuggestedName(rawInput: string): string {

@@ -12,6 +12,8 @@ import {
   Trash2,
   Clock,
 } from 'lucide-react';
+import { generateLeadPrompt } from '../../utils/channelStorage';
+import { MultiChannelType } from '../../types';
 export interface AnalyzableLead {
   id: string | number;
   name: string;
@@ -64,18 +66,43 @@ export const LeadAnalysisModal: React.FC<LeadAnalysisModalProps> = ({
   };
 
   const copyToClipboard = async (text: string, type: 'raw' | 'deepseek') => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedType(type);
-      setTimeout(() => setCopiedType(null), 2500);
-    } catch (err) {
-      // Fallback
-      const textArea = document.createElement('textarea');
-      textArea.value = text;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
+    let success = false;
+    if (navigator?.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        success = true;
+      } catch (err) {
+        console.warn('navigator.clipboard.writeText failed, using fallback:', err);
+      }
+    }
+    if (!success) {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.top = '0';
+        textArea.style.left = '0';
+        textArea.style.width = '2em';
+        textArea.style.height = '2em';
+        textArea.style.padding = '0';
+        textArea.style.border = 'none';
+        textArea.style.outline = 'none';
+        textArea.style.boxShadow = 'none';
+        textArea.style.background = 'transparent';
+        textArea.setAttribute('readonly', '');
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        textArea.setSelectionRange(0, text.length);
+        const ok = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (ok) success = true;
+      } catch (fallbackErr) {
+        console.error('execCommand fallback failed:', fallbackErr);
+      }
+    }
+
+    if (success) {
       setCopiedType(type);
       setTimeout(() => setCopiedType(null), 2500);
     }
@@ -87,28 +114,19 @@ export const LeadAnalysisModal: React.FC<LeadAnalysisModalProps> = ({
   };
 
   const handleCopyDeepSeekPrompt = () => {
-    const rawAnalysis = analysisText.trim() || 'No specific analysis notes provided yet.';
-    const promptText = `Act as an elite B2B sales copywriter and cold DM closer.
-Using the following Gemini Lead Analysis for the prospect below, craft a punchy, personalized 3-step outreach sequence:
-
-PROSPECT INFORMATION:
-- Business / Prospect Name: ${lead.name}
-- Channel / Platform: ${currentChannel.charAt(0).toUpperCase() + currentChannel.slice(1)}
-- Link / Profile: ${lead.link}
-
-GEMINI LEAD RESEARCH & ANALYSIS:
-${rawAnalysis}
-
-STRICT SEQUENCE CONSTRAINTS:
-1. Message 1 (Initial DM - Day 1): High-converting personalized hook highlighting specific opportunities from the analysis. Under 45 words. Low-friction call-to-action (e.g. asking if they want a 30-sec preview or waiving the setup fee).
-2. Message 2 (Day 3 Follow-Up Bump): Polite, ultra-casual follow-up checking if they saw the preview link. Under 25 words.
-3. Message 3 (Day 7 Breakup / Loom Offer): Respectful final touch offering a 45-sec walkthrough or leaving them alone. Under 30 words.
-
-OUTPUT FORMAT:
-Provide ONLY the 3 ready-to-paste messages with labels:
-[INITIAL DM]
-[DAY 3 FOLLOWUP]
-[DAY 7 BREAKUP]`;
+    const promptText = generateLeadPrompt(
+      {
+        id: String(lead.id),
+        numericId: typeof lead.id === 'number' ? lead.id : 1,
+        name: lead.name,
+        link: lead.link,
+        channel: (channel as MultiChannelType) || 'instagram',
+        sortOrder: 0,
+        createdAt: new Date().toISOString(),
+        leadAnalysis: analysisText.trim(),
+      },
+      (channel as MultiChannelType) || 'instagram'
+    );
 
     copyToClipboard(promptText, 'deepseek');
   };

@@ -5,10 +5,8 @@ import {
   Copy,
   ExternalLink,
   MessageSquare,
-  Sparkles,
   X,
   FileText,
-  Loader2,
   Send,
   Clock,
   HeartHandshake,
@@ -16,6 +14,7 @@ import {
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import { getChannelLabel } from '../../utils/channelStorage';
+import { LeadAnalysisModal } from './LeadAnalysisModal';
 
 interface DmSubPageProps {
   channel: MultiChannelType;
@@ -25,14 +24,13 @@ interface DmSubPageProps {
 
 export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [promptModalLeadId, setPromptModalLeadId] = useState<string | null>(null);
 
-  // 3-Step Sequence States
+  // 3-Step Sequence States (Manual Writing & Storage)
   const [initialDraft, setInitialDraft] = useState('');
   const [followup3Draft, setFollowup3Draft] = useState('');
   const [followup7Draft, setFollowup7Draft] = useState('');
   const [activeStepTab, setActiveStepTab] = useState<'all' | 'step1' | 'step2' | 'step3'>('all');
-  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
-  const [generationError, setGenerationError] = useState<string | null>(null);
 
   const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -44,7 +42,6 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
     setInitialDraft(lead.initialDM || lead.customPitch || '');
     setFollowup3Draft(lead.followup3DM || '');
     setFollowup7Draft(lead.followup7DM || '');
-    setGenerationError(null);
     setActiveStepTab('all');
   };
 
@@ -76,54 +73,74 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
     setSelectedLeadId(null);
   };
 
-  const handleGenerateAiSequence = async () => {
-    if (!selectedLead) return;
-    setIsGeneratingAi(true);
-    setGenerationError(null);
-
-    try {
-      const response = await fetch('/api/gemini/sequence', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          channel,
-          leadName: selectedLead.name,
-          leadLink: selectedLead.link,
-          leadAnalysis: selectedLead.leadAnalysis,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}`);
+  const handleSaveLeadAnalysis = (leadId: string, analysisText: string) => {
+    const updated = leads.map((l) => {
+      if (l.id === leadId) {
+        return {
+          ...l,
+          leadAnalysis: analysisText.trim() || undefined,
+          analysisSavedAt: new Date().toISOString(),
+        };
       }
-
-      const data = await response.json();
-      if (data.initialDM) setInitialDraft(data.initialDM);
-      if (data.followup3DM) setFollowup3Draft(data.followup3DM);
-      if (data.followup7DM) setFollowup7Draft(data.followup7DM);
-    } catch (err) {
-      console.error('Failed to generate AI sequence:', err);
-      // Fallback local heuristic generation
-      const name = selectedLead.name || 'there';
-      setInitialDraft(
-        `Hey ${name}! Loved your profile. Built a 0.3s interactive prototype showing how you can capture 3x more bookings directly: mind if I share the 20-second preview?`
-      );
-      setFollowup3Draft(
-        `Hey ${name}, bumping this quick! Wondering if you had 30 seconds to click through the interactive demo I put together for ${name}? No pressure at all!`
-      );
-      setFollowup7Draft(
-        `Hey ${name}, wanted to send one final quick note! Recorded a 45-second screen recording showing exactly how the setup works for ${name}. Should I drop the link here or leave you be?`
-      );
-    } finally {
-      setIsGeneratingAi(false);
-    }
+      return l;
+    });
+    onUpdateLeads(updated);
   };
 
-  const handleCopyText = (key: string, text?: string) => {
+  const handleCopyText = async (key: string, text?: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (!text || !text.trim()) return;
-    navigator.clipboard.writeText(text);
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey(null), 2000);
+
+    let copied = false;
+
+    // 1. Try modern navigator.clipboard.writeText
+    if (navigator?.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      } catch (err) {
+        console.warn('navigator.clipboard.writeText failed, using fallback:', err);
+      }
+    }
+
+    // 2. Fallback to textarea + document.execCommand('copy')
+    if (!copied) {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.top = '0';
+        textArea.style.left = '0';
+        textArea.style.width = '2em';
+        textArea.style.height = '2em';
+        textArea.style.padding = '0';
+        textArea.style.border = 'none';
+        textArea.style.outline = 'none';
+        textArea.style.boxShadow = 'none';
+        textArea.style.background = 'transparent';
+        textArea.setAttribute('readonly', '');
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        textArea.setSelectionRange(0, text.length);
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (successful) {
+          copied = true;
+        }
+      } catch (fallbackErr) {
+        console.error('execCommand fallback copy failed:', fallbackErr);
+      }
+    }
+
+    // Visual feedback ONLY changes to "Copied!" after text is actually copied
+    if (copied) {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
+    }
   };
 
   const insertToken = (token: string, targetStep?: '1' | '2' | '3') => {
@@ -302,7 +319,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                           {initialMsg && (
                             <button
                               type="button"
-                              onClick={() => handleCopyText(`${lead.id}-step1`, initialMsg)}
+                              onClick={async (e) => await handleCopyText(`${lead.id}-step1`, initialMsg, e)}
                               className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
                                 copiedKey === `${lead.id}-step1`
                                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
@@ -323,6 +340,23 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                               )}
                             </button>
                           )}
+
+                          <button
+                            type="button"
+                            onClick={() => setPromptModalLeadId(lead.id)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${
+                              lead.leadAnalysis?.trim()
+                                ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-500/30'
+                                : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 hover:text-white border-indigo-500/30'
+                            }`}
+                            title="Open Lead Analysis & Prompt Hub"
+                          >
+                            <span>📋</span>
+                            <span>Prompt</span>
+                            {lead.leadAnalysis?.trim() && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Analysis saved" />
+                            )}
+                          </button>
 
                           <button
                             type="button"
@@ -377,45 +411,32 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
               </button>
             </div>
 
-            {/* AI Generator Action Banner */}
-            <div className="rounded-xl border border-indigo-500/30 bg-gradient-to-r from-indigo-950/50 via-slate-900/60 to-purple-950/40 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* Manual Sequence Info & Prompt Hub Access */}
+            <div className="rounded-xl border border-white/10 bg-slate-950/70 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shrink-0">
-                  <Sparkles className="w-4 h-4 text-indigo-300" />
+                <div className="p-2 rounded-xl bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 shrink-0">
+                  <FileText className="w-4 h-4 text-indigo-300" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-white">1-Click AI Sequence Generator</h4>
+                  <h4 className="text-xs font-bold text-white">Manual 3-Step Sequence Editor</h4>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Generate tailored copy for Day 1, Day 3, and Day 7 in one click.
+                    Write tailored Day 1, Day 3, and Day 7 messages for manual outreach.
                   </p>
                 </div>
               </div>
 
               <button
                 type="button"
-                onClick={handleGenerateAiSequence}
-                disabled={isGeneratingAi}
-                className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/30 cursor-pointer disabled:opacity-50 shrink-0"
+                onClick={() => setPromptModalLeadId(selectedLead.id)}
+                className="px-3.5 py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
               >
-                {isGeneratingAi ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Generating...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>⚡ Generate 3-Step Sequence</span>
-                  </>
+                <span>📋</span>
+                <span>Open Prompt Hub</span>
+                {selectedLead.leadAnalysis?.trim() && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 )}
               </button>
             </div>
-
-            {generationError && (
-              <div className="p-2.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs">
-                {generationError}
-              </div>
-            )}
 
             {/* Quick Helper Tokens */}
             <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
@@ -549,6 +570,15 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
           </div>
         </div>
       )}
+
+      {/* Lead Analysis & Prompt Hub Modal */}
+      <LeadAnalysisModal
+        isOpen={!!promptModalLeadId}
+        onClose={() => setPromptModalLeadId(null)}
+        lead={leads.find((l) => l.id === promptModalLeadId) || null}
+        channel={channel}
+        onSaveAnalysis={handleSaveLeadAnalysis}
+      />
     </div>
   );
 }

@@ -404,3 +404,157 @@ export function getWeeklyOutreachStats(
   };
 }
 
+export interface ScheduleDayStyle {
+  dayName: string;
+  dayShort: string;
+  borderClass: string;
+  tintClass: string;
+  badgeClass: string;
+  textClass: string;
+}
+
+/**
+ * Color-codes leads based on scheduled day:
+ * - Monday: Blue
+ * - Tuesday: Purple
+ * - Wednesday: Green
+ * - Thursday: Amber
+ * - Friday: Rose
+ * - Saturday: Cyan
+ * - Sunday: Rest (no color)
+ * - Unscheduled: Grey
+ */
+export function getScheduleDayStyle(dateStr?: string | null): ScheduleDayStyle {
+  if (!dateStr) {
+    return {
+      dayName: 'Unscheduled',
+      dayShort: 'None',
+      borderClass: 'border-l-4 border-l-slate-700/60',
+      tintClass: 'hover:bg-slate-900/30',
+      badgeClass: 'bg-slate-800 text-slate-400 border-white/5',
+      textClass: 'text-slate-500',
+    };
+  }
+
+  const normalized = normalizeToLocalDateStr(dateStr);
+  if (!normalized) {
+    return {
+      dayName: 'Unscheduled',
+      dayShort: 'None',
+      borderClass: 'border-l-4 border-l-slate-700/60',
+      tintClass: 'hover:bg-slate-900/30',
+      badgeClass: 'bg-slate-800 text-slate-400 border-white/5',
+      textClass: 'text-slate-500',
+    };
+  }
+
+  const [y, m, d] = normalized.split('-').map(Number);
+  const dateObj = new Date(y, m - 1, d);
+  const dayIndex = dateObj.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+
+  switch (dayIndex) {
+    case 1: // Monday: Blue
+      return {
+        dayName: 'Monday',
+        dayShort: 'Mon',
+        borderClass: 'border-l-4 border-l-blue-500',
+        tintClass: 'bg-blue-500/[0.04] hover:bg-blue-500/[0.07]',
+        badgeClass: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+        textClass: 'text-blue-400',
+      };
+    case 2: // Tuesday: Purple
+      return {
+        dayName: 'Tuesday',
+        dayShort: 'Tue',
+        borderClass: 'border-l-4 border-l-purple-500',
+        tintClass: 'bg-purple-500/[0.04] hover:bg-purple-500/[0.07]',
+        badgeClass: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+        textClass: 'text-purple-400',
+      };
+    case 3: // Wednesday: Green
+      return {
+        dayName: 'Wednesday',
+        dayShort: 'Wed',
+        borderClass: 'border-l-4 border-l-emerald-500',
+        tintClass: 'bg-emerald-500/[0.04] hover:bg-emerald-500/[0.07]',
+        badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+        textClass: 'text-emerald-400',
+      };
+    case 4: // Thursday: Amber
+      return {
+        dayName: 'Thursday',
+        dayShort: 'Thu',
+        borderClass: 'border-l-4 border-l-amber-500',
+        tintClass: 'bg-amber-500/[0.04] hover:bg-amber-500/[0.07]',
+        badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+        textClass: 'text-amber-400',
+      };
+    case 5: // Friday: Rose
+      return {
+        dayName: 'Friday',
+        dayShort: 'Fri',
+        borderClass: 'border-l-4 border-l-rose-500',
+        tintClass: 'bg-rose-500/[0.04] hover:bg-rose-500/[0.07]',
+        badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+        textClass: 'text-rose-400',
+      };
+    case 6: // Saturday: Cyan
+      return {
+        dayName: 'Saturday',
+        dayShort: 'Sat',
+        borderClass: 'border-l-4 border-l-cyan-500',
+        tintClass: 'bg-cyan-500/[0.04] hover:bg-cyan-500/[0.07]',
+        badgeClass: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+        textClass: 'text-cyan-400',
+      };
+    case 0: // Sunday: Rest (no color)
+    default:
+      return {
+        dayName: 'Sunday',
+        dayShort: 'Sun',
+        borderClass: 'border-l-4 border-l-transparent',
+        tintClass: 'hover:bg-slate-900/30',
+        badgeClass: 'bg-slate-800/80 text-slate-400 border-white/5',
+        textClass: 'text-slate-400',
+      };
+  }
+}
+
+/**
+ * Smart Warm-Up Alert Logic:
+ * - If already warmed up: false
+ * - If Saturday: do NOT show warm-up alerts for Sunday (rest day)
+ * - If Sunday: show warm-up alerts for Monday's leads (to prep for Monday launch)
+ * - On normal weekdays: show warm-up alert for leads scheduled for today or overdue
+ */
+export function shouldShowWarmupAlert(lead: ChannelLead): boolean {
+  if (lead.isWarmedUp || lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') {
+    return false;
+  }
+
+  const now = new Date();
+  const currentDay = now.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+
+  if (!lead.scheduledDate) return false;
+  const normDate = normalizeToLocalDateStr(lead.scheduledDate);
+  if (!normDate) return false;
+
+  const [y, m, d] = normDate.split('-').map(Number);
+  const leadDay = new Date(y, m - 1, d).getDay();
+
+  // Smart Rule 1: If today is Saturday, do NOT show warm-up alerts for Sunday
+  if (currentDay === 6) {
+    if (leadDay === 0) return false;
+    return isDateToday(lead.scheduledDate);
+  }
+
+  // Smart Rule 2: If today is Sunday, show warm-up alerts for Monday's leads
+  if (currentDay === 0) {
+    return leadDay === 1;
+  }
+
+  // Normal weekdays: show alert if lead is due today or overdue
+  return isDateToday(lead.scheduledDate) || isDateOverdue(lead.scheduledDate);
+}
+
+
