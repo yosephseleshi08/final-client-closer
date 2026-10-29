@@ -38,9 +38,16 @@ export function isDateStringSunday(dateStr: string): boolean {
 /**
  * Checks existing channel leads in localStorage for outreach completed on a specific date.
  */
-export function getLeadsSentOnDate(dateStr: string): { count: number; channelBreakdown: Record<string, number> } {
+export function getLeadsSentOnDate(dateStr: string): {
+  count: number;
+  initialCount: number;
+  followupCount: number;
+  channelBreakdown: Record<string, number>;
+} {
   const channels: MultiChannelType[] = ['email', 'instagram', 'facebook'];
   let count = 0;
+  let initialCount = 0;
+  let followupCount = 0;
   const channelBreakdown: Record<string, number> = { email: 0, instagram: 0, facebook: 0 };
 
   for (const ch of channels) {
@@ -50,25 +57,32 @@ export function getLeadsSentOnDate(dateStr: string): { count: number; channelBre
       const f1Date = normalizeToLocalDateStr(lead.followup1SentDate);
       const f2Date = normalizeToLocalDateStr(lead.followup2SentDate);
 
-      let sentForCh = false;
+      let channelHit = false;
       if (initDate === dateStr) {
         count++;
+        initialCount++;
         channelBreakdown[ch]++;
-        sentForCh = true;
+        channelHit = true;
       }
-      if (f1Date === dateStr && !sentForCh) {
+      if (f1Date === dateStr) {
         count++;
-        channelBreakdown[ch]++;
-        sentForCh = true;
+        followupCount++;
+        if (!channelHit) {
+          channelBreakdown[ch]++;
+          channelHit = true;
+        }
       }
-      if (f2Date === dateStr && !sentForCh) {
+      if (f2Date === dateStr) {
         count++;
-        channelBreakdown[ch]++;
+        followupCount++;
+        if (!channelHit) {
+          channelBreakdown[ch]++;
+        }
       }
     }
   }
 
-  return { count, channelBreakdown };
+  return { count, initialCount, followupCount, channelBreakdown };
 }
 
 /**
@@ -92,32 +106,46 @@ export function loadDailyHistory(): DailyHistoryRecord[] {
   // Ensure October 26, 2026 is properly recorded as 100% complete with 6 DMs sent
   const oct26Index = records.findIndex((r) => r.date === OUTREACH_START_DATE);
   const oct26RealLeads = getLeadsSentOnDate(OUTREACH_START_DATE);
-  const oct26Count = Math.max(6, oct26RealLeads.count);
+  const oct26Initial = Math.max(6, oct26RealLeads.initialCount);
+  const oct26Followups = oct26RealLeads.followupCount;
+  const oct26Total = oct26Initial + oct26Followups;
 
   if (oct26Index === -1) {
     records.push({
       date: OUTREACH_START_DATE,
       displayDate: formatDisplayDate(OUTREACH_START_DATE),
-      dmsSent: oct26Count,
-      dmsTarget: oct26Count,
+      dmsSent: oct26Total,
+      dmsTarget: oct26Total,
       percentage: 100,
       isSunday: false,
       status: 'full',
       notes: 'Initial outreach launch day (100% completed)',
       updatedAt: new Date().toISOString(),
+      initialDmsSent: oct26Initial,
+      initialDmsTarget: oct26Initial,
+      followupsSent: oct26Followups,
+      followupsTarget: oct26Followups,
     });
     saveDailyHistory(records);
   } else {
-    // If it exists but had less than 100%, update it per user instructions
-    if (records[oct26Index].percentage < 100 || records[oct26Index].dmsSent < 6) {
+    // If it exists but had less than 100% or missing initial breakdown, update it per user instructions
+    if (
+      records[oct26Index].percentage < 100 ||
+      records[oct26Index].dmsSent < 6 ||
+      records[oct26Index].initialDmsSent === undefined
+    ) {
       records[oct26Index] = {
         ...records[oct26Index],
-        dmsSent: oct26Count,
-        dmsTarget: oct26Count,
+        dmsSent: oct26Total,
+        dmsTarget: oct26Total,
         percentage: 100,
         status: 'full',
         notes: 'Initial outreach launch day (100% completed)',
         updatedAt: new Date().toISOString(),
+        initialDmsSent: oct26Initial,
+        initialDmsTarget: oct26Initial,
+        followupsSent: oct26Followups,
+        followupsTarget: oct26Followups,
       };
       saveDailyHistory(records);
     }
@@ -138,23 +166,63 @@ export function saveDailyHistory(records: DailyHistoryRecord[]): void {
   }
 }
 
+export interface TodayCompletionDetails {
+  totalCompleted: number;
+  totalRemainingDue: number;
+  initialSent: number;
+  initialRemainingDue: number;
+  followupsSent: number;
+  followupsRemainingDue: number;
+  notes?: string;
+}
+
 /**
  * Records or updates today's completion progress into the history array.
- * Calculates percentage: if tasksScheduled is 0, percentage is 100% if sentCount > 0 or defaults to 100%.
+ * Encompasses the FULL schedule (Initial DM + Day 3 Follow-Up + Day 7 Follow-Up)
+ * for daily completion % and streak evaluation, while isolating Initial DM sends
+ * for the Total DMs Dispatched counter.
  */
 export function recordTodayCompletion(
-  dmsSent: number,
-  tasksRemainingDue: number,
-  notes?: string
+  completedCountOrDetails: number | TodayCompletionDetails,
+  legacyRemainingDue?: number,
+  legacyNotes?: string
 ): DailyHistoryRecord[] {
   const todayStr = getLocalTodayStr();
   const isSunday = isDateStringSunday(todayStr);
 
-  const totalTarget = Math.max(dmsSent + tasksRemainingDue, dmsSent, 1);
+  let totalCompleted: number;
+  let totalRemainingDue: number;
+  let initialSent: number | undefined;
+  let initialRemainingDue: number | undefined;
+  let followupsSent: number | undefined;
+  let followupsRemainingDue: number | undefined;
+  let notes: string | undefined;
+
+  if (typeof completedCountOrDetails === 'object') {
+    totalCompleted = completedCountOrDetails.totalCompleted;
+    totalRemainingDue = completedCountOrDetails.totalRemainingDue;
+    initialSent = completedCountOrDetails.initialSent;
+    initialRemainingDue = completedCountOrDetails.initialRemainingDue;
+    followupsSent = completedCountOrDetails.followupsSent;
+    followupsRemainingDue = completedCountOrDetails.followupsRemainingDue;
+    notes = completedCountOrDetails.notes;
+  } else {
+    totalCompleted = completedCountOrDetails;
+    totalRemainingDue = legacyRemainingDue || 0;
+    initialSent = completedCountOrDetails;
+    initialRemainingDue = legacyRemainingDue || 0;
+    followupsSent = 0;
+    followupsRemainingDue = 0;
+    notes = legacyNotes;
+  }
+
+  const totalTarget = Math.max(totalCompleted + totalRemainingDue, totalCompleted, 1);
   const percentage = isSunday
     ? 100
+    : totalCompleted + totalRemainingDue === 0
+    ? 100
     : totalTarget > 0
-    ? Math.round((dmsSent / totalTarget) * 100)
+    ? Math.min(100, Math.round((totalCompleted / totalTarget) * 100))
     : 100;
 
   let status: DailyHistoryStatus = 'zero';
@@ -168,19 +236,32 @@ export function recordTodayCompletion(
     status = 'zero';
   }
 
+  const initialTarget =
+    initialSent !== undefined && initialRemainingDue !== undefined
+      ? Math.max(initialSent + initialRemainingDue, initialSent, 0)
+      : undefined;
+  const followupsTarget =
+    followupsSent !== undefined && followupsRemainingDue !== undefined
+      ? Math.max(followupsSent + followupsRemainingDue, followupsSent, 0)
+      : undefined;
+
   const records = loadDailyHistory();
   const existingIdx = records.findIndex((r) => r.date === todayStr);
 
   const entry: DailyHistoryRecord = {
     date: todayStr,
     displayDate: formatDisplayDate(todayStr),
-    dmsSent,
+    dmsSent: totalCompleted,
     dmsTarget: totalTarget,
     percentage,
     isSunday,
     status,
     notes: notes || (isSunday ? 'Sunday Rest Day' : undefined),
     updatedAt: new Date().toISOString(),
+    initialDmsSent: initialSent,
+    initialDmsTarget: initialTarget,
+    followupsSent,
+    followupsTarget,
   };
 
   if (existingIdx >= 0) {
@@ -306,7 +387,10 @@ export function calculateStreaks(records: DailyHistoryRecord[]): HistoryStreakSt
     const isSunday = isDateStringSunday(dateStr);
 
     if (entry) {
-      totalDMs += entry.dmsSent || 0;
+      // Total DMs Dispatches strictly tracks initial DM sends only
+      const initialSends =
+        entry.initialDmsSent !== undefined ? entry.initialDmsSent : (entry.dmsSent || 0);
+      totalDMs += initialSends;
       if (!isSunday) {
         totalPercentages += entry.percentage;
         activeDaysEvaluated++;

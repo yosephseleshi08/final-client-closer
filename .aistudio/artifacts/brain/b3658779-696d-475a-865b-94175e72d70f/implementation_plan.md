@@ -7,7 +7,8 @@ A permanent daily tracking system that logs outreach completion rates across 30-
 > [!IMPORTANT]
 > The following decisions were confirmed during Phase 1 interactive clarification:
 > - **Visual Layout**: Interactive 30-day calendar matrix paired with an expandable chronological day-by-day detail log.
-> - **Completion Logic**: 100% completion is awarded when all scheduled tasks for that day are fulfilled (`completedTasks === totalTasksScheduled`).
+> - **Completion Logic (Full Schedule)**: Daily completion percentage and streaks track **all** scheduled tasks for the day: Initial DMs + Day 3 Follow-ups + Day 7 Follow-ups (`(initialSent + followupsSent) / (totalInitialScheduled + totalFollowupsScheduled)`).
+> - **Total DMs Dispatches Isolation**: The "Total DMs Dispatched" metric counts **strictly initial DM sends** only, keeping the pipeline velocity metric clean while daily discipline tracks complete schedule execution.
 > - **October 26 Baseline & Real Data Preservation**: Rather than populating mock data, the system inspects existing leads sent on October 26, 2026 and writes an authentic 100% completion entry (`6/6 DMs Sent, 100%`) for Oct 26, 2026, establishing an immediate active streak without fabricated history.
 > - **Sunday Immunity**: Sundays are designated as "⚪ Rest Day". Sundays never reset or break a streak; Monday seamlessly carries forward Saturday's streak.
 
@@ -15,7 +16,7 @@ A permanent daily tracking system that logs outreach completion rates across 30-
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Provides long-term accountability and visual momentum by recording daily outreach completion percentages, calculating active/best streaks, and rendering color-coded day states over rolling 30-day windows.
+- **What It Does**: Provides long-term accountability and visual momentum by recording daily outreach completion percentages across all schedule queues (Initial DMs, 3-Day Follow-ups, and 7-Day Follow-ups), tracking Initial DM dispatches cleanly, calculating active/best streaks, and rendering color-coded day states over rolling 30-day windows.
 - **Target Audience**: Outbound agency operators and solopreneurs executing consistent multi-channel outreach who need permanent historical proof of work and streak gamification.
 - **Key Value**: Replaces transient "today-only" memory with an unshakeable, persistent ledger that rewards discipline while respecting restful Sundays.
 

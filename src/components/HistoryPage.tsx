@@ -84,21 +84,29 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
       };
     }
     if (record.status === 'full') {
+      const breakdownText =
+        record.initialDmsSent !== undefined
+          ? `${record.dmsSent}/${record.dmsTarget} Tasks (${record.initialDmsSent} Initial · ${record.followupsSent || 0} Follow-ups)`
+          : `${record.dmsSent}/${record.dmsTarget} Tasks Completed`;
       return {
         dotClass: 'bg-emerald-400',
         badgeBg: 'bg-emerald-950/60 text-emerald-300 border-emerald-500/30',
         label: `${record.percentage}% Complete`,
         icon: <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />,
-        desc: `${record.dmsSent}/${record.dmsTarget} DMs Sent · Daily Goal Hit`,
+        desc: `${breakdownText} · Daily Goal Hit`,
       };
     }
     if (record.status === 'partial') {
+      const breakdownText =
+        record.initialDmsSent !== undefined
+          ? `${record.dmsSent}/${record.dmsTarget} Tasks (${record.initialDmsSent} Initial · ${record.followupsSent || 0} Follow-ups)`
+          : `${record.dmsSent}/${record.dmsTarget} Tasks Logged`;
       return {
         dotClass: 'bg-amber-400',
         badgeBg: 'bg-amber-950/60 text-amber-300 border-amber-500/30',
         label: `${record.percentage}% Partial`,
         icon: <Clock className="w-3.5 h-3.5 text-amber-400" />,
-        desc: `${record.dmsSent}/${record.dmsTarget} DMs Sent · Incomplete`,
+        desc: `${breakdownText} · Incomplete`,
       };
     }
     // zero / missed
@@ -230,11 +238,11 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
           </div>
         </div>
 
-        {/* Total DMs Sent in Window */}
+        {/* Total DMs Dispatched (Initial DM sends only) */}
         <div className="rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-500/10 via-slate-900/80 to-slate-900 p-5 shadow-lg">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-indigo-300/80 uppercase tracking-wider">
-              Total DMs Logged
+              Total DMs Dispatched
             </span>
             <div className="w-8 h-8 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center">
               <Layers className="w-4 h-4 text-indigo-400" />
@@ -244,10 +252,10 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
             <span className="text-3xl font-black text-white font-mono tabular-nums">
               {streakStats.totalDMsSent}
             </span>
-            <span className="text-xs text-indigo-300 font-medium">Dispatches</span>
+            <span className="text-xs text-indigo-300 font-medium">Initial DMs</span>
           </div>
           <p className="mt-2 text-[11px] text-slate-400 leading-relaxed">
-            Real outreach dispatches verified from Oct 26 launch to present.
+            Initial DM dispatches only (follow-ups tracked separately in daily schedule completion).
           </p>
         </div>
       </div>
@@ -307,6 +315,13 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
                 key={day.date}
                 type="button"
                 onClick={() => setSelectedDate(isSelected ? null : day.date)}
+                title={
+                  day.isSunday
+                    ? 'Sunday Rest Day'
+                    : day.initialDmsSent !== undefined
+                    ? `${day.displayDate}: ${day.dmsSent}/${day.dmsTarget} Tasks (${day.initialDmsSent} Initial · ${day.followupsSent || 0} Follow-ups) — ${day.percentage}%`
+                    : `${day.displayDate}: ${day.dmsSent}/${day.dmsTarget} Tasks (${day.percentage}%)`
+                }
                 className={`relative flex flex-col justify-between p-3 rounded-xl border transition-all text-left group ${borderStyle}`}
               >
                 <div className="flex items-center justify-between">

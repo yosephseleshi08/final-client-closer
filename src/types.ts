@@ -243,13 +243,18 @@ export type DailyHistoryStatus = 'full' | 'partial' | 'zero' | 'sunday';
 export interface DailyHistoryRecord {
   date: string; // 'YYYY-MM-DD'
   displayDate: string; // e.g. "Oct 26, 2026"
-  dmsSent: number;
-  dmsTarget: number;
+  dmsSent: number; // Total tasks completed across today's schedule (Initial DM + Day 3 FU + Day 7 FU)
+  dmsTarget: number; // Total schedule tasks due today
   percentage: number; // 0 to 100
   isSunday: boolean;
   status: DailyHistoryStatus;
   notes?: string;
   updatedAt: string;
+  // Breakdown of today's schedule tasks
+  initialDmsSent?: number; // Initial DM sends only (for Total DMs Dispatches tracking)
+  initialDmsTarget?: number;
+  followupsSent?: number; // Day 3 + Day 7 follow-ups completed
+  followupsTarget?: number;
 }
 
 export interface HistoryStreakStats {

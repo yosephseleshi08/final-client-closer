@@ -29,6 +29,7 @@ import { SundayPrepView } from './SundayPrepView';
 import { recordTodayCompletion } from '../utils/historyStorage';
 import {
   getLocalTodayStr,
+  normalizeToLocalDateStr,
   isDateToday,
   isDateOverdue,
   getDayDifference,
@@ -192,11 +193,23 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     return isDateToday(l.scheduledDate);
   });
 
-  // 3. SENT TODAY LOG (Section - Sent Today Progress Tracker)
-  // Leads whose initial outreach was dispatched today in the user's local timezone
+  // 3. SENT TODAY LOG (Initial DMs dispatched today in the user's local timezone)
   const sentTodayLeads = filteredAllLeads.filter((l) => isInitialSentToday(l, todayStr));
+  const initialSentTodayCount = sentTodayLeads.length;
 
-  // 4. FOLLOW-UPS DUE TODAY (Section 2 - Strict Time-Lock Enforced)
+  // 4. FOLLOW-UPS SENT TODAY (Day 3 and Day 7 follow-up touches sent today)
+  const day3SentTodayLeads = filteredAllLeads.filter(
+    (l) => normalizeToLocalDateStr(l.followup1SentDate) === todayStr
+  );
+  const day7SentTodayLeads = filteredAllLeads.filter(
+    (l) => normalizeToLocalDateStr(l.followup2SentDate) === todayStr
+  );
+  const followupsSentTodayCount = day3SentTodayLeads.length + day7SentTodayLeads.length;
+
+  // Total tasks completed across all of today's schedule (Initial DM + Day 3 FU + Day 7 FU)
+  const totalTasksCompletedToday = initialSentTodayCount + followupsSentTodayCount;
+
+  // 5. FOLLOW-UPS DUE TODAY (Section 2 - Strict Time-Lock Enforced)
   const followupsDueToday = filteredAllLeads.filter((l) => {
     if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
     if (isLeadDismissedToday(l)) return false;
@@ -217,19 +230,37 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
 
   const totalActionableToday = overdueLeads.length + newOutreachDueToday.length + followupsDueToday.length;
 
-  // Daily Progress Math: sent today / total scheduled today (sent + remaining due)
-  const sentTodayCount = sentTodayLeads.length;
+  // Remaining tasks scheduled for today
   const newDueTodayCount = newOutreachDueToday.length;
-  const dailyTargetTotal = sentTodayCount + newDueTodayCount;
-  const progressPercent = dailyTargetTotal > 0
-    ? Math.min(100, Math.round((sentTodayCount / dailyTargetTotal) * 100))
-    : (sentTodayCount > 0 ? 100 : 0);
-  const isGoalFinished = dailyTargetTotal > 0 && sentTodayCount >= dailyTargetTotal;
+  const followupsDueTodayCount = followupsDueToday.length;
+  const totalTasksRemainingToday = newDueTodayCount + followupsDueTodayCount;
 
-  // Automatically sync today's date and current completion percentage into persistent daily history
+  // Total daily schedule objective: (Completed today + Remaining due today)
+  const dailyTargetTotal = totalTasksCompletedToday + totalTasksRemainingToday;
+  const progressPercent = dailyTargetTotal > 0
+    ? Math.min(100, Math.round((totalTasksCompletedToday / dailyTargetTotal) * 100))
+    : (totalTasksCompletedToday > 0 ? 100 : 100);
+  const isGoalFinished = dailyTargetTotal > 0 && totalTasksCompletedToday >= dailyTargetTotal;
+
+  // Automatically sync today's full schedule progress (Initial DM + Day 3 FU + Day 7 FU)
+  // into persistent daily history, while isolating Initial DM sends for Total DMs Dispatches
   useEffect(() => {
-    recordTodayCompletion(sentTodayCount, newDueTodayCount);
-  }, [sentTodayCount, newDueTodayCount]);
+    recordTodayCompletion({
+      totalCompleted: totalTasksCompletedToday,
+      totalRemainingDue: totalTasksRemainingToday,
+      initialSent: initialSentTodayCount,
+      initialRemainingDue: newDueTodayCount,
+      followupsSent: followupsSentTodayCount,
+      followupsRemainingDue: followupsDueTodayCount,
+    });
+  }, [
+    totalTasksCompletedToday,
+    totalTasksRemainingToday,
+    initialSentTodayCount,
+    newDueTodayCount,
+    followupsSentTodayCount,
+    followupsDueTodayCount,
+  ]);
 
   const handleRestoreAllDismissed = () => {
     dismissedTodayLeads.forEach((lead) => {
@@ -517,7 +548,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
               <h2 className="text-xl sm:text-2xl font-black text-white font-['Outfit'] flex items-center gap-2 mt-0.5">
                 <span>Today's Progress:</span>
                 <span className="font-mono text-emerald-400">
-                  {sentTodayCount} / {dailyTargetTotal} DMs Sent
+                  {totalTasksCompletedToday} / {dailyTargetTotal} Tasks Done
                 </span>
                 <span className="text-base font-mono text-slate-400 font-semibold">
                   ({progressPercent}%)
@@ -528,16 +559,21 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
 
           <div className="text-xs text-slate-400 font-mono sm:text-right">
             {dailyTargetTotal === 0 ? (
-              <span>No outreaches scheduled for {todayStr}</span>
+              <span>No outreaches or follow-ups scheduled for {todayStr}</span>
             ) : isGoalFinished ? (
               <span className="text-emerald-300 font-bold flex items-center gap-1.5 sm:justify-end">
                 <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>You've hit your finish line for today! Great work.</span>
+                <span>You've hit 100%! All initial DMs and follow-ups complete.</span>
               </span>
             ) : (
-              <span className="text-slate-300">
-                <strong className="text-white font-bold">{newDueTodayCount}</strong> initial DM{newDueTodayCount === 1 ? '' : 's'} remaining today
-              </span>
+              <div className="space-y-0.5 sm:text-right">
+                <div className="text-slate-300">
+                  <strong className="text-white font-bold">{newDueTodayCount}</strong> Initial DM{newDueTodayCount === 1 ? '' : 's'} · <strong className="text-white font-bold">{followupsDueTodayCount}</strong> Follow-Up{followupsDueTodayCount === 1 ? '' : 's'} remaining
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Completed today: {initialSentTodayCount} Initial · {followupsSentTodayCount} Follow-ups
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -572,14 +608,14 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
 
         <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-4 shadow-xl">
           <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center justify-between">
-            <span>Sent Today</span>
+            <span>Tasks Completed</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="mt-2 text-2xl sm:text-3xl font-black text-emerald-400 font-mono tabular-nums">
-            {sentTodayCount}
+            {totalTasksCompletedToday}
           </div>
           <div className="mt-1 text-[11px] text-emerald-300/80">
-            {dailyTargetTotal > 0 ? `${progressPercent}% complete` : 'Outreaches done'}
+            {initialSentTodayCount} Initial · {followupsSentTodayCount} Follow-ups
           </div>
         </div>
 
