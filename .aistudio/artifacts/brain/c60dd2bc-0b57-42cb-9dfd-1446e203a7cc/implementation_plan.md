@@ -1,121 +1,82 @@
-# Sunday Auto-Detection, Advanced Queue Override, and Floating Add Lead Button
+# Video Value First Sales Strategy Upgrade (Outreach Engine Pro)
 
-Seamless Sunday cadence automation with explicit manual queue overrides, paired with a high-velocity floating action button for instant lead intake across all channels.
-
-## User Review & Critical Decisions
-
-> [!IMPORTANT]
-> The following user preferences were confirmed during Phase 1 interactive clarification:
-> - **Lead Insertion Position**: Newly created leads are prepended to the top of the table (`[newLead, ...leads]` at index 0) so they appear instantly in view without scrolling down.
-> - **Data Preservation**: Existing leads (including user's 17 recorded leads and localStorage records) are strictly preserved—no wipes, resets, or re-ordering of historical records.
-> - **Sunday Override Banner**: Clicking "⚠️ Show My Queues Anyway (Advanced)" renders a prominent top banner on Today's Schedule allowing 1-click return to Sunday Prep Mode at any time.
+Upgrading the CRM from traditional cold DM prospecting to a high-converting **"Video Value First"** sales workflow:
+`Record Video → Post Reel (Tagging) → Send DM with Link → Follow up with Value`
 
 ---
 
-## 1. Overview & Core Concept
+## 1. Executive Summary & Core Quotas
 
-This update refines the Sunday cadence experience and streamlines lead prospecting:
-- **Part 1: Sunday Auto-Detection & Override**:
-  - Automatically activates Sunday Prep Mode on load whenever the local day of week is Sunday (`date.getDay() === 0`).
-  - Pre-initializes the "Sunday Mode Preview" toggle to `ON` if it is Sunday, or `OFF` on weekdays.
-  - Adds a prominent `"⚠️ Show My Queues Anyway (Advanced)"` button at the bottom of the Sunday Prep view. Clicking it temporarily suspends Sunday mode and displays the standard daily queues ("New Outreach Due", "Follow-Ups Due", "Overdue Priority", and "Sent Today") for urgent deals.
-  - While override is active, a persistent top banner clearly states that Sunday override is active, with a one-click button to re-engage Sunday Prep Mode.
-  - **Zero Data Loss**: All lead queues, follow-up timers, and scheduled dates remain intact in localStorage.
-- **Part 2: Floating Add Lead Button**:
-  - A prominent, circular floating action button (FAB) styled in high-contrast purple/indigo (`bg-indigo-600 hover:bg-indigo-500 shadow-2xl`) fixed to the bottom-right corner.
-  - Restricted to the **Leads** sub-tab across Instagram, Facebook, and Email (hidden on DM, Schedule, Follow-up, and Mockup sub-pages).
-  - Clicking opens a clean, centered modal dialog (`fixed inset-0 flex items-center justify-center`) with fields for link/handle and business name.
-  - Upon submission, validates channel URL format, executes duplicate check, and immediately prepends the new lead to index 0.
+### Top Dashboard Metrics (Executive Summary)
+- **DMs Sent Today:** Real-time progress bar tracking against daily quota `"X / 6"` with completion percentage.
+- **Reels Posted Today:** Real-time progress bar tracking against daily quota `"X / 2"` with completion percentage.
+- **Videos Pending Reel:** Counter highlighting prospects where `videoRecorded: true && !reelPosted`.
+- **Preserved Metrics:** Current Streak and Best Streak counter cards preserved intact.
 
 ---
 
-## 2. User Experience & Visual Design
+## 2. Lead Data Schema & Table Workflow Columns
 
-### Key User Flows
+### Extended Lead Schema
+- `videoRecorded`: boolean (with `videoRecordedAt` ISO timestamp)
+- `reelPosted`: boolean (with `reelPostedAt` timestamp and optional `reelLink` URL)
+- `dmSent`: boolean (with `dmSentAt` timestamp)
+- `repliedSendIt`: boolean (with `repliedSendItAt` timestamp)
+- `liveLinkSent`: boolean (with `liveLinkSentAt` timestamp)
+- `city`: string (for contextual location replacement in templates)
+- `followup3Date`: string (Day 30 Breakup trigger)
 
-1. **Sunday Landing & Default Toggle State**:
-   - The user opens Today's Schedule on a Sunday: Sunday Prep Mode displays immediately by default.
-   - The preview toggle displays `🌿 Sunday Mode: Active` (or `Preview: ON`).
-   - On weekdays (Mon–Sat), the schedule opens to standard queues, and the toggle is available for previewing.
-2. **"Show My Queues Anyway" Emergency Override**:
-   - At the bottom of `SundayPrepView`, the user sees an amber/slate action card: `"⚠️ Show My Queues Anyway (Advanced)"`.
-   - Clicking immediately reveals the standard execution queues (Overdue, New Outreach Due, Follow-Ups Due, and Sent Today).
-   - A persistent, sticky top alert notifies: `"⚠️ Sunday Override Active — Showing Daily Queues"` with a button `"🔒 Return to Sunday Prep Mode"`.
-3. **Floating Lead Intake across Channels**:
-   - When viewing `Instagram > Leads`, `Facebook > Leads`, or `Email > Leads`, a circular `+` button floats at `bottom-8 right-8` (or above the bottom footer).
-   - Hovering triggers a smooth scale micro-interaction (`hover:scale-105 active:scale-95`).
-   - Clicking opens the centered "Add New Prospect" modal with auto-focus on the link input.
-   - Entering the link automatically suggests the business name.
-   - Submitting adds the lead to the very top (Row 1) with an instant highlight animation.
-
-### Visual Identity & Theme
-
-- **Palette**: Dark slate canvas (`#080c14`), structural card surfaces (`bg-slate-900/80`, `border-white/10`), vibrant indigo/purple action accent (`bg-indigo-600`, `shadow-indigo-600/50`), and warning amber accent (`amber-500/20`, `border-amber-500/40`, `text-amber-300`).
-- **Typography**: `Outfit` for display headings, `Plus Jakarta Sans` for body, `font-mono tabular-nums` for lead IDs and dates.
-- **Button Placement**: Positioned at `fixed bottom-8 right-8 z-40` with adequate clearance above the footer bar.
+### Leads Table Workflow Columns
+- Added 5 interactive workflow toggle buttons with subtle icon + status dot directly alongside the "Details" action in the Leads table:
+  1. 🎥 **Video Recorded** (Cyan dot)
+  2. 📱 **Reel Posted** (Pink dot)
+  3. ✈️ **DM Sent** (Indigo dot)
+  4. 💬 **Replied "Send it"** (Amber dot)
+  5. 🔗 **Live Link Sent** (Emerald dot)
+- Toggling automatically updates timestamp and state in localStorage without altering lead order or losing existing data.
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
+## 3. Video Value First Script Generator ("⚡ Script" / Warm-Up)
 
-- **Decision 1: Sunday State Initialization & Override State**:
-  - *Chosen Approach*: Track `isActualSunday = isTodaySunday()`, `forceSundayPreview` (initialized to `isActualSunday`), and `showQueuesOverride` (boolean, defaults to `false`).
-  - *Calculation*: `isSundayMode = (isActualSunday || forceSundayPreview) && !showQueuesOverride`.
-  - *Why*: Provides 100% automatic Sunday detection without requiring user input, while offering both simulation toggle for weekdays and emergency override for actual Sundays.
-- **Decision 2: Top Insertion with Non-Destructive Preservation**:
-  - *Chosen Approach*: `const updated = [newLead, ...leads]`. Newly created leads take the first position, while the rest of the array remains unchanged in memory and localStorage.
-  - *Why*: Eliminates the need to scroll through existing leads to confirm an addition, matching high-velocity intake workflows.
-- **Decision 3: Scoped Floating Button Visibility**:
-  - *Chosen Approach*: Render the floating button directly inside `LeadsSubPage.tsx`.
-  - *Why*: Since `LeadsSubPage` is only mounted when `activeSubTab === 'leads'`, the button naturally disappears on DM, Schedule, Follow-up, and Mockup tabs without complex parent prop drilling.
+Mounted a dedicated **Video Value First Script Generator** modal and quick drawer accessible directly via the `"⚡ Script"` button next to Details:
+- **Milestone Progress Bar:** Highlights current step (Stage A Pending → Video Recorded → Reel Posted → Stage A Sent → Lead Replied "Send it" → Stage B Sent).
+- **Stage A Script (Initial Contact - Day 1):**
+  > *"Hey [Lead Name]! I just posted a quick video on my story/feed breaking down your menu design/website and how you could easily add 15-20 more covers this weekend. Tagged you guys! Mind if I send the direct link to the full breakdown here?"*
+- **Stage B Script (Post-Reaction - "Send it"):**
+  > *"Here you go: [Live Link]. Let me know what you think of the online ordering tip at 1:12! If you want the full kitchen ticket PDF I mentioned, happy to send that over too."*
+- Features instant 1-click clipboard copy and auto-population of `[Live Link]`, `[Lead Name]`, and customizable placeholders.
 
 ---
 
-## 4. Technical Architecture & Data Strategy
+## 4. Dedicated "Reel Queue" Sub-Tab
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Top Navigation (Header)                  │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-            ┌──────────────────┴──────────────────┐
-            ▼                                     ▼
-┌──────────────────────────────┐        ┌──────────────────────────────┐
-│     TodaysSchedulePage       │        │       ChannelWorkspace       │
-│ - isActualSunday = (day===0) │        │ (Instagram, Facebook, Email) │
-│ - forceSundayPreview state   │        └──────────────┬───────────────┘
-│ - showQueuesOverride state   │                       │
-└──────────────┬───────────────┘         ┌─────────────┴─────────────┐
-               │                         ▼                           ▼
-       [isSundayMode]             [Leads Sub-Tab]             [Other Sub-Tabs]
-       ┌───────┴───────┐                 │                           │
-  (True)               (False)           ▼                           ▼
-     │                     │     ┌───────────────┐           ┌───────────────┐
-     ▼                     ▼     │ LeadsSubPage  │           │ DM / Schedule │
-┌──────────────┐    ┌──────────┐ │ - Leads Table │           │ Mockup Views  │
-│SundayPrepView│    │ Standard │ │ - Floating +  │           │ (No FAB)      │
-│- Quotes      │    │  Queues  │ │   Button (FAB)│           └───────────────┘
-│- Stats       │    │- Sent    │ │ - Centered    │
-│- Locked Mon  │    │- Overdue │ │   Add Modal   │
-│- "Show Queues│    │- New Due │ └───────────────┘
-│   Anyway"    │    │- Followup│
-└──────────────┘    └──────────┘
-```
+Added a new dedicated sub-page right next to "Follow-Up Schedule":
+- **Badge Indicator:** Shows count of videos recorded but not yet posted on social feed.
+- **Helper Banner:** *"You have [X] videos waiting to be posted. Goal: Post 2 today. Save the rest for tomorrow."*
+- **Queue Cards:**
+  - Lead Name, Channel handle link, and recording timestamp.
+  - Optional Reel URL input field.
+  - One-click `"Mark as Posted"` button that sets `reelPosted = true` and updates state in real time.
+- Filter toggle to toggle between pending queue and already-posted reels.
 
-### Component & Handler Specifications
+---
 
-1. **`src/components/SundayPrepView.tsx`**:
-   - Add prop `onShowQueuesAnyway: () => void`.
-   - Render a dedicated override card at the bottom:
-     - Warning icon, headline: *"Need to check hot prospects or run Sunday calls?"*
-     - Button: `"⚠️ Show My Queues Anyway (Advanced)"`.
-2. **`src/components/TodaysSchedulePage.tsx`**:
-   - Initialize `forceSundayPreview` to `isTodaySunday()`.
-   - Add state `showQueuesOverride: boolean` (default `false`).
-   - If `showQueuesOverride` is active, render an amber top reminder banner with `"🔒 Return to Sunday Prep Mode"`.
-   - Toggle switch in header synchronizes with `forceSundayPreview` and resets `showQueuesOverride` when toggled.
-3. **`src/components/channel/LeadsSubPage.tsx`**:
-   - Add state `isAddLeadModalOpen: boolean`.
-   - Render fixed circular FAB: `fixed bottom-8 right-8 z-40 w-14 h-14 rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-2xl flex items-center justify-center`.
-   - Render centered `AddLeadModal` with inputs for Link and Name.
-   - On save: prepend `[newLead, ...leads]`, update localStorage, and trigger brief highlight.
+## 5. Value-Based Follow-Up Timeline (Day 7, Day 14, Day 30)
+
+Replaced generic follow-up copy with high-converting value milestones:
+1. **Day 7 Trigger (Value Check-In):**
+   > *"Hey [Lead Name], did you get a chance to see that breakdown video? We just put together a quick PDF on 3 ways to speed up kitchen ticket times on Friday nights—want me to drop it here?"*
+2. **Day 14 Trigger (Social Proof / Case Study):**
+   > *"Hey [Lead Name]! Quick update—another spot in [City/Area] implemented that online ordering tweak from the video we tagged you in and saw a 12% jump in takeout orders last week. Thought of you guys!"*
+3. **Day 30 Trigger (The "Breakup" / Final Audit):**
+   > *"Hey [Lead Name], I know you're super busy running service. I'm archiving our video breakdown this week, but I recorded a quick 60-second Loom showing the #1 leak on your mobile checkout. Should I send the Loom or would you rather I close your file?"*
+- Integrated seamlessly into both the **Follow-Up Schedule** sub-tab and the unified **Today's Execution Schedule** page.
+
+---
+
+## 6. Verification & Data Safety
+
+- Strict adherence to non-destructive updates: existing leads in Instagram, Facebook, and Email remain intact.
+- TypeScript compilation (`compile_applet`) and linting (`tsc --noEmit`) verified clean with 0 errors.
+- Dark theme styling and Sunday Rest Mode preserved intact.

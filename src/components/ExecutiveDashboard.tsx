@@ -14,9 +14,17 @@ import {
   TrendingUp,
   Download,
   FileSpreadsheet,
+  Flame,
+  Trophy,
+  Film,
+  Send,
+  Video,
+  Sparkles,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../types';
 import { exportChannelData } from '../utils/channelStorage';
+import { loadDailyHistory, calculateStreaks } from '../utils/historyStorage';
+import { getLocalTodayStr, normalizeToLocalDateStr } from '../utils/cadenceEngine';
 
 interface ExecutiveDashboardProps {
   emailLeads: ChannelLead[];
@@ -33,13 +41,38 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   onNavigateToChannel,
   onNavigateToToday,
 }) => {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalTodayStr();
+  const historyRecords = loadDailyHistory();
+  const streakStats = calculateStreaks(historyRecords);
 
   const allLeads = [
     ...emailLeads.map((l) => ({ ...l, channelName: 'Email' as const })),
     ...instagramLeads.map((l) => ({ ...l, channelName: 'Instagram' as const })),
     ...facebookLeads.map((l) => ({ ...l, channelName: 'Facebook' as const })),
   ];
+
+  // Video Value First Daily Quota Metrics (User Requirement #1)
+  const dmsSentTodayCount = allLeads.filter(
+    (l) =>
+      (l.dmSent && normalizeToLocalDateStr(l.dmSentAt) === todayStr) ||
+      normalizeToLocalDateStr(l.initialSentDate) === todayStr
+  ).length;
+  const historyDmsSent = historyRecords.find((r) => r.date === todayStr)?.initialDmsSent || 0;
+  const effectiveDmsSentToday = Math.max(dmsSentTodayCount, historyDmsSent);
+  const dmQuotaTarget = 6;
+  const dmProgressPercent = Math.min(100, Math.round((effectiveDmsSentToday / dmQuotaTarget) * 100));
+
+  const reelsPostedTodayCount = allLeads.filter(
+    (l) =>
+      l.reelPosted &&
+      (normalizeToLocalDateStr(l.reelPostedAt) === todayStr || (!l.reelPostedAt && l.reelPosted))
+  ).length;
+  const reelQuotaTarget = 2;
+  const reelProgressPercent = Math.min(100, Math.round((reelsPostedTodayCount / reelQuotaTarget) * 100));
+
+  const videosPendingReelCount = allLeads.filter(
+    (l) => Boolean(l.videoRecorded) && !l.reelPosted
+  ).length;
 
   const totalLeads = allLeads.length;
   const totalPitches = allLeads.filter((l) => Boolean(l.customPitch)).length;
@@ -124,77 +157,151 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
         </button>
       </div>
 
-      {/* KPI Metric Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
-        <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-xl">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider">
-            <span>Total Leads</span>
-            <Users className="w-4 h-4 text-indigo-400" />
+      {/* Executive Summary Cards: Video Value First Daily Quotas & Streaks (Requirement #1) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+        {/* 1. DMs Sent Today (X / 6 with Progress Bar) */}
+        <div className="rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-950/30 via-slate-900/80 to-slate-900 p-4 shadow-xl space-y-2">
+          <div className="flex items-center justify-between text-xs font-bold text-sky-400 uppercase tracking-wider">
+            <span>DMs Sent Today</span>
+            <Send className="w-4 h-4 text-sky-400" />
           </div>
-          <div className="mt-2 text-2xl sm:text-3xl font-black text-slate-100 font-mono tabular-nums">
-            {totalLeads}
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-white font-mono tabular-nums">
+              {effectiveDmsSentToday}
+            </span>
+            <span className="text-sm font-bold text-slate-400 font-mono">/ 6</span>
+            {effectiveDmsSentToday >= 6 && (
+              <span className="ml-auto text-[10px] font-bold text-sky-300 bg-sky-500/20 px-2 py-0.5 rounded border border-sky-500/30 font-mono">
+                Hit!
+              </span>
+            )}
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">
-            Across 3 channels
+          {/* Progress Bar */}
+          <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-white/10">
+            <div
+              className="h-full bg-gradient-to-r from-sky-500 to-indigo-500 transition-all duration-300"
+              style={{ width: `${dmProgressPercent}%` }}
+            />
           </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-xl">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider">
-            <span>DMs Drafted</span>
-            <MessageSquare className="w-4 h-4 text-pink-400" />
-          </div>
-          <div className="mt-2 text-2xl sm:text-3xl font-black text-slate-100 font-mono tabular-nums">
-            {totalPitches}
-          </div>
-          <div className="mt-1 text-[11px] text-slate-500">
-            {totalLeads > 0 ? `${Math.round((totalPitches / totalLeads) * 100)}% coverage` : '0% coverage'}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-xl">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider">
-            <span>Scheduled</span>
-            <Calendar className="w-4 h-4 text-sky-400" />
-          </div>
-          <div className="mt-2 text-2xl sm:text-3xl font-black text-slate-100 font-mono tabular-nums">
-            {totalScheduled}
-          </div>
-          <div className="mt-1 text-[11px] text-slate-500">
-            With assigned dates
+          <div className="text-[11px] text-slate-400 font-mono">
+            {effectiveDmsSentToday >= 6
+              ? '🎯 Daily quota complete'
+              : `${6 - effectiveDmsSentToday} more to hit daily goal`}
           </div>
         </div>
 
-        <div className={`rounded-2xl border p-4 shadow-xl ${
-          urgentLeads.length > 0
-            ? 'border-rose-500/40 bg-rose-950/20'
+        {/* 2. Reels Posted Today (X / 2 with Progress Bar) */}
+        <div className="rounded-2xl border border-pink-500/30 bg-gradient-to-br from-pink-950/30 via-slate-900/80 to-slate-900 p-4 shadow-xl space-y-2">
+          <div className="flex items-center justify-between text-xs font-bold text-pink-400 uppercase tracking-wider">
+            <span>Reels Posted Today</span>
+            <Film className="w-4 h-4 text-pink-400" />
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-white font-mono tabular-nums">
+              {reelsPostedTodayCount}
+            </span>
+            <span className="text-sm font-bold text-slate-400 font-mono">/ 2</span>
+            {reelsPostedTodayCount >= 2 && (
+              <span className="ml-auto text-[10px] font-bold text-pink-300 bg-pink-500/20 px-2 py-0.5 rounded border border-pink-500/30 font-mono">
+                Hit!
+              </span>
+            )}
+          </div>
+          {/* Progress Bar */}
+          <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-white/10">
+            <div
+              className="h-full bg-gradient-to-r from-pink-500 to-purple-500 transition-all duration-300"
+              style={{ width: `${reelProgressPercent}%` }}
+            />
+          </div>
+          <div className="text-[11px] text-slate-400 font-mono">
+            {reelsPostedTodayCount >= 2
+              ? '🔥 Target achieved (2/2)'
+              : `${2 - reelsPostedTodayCount} more to hit target`}
+          </div>
+        </div>
+
+        {/* 3. Videos Pending Reel (videoRecorded: true && !reelPosted) */}
+        <div className={`rounded-2xl border p-4 shadow-xl space-y-2 ${
+          videosPendingReelCount > 0
+            ? 'border-purple-500/40 bg-gradient-to-br from-purple-950/30 via-slate-900/80 to-slate-900'
             : 'border-white/10 bg-slate-900/70'
         }`}>
-          <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider">
-            <span>Urgent Dispatches</span>
-            <Clock className={`w-4 h-4 ${urgentLeads.length > 0 ? 'text-rose-400 animate-pulse' : 'text-slate-400'}`} />
+          <div className="flex items-center justify-between text-xs font-bold text-purple-400 uppercase tracking-wider">
+            <span>Videos Pending Reel</span>
+            <Video className="w-4 h-4 text-purple-400" />
           </div>
-          <div className={`mt-2 text-2xl sm:text-3xl font-black font-mono tabular-nums ${
-            urgentLeads.length > 0 ? 'text-rose-400' : 'text-slate-100'
-          }`}>
-            {urgentLeads.length}
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-purple-300 font-mono tabular-nums">
+              {videosPendingReelCount}
+            </span>
+            <span className="text-xs text-purple-400/80 font-medium">in queue</span>
           </div>
-          <div className="mt-1 text-[11px] text-slate-400">
-            Today or overdue
+          <div className="text-[11px] text-slate-400">
+            {videosPendingReelCount > 0
+              ? 'Recorded & waiting to be posted'
+              : 'All recorded videos are posted'}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-4 shadow-xl col-span-2 lg:col-span-1">
-          <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase tracking-wider">
-            <span>Mockups Uploaded</span>
-            <ImageIcon className="w-4 h-4 text-emerald-400" />
+        {/* 4. Current Streak (Keep Existing) */}
+        <div className="rounded-2xl border border-orange-500/30 bg-gradient-to-br from-orange-950/30 via-slate-900/80 to-slate-900 p-4 shadow-xl space-y-2">
+          <div className="flex items-center justify-between text-xs font-bold text-orange-400 uppercase tracking-wider">
+            <span>Current Streak</span>
+            <Flame className="w-4 h-4 text-orange-400" />
           </div>
-          <div className="mt-2 text-2xl sm:text-3xl font-black text-slate-100 font-mono tabular-nums">
-            {totalMockups}
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-white font-mono tabular-nums">
+              {streakStats.currentStreak}
+            </span>
+            <span className="text-xs text-orange-300 font-medium">
+              {streakStats.currentStreak === 1 ? 'Day Active' : 'Days Active'}
+            </span>
           </div>
-          <div className="mt-1 text-[11px] text-slate-500">
-            In media vault
+          <div className="text-[11px] text-slate-400">
+            Consecutive 100% days · Sundays rest
           </div>
+        </div>
+
+        {/* 5. Best Streak (Keep Existing) */}
+        <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-950/30 via-slate-900/80 to-slate-900 p-4 shadow-xl space-y-2">
+          <div className="flex items-center justify-between text-xs font-bold text-amber-400 uppercase tracking-wider">
+            <span>Best Streak</span>
+            <Trophy className="w-4 h-4 text-amber-400" />
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-white font-mono tabular-nums">
+              {streakStats.bestStreak}
+            </span>
+            <span className="text-xs text-amber-300 font-medium">
+              {streakStats.bestStreak === 1 ? 'Day Record' : 'Days Record'}
+            </span>
+          </div>
+          <div className="text-[11px] text-slate-400">
+            All-time execution record
+          </div>
+        </div>
+      </div>
+
+      {/* Secondary Pipeline Summary Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+        <div className="p-3 rounded-xl bg-slate-950/50 border border-white/5">
+          <span className="text-slate-500 block text-[10px] uppercase font-sans">Total Leads</span>
+          <strong className="text-slate-200 text-sm">{totalLeads}</strong>
+        </div>
+        <div className="p-3 rounded-xl bg-slate-950/50 border border-white/5">
+          <span className="text-slate-500 block text-[10px] uppercase font-sans">Scheduled</span>
+          <strong className="text-slate-200 text-sm">{totalScheduled}</strong>
+        </div>
+        <div className="p-3 rounded-xl bg-slate-950/50 border border-white/5">
+          <span className="text-slate-500 block text-[10px] uppercase font-sans">Urgent Dispatches</span>
+          <strong className={`text-sm ${urgentLeads.length > 0 ? 'text-rose-400' : 'text-slate-200'}`}>
+            {urgentLeads.length}
+          </strong>
+        </div>
+        <div className="p-3 rounded-xl bg-slate-950/50 border border-white/5">
+          <span className="text-slate-500 block text-[10px] uppercase font-sans">Mockups Ready</span>
+          <strong className="text-slate-200 text-sm">{totalMockups}</strong>
         </div>
       </div>
 

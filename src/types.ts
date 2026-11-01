@@ -152,6 +152,19 @@ export interface Lead {
   mockupImage2Name?: string;
   // General Lead Screenshot & Media Vault (isolated from mockups)
   leadScreenshots?: LeadScreenshot[];
+
+  // Video Value First Strategy Fields
+  videoRecorded?: boolean;
+  videoRecordedAt?: string;
+  reelPosted?: boolean;
+  reelPostedAt?: string;
+  reelLink?: string;
+  dmSent?: boolean;
+  dmSentAt?: string;
+  repliedSendIt?: boolean;
+  repliedSendItAt?: string;
+  liveLinkSent?: boolean;
+  liveLinkSentAt?: string;
 }
 
 export type LeadSortOption =
@@ -265,7 +278,7 @@ export interface HistoryStreakStats {
   totalDMsSent: number;
 }
 
-export type MultiChannelSubTab = 'leads' | 'dm' | 'schedule' | 'followup' | 'mockup';
+export type MultiChannelSubTab = 'leads' | 'dm' | 'schedule' | 'followup' | 'reel-queue' | 'mockup';
 
 export type CadenceLeadStatus = 'not_sent' | 'waiting_reply' | 'seen' | 'replied' | 'completed';
 
@@ -277,6 +290,8 @@ export interface ChannelLead {
   channel: MultiChannelType;
   sortOrder: number; // rank for drag-and-drop ordering
   createdAt: string;
+  lastContactDate?: string;
+  city?: string; // e.g. location for Day 14 social proof template
 
   // Sub-page B: DM Pitch & 3-Step Sequence
   customPitch?: string;
@@ -299,24 +314,40 @@ export interface ChannelLead {
   // Sub-page C: Schedule Date
   scheduledDate?: string; // YYYY-MM-DD format (planned initial outreach date)
 
+  // Video Value First Workflow Flags
+  videoRecorded?: boolean;
+  videoRecordedAt?: string;
+  reelPosted?: boolean;
+  reelPostedAt?: string;
+  reelLink?: string;
+  dmSent?: boolean;
+  dmSentAt?: string;
+  repliedSendIt?: boolean;
+  repliedSendItAt?: string;
+  liveLinkSent?: boolean;
+  liveLinkSentAt?: string;
+
   // Sub-page D: Follow-up & Cadence Status
   isCompleted?: boolean;
   completedAt?: string;
   leadStatus?: CadenceLeadStatus; // 'not_sent' | 'waiting_reply' | 'seen' | 'replied' | 'completed'
   isSeen?: boolean; // 👀 Seen toggle (retains cadence timers)
   initialSentDate?: string; // YYYY-MM-DD
-  followup1Date?: string; // exactly initialSentDate + 3 days
-  followup2Date?: string; // exactly initialSentDate + 7 days
+  followup1Date?: string; // Day 7 follow-up date
+  followup2Date?: string; // Day 14 follow-up date
+  followup3Date?: string; // Day 30 follow-up date
   followup1SentDate?: string;
   followup2SentDate?: string;
-  followupCount?: number; // 0 = initial, 1 = Day 3 sent, 2 = Day 7 sent
+  followup3SentDate?: string;
+  followupCount?: number; // 0 = initial, 1 = Day 7 sent, 2 = Day 14 sent, 3 = Day 30 sent
   repliedAt?: string;
   dismissedDate?: string; // YYYY-MM-DD: date when lead was removed/dismissed from daily queue
 
-  // Sub-page E: Mockup
+  // Sub-page E: Mockup & Breakdown Link
   hasMockup?: boolean;
   mockupFileName?: string;
   mockupUploadedAt?: string;
+  mockupLink?: string;
 }
 
 

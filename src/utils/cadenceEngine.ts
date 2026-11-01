@@ -141,18 +141,25 @@ export function isLeadDismissedToday(lead: ChannelLead): boolean {
 
 /**
  * Cadence Transition: Mark initial outreach as Sent.
- * Automatically schedules Follow-Up #1 at +3 days and Follow-Up #2 at +7 days.
+ * Automatically schedules Value-Based Follow-Up timeline:
+ * - Day 7: Value Check-In (kitchen ticket PDF)
+ * - Day 14: Social Proof / Case Study (12% jump in takeout)
+ * - Day 30: The Breakup / Final Audit (60-second Loom)
  */
 export function markInitialSent(lead: ChannelLead, sentDate = getLocalTodayStr()): ChannelLead {
   const normSentDate = normalizeToLocalDateStr(sentDate) || getLocalTodayStr();
-  const fu1 = addDays(normSentDate, 3);
-  const fu2 = addDays(normSentDate, 7);
+  const fu1 = addDays(normSentDate, 7);
+  const fu2 = addDays(normSentDate, 14);
+  const fu3 = addDays(normSentDate, 30);
 
   return {
     ...lead,
     initialSentDate: normSentDate,
+    dmSent: true,
+    dmSentAt: lead.dmSentAt || new Date().toISOString(),
     followup1Date: fu1,
     followup2Date: fu2,
+    followup3Date: fu3,
     followupCount: 0,
     leadStatus: lead.isSeen ? 'seen' : 'waiting_reply',
     isCompleted: false,
@@ -161,11 +168,35 @@ export function markInitialSent(lead: ChannelLead, sentDate = getLocalTodayStr()
 }
 
 /**
- * Cadence Transition: Mark a follow-up step as Sent.
+ * Returns the base outreach contact date for a lead.
+ * Prefers initialSentDate, then lastContactDate, dmSentAt, createdAt, or scheduledDate.
+ */
+export function getLeadBaseContactDate(lead: ChannelLead): string {
+  return (
+    normalizeToLocalDateStr(lead.initialSentDate) ||
+    normalizeToLocalDateStr(lead.lastContactDate) ||
+    normalizeToLocalDateStr(lead.dmSentAt) ||
+    normalizeToLocalDateStr(lead.createdAt) ||
+    normalizeToLocalDateStr(lead.scheduledDate) ||
+    getLocalTodayStr()
+  );
+}
+
+/**
+ * Calculates days elapsed since the lead's initial outreach or contact
+ */
+export function getDaysSinceContact(lead: ChannelLead, today = getLocalTodayStr()): number {
+  const baseDate = getLeadBaseContactDate(lead);
+  const diff = getDayDifference(baseDate, today);
+  return Math.max(0, -diff);
+}
+
+/**
+ * Cadence Transition: Mark a follow-up step as Sent (Step 1 = Day 7, Step 2 = Day 14, Step 3 = Day 30).
  */
 export function markFollowupSent(
   lead: ChannelLead,
-  step: 1 | 2,
+  step: 1 | 2 | 3,
   sentDate = getLocalTodayStr()
 ): ChannelLead {
   const normSentDate = normalizeToLocalDateStr(sentDate) || getLocalTodayStr();
@@ -181,11 +212,22 @@ export function markFollowupSent(
     };
   }
 
-  // Step 2: Final touchpoint done
+  if (step === 2) {
+    return {
+      ...lead,
+      followup2SentDate: normSentDate,
+      followupCount: 2,
+      leadStatus: lead.isSeen ? 'seen' : 'waiting_reply',
+      isCompleted: false,
+      dismissedDate: undefined,
+    };
+  }
+
+  // Step 3: Final Day 30 touchpoint done - Archive / Complete
   return {
     ...lead,
-    followup2SentDate: normSentDate,
-    followupCount: 2,
+    followup3SentDate: normSentDate,
+    followupCount: 3,
     leadStatus: 'completed',
     isCompleted: true,
     completedAt: new Date().toISOString(),
@@ -240,31 +282,15 @@ export function isInitialSentToday(lead: ChannelLead, today = getLocalTodayStr()
 }
 
 /**
- * Strict 3-Day Follow-Up Time-Lock:
- * Returns true ONLY if today is on or after (initialSentDate + 3 days).
- */
-export function isDay3FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
-  if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
-  if (!lead.initialSentDate) return false;
-  if (lead.followupCount !== undefined && lead.followupCount > 0) return false;
-
-  const targetDate = lead.followup1Date || addDays(lead.initialSentDate, 3);
-  const normalizedTarget = normalizeToLocalDateStr(targetDate);
-  if (!normalizedTarget) return false;
-
-  return today >= normalizedTarget;
-}
-
-/**
- * Strict 7-Day Follow-Up Time-Lock:
- * Returns true ONLY if today is on or after (initialSentDate + 7 days) and Follow-Up 1 is completed.
+ * Strict Day 7 Follow-Up Time-Lock (Value Check-In):
+ * Returns true ONLY if today is on or after (initialSentDate + 7 days) and Follow-Up 1 is pending.
  */
 export function isDay7FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
   if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
-  if (!lead.initialSentDate) return false;
-  if (lead.followupCount !== 1) return false;
+  if (!lead.initialSentDate && !lead.dmSent) return false;
+  if (lead.followupCount !== undefined && lead.followupCount > 0) return false;
 
-  const targetDate = lead.followup2Date || addDays(lead.initialSentDate, 7);
+  const targetDate = lead.followup1Date || addDays(getLeadBaseContactDate(lead), 7);
   const normalizedTarget = normalizeToLocalDateStr(targetDate);
   if (!normalizedTarget) return false;
 
@@ -272,10 +298,52 @@ export function isDay7FollowupDue(lead: ChannelLead, today = getLocalTodayStr())
 }
 
 /**
- * Auto-calculates and persists the exact Day 3 reminder date (initialSentDate + 3 days).
+ * Strict Day 14 Follow-Up Time-Lock (Social Proof / Case Study):
+ * Returns true ONLY if today is on or after (initialSentDate + 14 days) and Follow-Up 1 is completed.
  */
-export function setDay3Reminder(lead: ChannelLead, daysAhead = 3): ChannelLead {
-  const baseDate = lead.initialSentDate || getLocalTodayStr();
+export function isDay14FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
+  if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
+  if (!lead.initialSentDate && !lead.dmSent) return false;
+  if (lead.followupCount !== 1) return false;
+
+  const targetDate = lead.followup2Date || addDays(getLeadBaseContactDate(lead), 14);
+  const normalizedTarget = normalizeToLocalDateStr(targetDate);
+  if (!normalizedTarget) return false;
+
+  return today >= normalizedTarget;
+}
+
+/**
+ * Strict Day 30 Follow-Up Time-Lock (Breakup / Final Audit):
+ * Returns true ONLY if today is on or after (initialSentDate + 30 days) and Follow-Up 2 is completed.
+ */
+export function isDay30FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
+  if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
+  if (!lead.initialSentDate && !lead.dmSent) return false;
+  if (lead.followupCount !== 2) return false;
+
+  const targetDate = lead.followup3Date || addDays(getLeadBaseContactDate(lead), 30);
+  const normalizedTarget = normalizeToLocalDateStr(targetDate);
+  if (!normalizedTarget) return false;
+
+  return today >= normalizedTarget;
+}
+
+/**
+ * Checks if any follow-up touchpoint (Day 7, Day 14, or Day 30) is due today or overdue.
+ */
+export function isAnyFollowupDueToday(lead: ChannelLead, today = getLocalTodayStr()): boolean {
+  return isDay7FollowupDue(lead, today) || isDay14FollowupDue(lead, today) || isDay30FollowupDue(lead, today);
+}
+
+// Backwards-compatibility alias for older code
+export const isDay3FollowupDue = isDay7FollowupDue;
+
+/**
+ * Auto-calculates and persists the exact Day 7 reminder date.
+ */
+export function setDay3Reminder(lead: ChannelLead, daysAhead = 7): ChannelLead {
+  const baseDate = getLeadBaseContactDate(lead);
   const reminderDate = addDays(baseDate, daysAhead);
   return {
     ...lead,
@@ -290,8 +358,11 @@ export function revertInitialSent(lead: ChannelLead): ChannelLead {
   return {
     ...lead,
     initialSentDate: undefined,
+    dmSent: false,
+    dmSentAt: undefined,
     followup1Date: undefined,
     followup2Date: undefined,
+    followup3Date: undefined,
     followupCount: 0,
     leadStatus: 'not_sent',
     isCompleted: false,
@@ -299,28 +370,47 @@ export function revertInitialSent(lead: ChannelLead): ChannelLead {
 }
 
 /**
- * Returns high-converting pre-staged copy templates for initial and follow-ups.
+ * Returns high-converting pre-staged copy templates for Video Value First outreach & cadence:
+ * - STAGE A (Initial Contact - Day 1)
+ * - STAGE B (Post-Reaction - "Send it")
+ * - Day 7 Trigger (Value Check-In: kitchen ticket PDF)
+ * - Day 14 Trigger (Social Proof / Case Study: 12% jump in takeout)
+ * - Day 30 Trigger (The "Breakup" / Final Audit: 60-second Loom)
  */
 export function getCadenceMessageTemplates(lead: ChannelLead) {
-  const recipient = lead.name || 'there';
+  const recipient = lead.name?.trim() || 'there';
+  const city = lead.city?.trim() || 'your area';
+  const liveLink = lead.mockupLink || (lead.link ? (lead.link.startsWith('http') ? lead.link : `https://${lead.link}`) : '[Live Link]');
 
-  const initialPitch =
-    lead.initialDM?.trim() ||
-    lead.customPitch?.trim() ||
-    `Hey ${recipient}! Love what you're doing. Built a 0.3s interactive prototype specifically for your business: mind if I share the 20-second preview? (Zero commitment, $299 turnkey if you ever want it live).`;
+  // Stage A & Stage B Video Value scripts
+  const stageAMessage =
+    `Hey ${recipient}! I just posted a quick video on my story/feed breaking down your menu design/website and how you could easily add 15-20 more covers this weekend. Tagged you guys! Mind if I send the direct link to the full breakdown here?`;
 
-  const day3Bump =
+  const stageBMessage =
+    `Here you go: ${liveLink}. Let me know what you think of the online ordering tip at 1:12! If you want the full kitchen ticket PDF I mentioned, happy to send that over too.`;
+
+  // Value-Based Timeline Triggers (Requirement #5)
+  const day7Message =
     lead.followup3DM?.trim() ||
-    `Hey ${recipient}, bumping this quick! Wondering if you had 30 seconds to click through the interactive demo I put together for ${lead.name}? No pressure at all!`;
+    `Hey ${recipient}, did you get a chance to see that breakdown video? We just put together a quick PDF on 3 ways to speed up kitchen ticket times on Friday nights—want me to drop it here?`;
 
-  const day7Loom =
+  const day14Message =
     lead.followup7DM?.trim() ||
-    `Hey ${recipient}, wanted to send one final quick note! Recorded a 45-second screen recording showing exactly how the booking upgrade works for ${lead.name}. Should I drop the link here or leave you be?`;
+    `Hey ${recipient}! Quick update—another spot in ${city} implemented that online ordering tweak from the video we tagged you in and saw a 12% jump in takeout orders last week. Thought of you guys!`;
+
+  const day30Message =
+    `Hey ${recipient}, I know you're super busy running service. I'm archiving our video breakdown this week, but I recorded a quick 60-second Loom showing the #1 leak on your mobile checkout. Should I send the Loom or would you rather I close your file?`;
 
   return {
-    initialPitch,
-    day3Bump,
-    day7Loom,
+    initialPitch: stageAMessage,
+    stageAMessage,
+    stageBMessage,
+    day7Message,
+    day14Message,
+    day30Message,
+    // Backwards-compatible aliases
+    day3Bump: day7Message,
+    day7Loom: day14Message,
   };
 }
 

@@ -35,6 +35,12 @@ import {
   Info,
   Calendar,
   CheckCircle2,
+  Video,
+  Film,
+  Send,
+  MessageCircleReply,
+  Link2,
+  Sparkles,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import {
@@ -51,10 +57,12 @@ import {
   getScheduleDayStyle,
   shouldShowWarmupAlert,
   isDateToday,
+  getLocalTodayStr,
 } from '../../utils/cadenceEngine';
 import { playWarningChime } from '../../utils/soundEffects';
 import { LeadAnalysisModal } from './LeadAnalysisModal';
 import { QuickNoteModal } from '../QuickNoteModal';
+import { VideoScriptModal } from '../VideoScriptModal';
 
 interface LeadsSubPageProps {
   channel: MultiChannelType;
@@ -68,6 +76,11 @@ interface SortableLeadRowProps {
   onDelete: (id: string) => void;
   onOpenDetails: (lead: ChannelLead) => void;
   onToggleWarmup: (lead: ChannelLead) => void;
+  onToggleWorkflow: (
+    lead: ChannelLead,
+    field: 'videoRecorded' | 'reelPosted' | 'dmSent' | 'repliedSendIt' | 'liveLinkSent'
+  ) => void;
+  onOpenScriptModal: (lead: ChannelLead) => void;
   isJustAdded?: boolean;
 }
 
@@ -76,6 +89,8 @@ function SortableLeadRow({
   onDelete,
   onOpenDetails,
   onToggleWarmup,
+  onToggleWorkflow,
+  onOpenScriptModal,
   isJustAdded,
 }: SortableLeadRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -206,14 +221,14 @@ function SortableLeadRow({
         </a>
       </td>
 
-      {/* Action Column: Warm Up Button, Details Button & Delete */}
+      {/* Action Column: Workflow Milestones, Warm Up, Script, Details & Delete */}
       <td className="py-3.5 px-4 text-right">
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center justify-end gap-2 flex-wrap sm:flex-nowrap">
           {/* 🔥 Warm-Up System Button */}
           <button
             type="button"
             onClick={() => onToggleWarmup(lead)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95 ${
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95 shrink-0 ${
               lead.isWarmedUp
                 ? 'border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 shadow-emerald-950/40'
                 : isWarmupAlert
@@ -229,14 +244,108 @@ function SortableLeadRow({
             }
           >
             <span className={!lead.isWarmedUp && isWarmupAlert ? 'animate-bounce' : ''}>🔥</span>
-            <span>{lead.isWarmedUp ? 'Warmed Up' : 'Warm Up'}</span>
+            <span className="hidden sm:inline">{lead.isWarmedUp ? 'Warmed' : 'Warm Up'}</span>
+          </button>
+
+          {/* 5-Step Video Value First Workflow Toggle Strip (Requirement #2) */}
+          <div className="flex items-center gap-0.5 bg-slate-950/70 p-1 rounded-xl border border-white/10 shrink-0">
+            {/* 1. Video Recorded */}
+            <button
+              type="button"
+              onClick={() => onToggleWorkflow(lead, 'videoRecorded')}
+              className={`p-1.5 rounded-lg border text-xs transition cursor-pointer flex items-center gap-1 active:scale-90 ${
+                lead.videoRecorded
+                  ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 shadow-sm shadow-purple-950/40'
+                  : 'bg-white/5 text-slate-500 hover:text-slate-300 border-white/5'
+              }`}
+              title={`[1] Video Recorded: ${lead.videoRecorded ? 'Yes' : 'No'} (Click to toggle)`}
+              aria-label="Toggle Video Recorded"
+            >
+              <Video className="w-3.5 h-3.5" />
+              <span className={`w-1.5 h-1.5 rounded-full ${lead.videoRecorded ? 'bg-purple-400 shadow-[0_0_6px_rgba(192,132,252,0.8)]' : 'bg-slate-600'}`} />
+            </button>
+
+            {/* 2. Reel Posted */}
+            <button
+              type="button"
+              onClick={() => onToggleWorkflow(lead, 'reelPosted')}
+              className={`p-1.5 rounded-lg border text-xs transition cursor-pointer flex items-center gap-1 active:scale-90 ${
+                lead.reelPosted
+                  ? 'bg-pink-500/20 text-pink-300 border-pink-500/40 shadow-sm shadow-pink-950/40'
+                  : 'bg-white/5 text-slate-500 hover:text-slate-300 border-white/5'
+              }`}
+              title={`[2] Reel Posted: ${lead.reelPosted ? 'Yes' : 'No'} (Click to toggle)`}
+              aria-label="Toggle Reel Posted"
+            >
+              <Film className="w-3.5 h-3.5" />
+              <span className={`w-1.5 h-1.5 rounded-full ${lead.reelPosted ? 'bg-pink-400 shadow-[0_0_6px_rgba(244,114,182,0.8)]' : 'bg-slate-600'}`} />
+            </button>
+
+            {/* 3. DM Sent */}
+            <button
+              type="button"
+              onClick={() => onToggleWorkflow(lead, 'dmSent')}
+              className={`p-1.5 rounded-lg border text-xs transition cursor-pointer flex items-center gap-1 active:scale-90 ${
+                lead.dmSent || lead.initialSentDate
+                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 shadow-sm shadow-sky-950/40'
+                  : 'bg-white/5 text-slate-500 hover:text-slate-300 border-white/5'
+              }`}
+              title={`[3] DM Sent: ${lead.dmSent || lead.initialSentDate ? 'Yes' : 'No'} (Click to toggle)`}
+              aria-label="Toggle DM Sent"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span className={`w-1.5 h-1.5 rounded-full ${lead.dmSent || lead.initialSentDate ? 'bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.8)]' : 'bg-slate-600'}`} />
+            </button>
+
+            {/* 4. Replied "Send it" */}
+            <button
+              type="button"
+              onClick={() => onToggleWorkflow(lead, 'repliedSendIt')}
+              className={`p-1.5 rounded-lg border text-xs transition cursor-pointer flex items-center gap-1 active:scale-90 ${
+                lead.repliedSendIt
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-950/40'
+                  : 'bg-white/5 text-slate-500 hover:text-slate-300 border-white/5'
+              }`}
+              title={`[4] Replied "Send it": ${lead.repliedSendIt ? 'Yes' : 'No'} (Click to toggle)`}
+              aria-label="Toggle Replied Send It"
+            >
+              <MessageCircleReply className="w-3.5 h-3.5" />
+              <span className={`w-1.5 h-1.5 rounded-full ${lead.repliedSendIt ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]' : 'bg-slate-600'}`} />
+            </button>
+
+            {/* 5. Live Link Sent */}
+            <button
+              type="button"
+              onClick={() => onToggleWorkflow(lead, 'liveLinkSent')}
+              className={`p-1.5 rounded-lg border text-xs transition cursor-pointer flex items-center gap-1 active:scale-90 ${
+                lead.liveLinkSent
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-950/40'
+                  : 'bg-white/5 text-slate-500 hover:text-slate-300 border-white/5'
+              }`}
+              title={`[5] Live Link Sent: ${lead.liveLinkSent ? 'Yes' : 'No'} (Click to toggle)`}
+              aria-label="Toggle Live Link Sent"
+            >
+              <Link2 className="w-3.5 h-3.5" />
+              <span className={`w-1.5 h-1.5 rounded-full ${lead.liveLinkSent ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : 'bg-slate-600'}`} />
+            </button>
+          </div>
+
+          {/* ⚡ Video Script Button (Requirement #3) */}
+          <button
+            type="button"
+            onClick={() => onOpenScriptModal(lead)}
+            className="px-2.5 py-1.5 rounded-xl border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-white text-xs font-bold transition cursor-pointer flex items-center gap-1 active:scale-95 shadow-sm shrink-0"
+            title="Open Video Value First Script Generator (Stage A & Stage B)"
+          >
+            <Sparkles className="w-3 h-3 text-purple-400" />
+            <span>Script</span>
           </button>
 
           {/* Details & Notes Button */}
           <button
             type="button"
             onClick={() => onOpenDetails(lead)}
-            className="px-2.5 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+            className="px-2.5 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1 shrink-0"
             title="Open Lead Details, Notes & Prompt Hub"
           >
             <span>Details</span>
@@ -246,7 +355,7 @@ function SortableLeadRow({
           <button
             type="button"
             onClick={() => onDelete(lead.id)}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
             title="Delete lead (remaining IDs will re-sequence with no gaps)"
             aria-label={`Delete ${lead.name}`}
           >
@@ -289,6 +398,40 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
 
   // Quick Note Modal state (kept for backward compatibility)
   const [noteModalLead, setNoteModalLead] = useState<ChannelLead | null>(null);
+
+  // Video Value First Script Modal State
+  const [selectedScriptLead, setSelectedScriptLead] = useState<ChannelLead | null>(null);
+
+  const handleToggleWorkflow = (
+    lead: ChannelLead,
+    field: 'videoRecorded' | 'reelPosted' | 'dmSent' | 'repliedSendIt' | 'liveLinkSent'
+  ) => {
+    const nowIso = new Date().toISOString();
+    const currentVal = Boolean(lead[field]);
+    const nextVal = !currentVal;
+
+    let patch: Partial<ChannelLead> = {
+      [field]: nextVal,
+      [`${field}At`]: nextVal ? nowIso : undefined,
+    };
+
+    if (field === 'dmSent' && nextVal && !lead.initialSentDate) {
+      patch.initialSentDate = getLocalTodayStr();
+    }
+    if (field === 'repliedSendIt' && nextVal) {
+      patch.leadStatus = 'replied';
+      patch.repliedAt = nowIso;
+    }
+    if (field === 'liveLinkSent' && nextVal) {
+      patch.isCompleted = true;
+    }
+
+    const updated = leads.map((l) => (l.id === lead.id ? { ...l, ...patch } : l));
+    onUpdateLeads(updated);
+    if (selectedLeadForDetails && selectedLeadForDetails.id === lead.id) {
+      setSelectedLeadForDetails({ ...selectedLeadForDetails, ...patch });
+    }
+  };
 
   const handleOpenDetails = (lead: ChannelLead) => {
     setSelectedLeadForDetails(lead);
@@ -833,7 +976,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                   <th className="py-3 px-4 text-left w-32">ID</th>
                   <th className="py-3 px-4 text-left">Name</th>
                   <th className="py-3 px-4 text-left">Link</th>
-                  <th className="py-3 px-4 text-right w-44">Action</th>
+                  <th className="py-3 px-4 text-right">Workflow &amp; Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
@@ -866,6 +1009,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                         onDelete={handleDeleteLead}
                         onOpenDetails={handleOpenDetails}
                         onToggleWarmup={handleToggleWarmup}
+                        onToggleWorkflow={handleToggleWorkflow}
+                        onOpenScriptModal={(l) => setSelectedScriptLead(l)}
                         isJustAdded={lead.id === justAddedLeadId}
                       />
                     ))}
@@ -1221,6 +1366,32 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
               </div>
             ) : null}
 
+            {/* Video Value First Strategy Action Card (Requirement #3) */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-indigo-950/40 to-slate-900 border border-purple-500/30 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-purple-300 font-mono">
+                    Video Value First Outreach Scripts
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const leadToOpen = selectedLeadForDetails;
+                    setSelectedLeadForDetails(null);
+                    setSelectedScriptLead(leadToOpen);
+                  }}
+                  className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition shadow-sm cursor-pointer"
+                >
+                  Open Script Generator
+                </button>
+              </div>
+              <p className="text-xs text-slate-300">
+                Generate Stage A (Initial Contact) and Stage B (Post-Reaction) scripts tailored for {selectedLeadForDetails.name}.
+              </p>
+            </div>
+
             {/* Modal Actions */}
             <div className="flex justify-end pt-2">
               <button
@@ -1234,6 +1405,21 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
           </div>
         </div>
       )}
+
+      {/* Video Value First Script Modal (Stage A & Stage B) */}
+      <VideoScriptModal
+        isOpen={Boolean(selectedScriptLead)}
+        onClose={() => setSelectedScriptLead(null)}
+        lead={selectedScriptLead}
+        channel={channel}
+        onUpdateLead={(updatedLead) => {
+          const nextList = leads.map((l) => (l.id === updatedLead.id ? updatedLead : l));
+          onUpdateLeads(nextList);
+          if (selectedLeadForDetails?.id === updatedLead.id) {
+            setSelectedLeadForDetails(updatedLead);
+          }
+        }}
+      />
 
       {/* Quick Note Modal */}
       <QuickNoteModal

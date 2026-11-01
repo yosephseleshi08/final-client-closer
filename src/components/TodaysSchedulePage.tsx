@@ -43,8 +43,9 @@ import {
   restoreDismissedLead,
   isLeadDismissedToday,
   isInitialSentToday,
-  isDay3FollowupDue,
   isDay7FollowupDue,
+  isDay14FollowupDue,
+  isDay30FollowupDue,
   setDay3Reminder,
   revertInitialSent,
   getCadenceMessageTemplates,
@@ -172,13 +173,18 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       return true;
     }
 
-    // Check if follow-up 1 is overdue (strict time-lock: must be past followup1Date)
+    // Check if follow-up 1 (Day 7) is overdue
     if (l.initialSentDate && l.followupCount === 0 && l.followup1Date && isDateOverdue(l.followup1Date)) {
       return true;
     }
 
-    // Check if follow-up 2 is overdue (strict time-lock: must be past followup2Date)
+    // Check if follow-up 2 (Day 14) is overdue
     if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && isDateOverdue(l.followup2Date)) {
+      return true;
+    }
+
+    // Check if follow-up 3 (Day 30) is overdue
+    if (l.initialSentDate && l.followupCount === 2 && l.followup3Date && isDateOverdue(l.followup3Date)) {
       return true;
     }
 
@@ -197,16 +203,19 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const sentTodayLeads = filteredAllLeads.filter((l) => isInitialSentToday(l, todayStr));
   const initialSentTodayCount = sentTodayLeads.length;
 
-  // 4. FOLLOW-UPS SENT TODAY (Day 3 and Day 7 follow-up touches sent today)
-  const day3SentTodayLeads = filteredAllLeads.filter(
+  // 4. FOLLOW-UPS SENT TODAY (Day 7, Day 14, and Day 30 follow-up touches sent today)
+  const day7SentTodayLeads = filteredAllLeads.filter(
     (l) => normalizeToLocalDateStr(l.followup1SentDate) === todayStr
   );
-  const day7SentTodayLeads = filteredAllLeads.filter(
+  const day14SentTodayLeads = filteredAllLeads.filter(
     (l) => normalizeToLocalDateStr(l.followup2SentDate) === todayStr
   );
-  const followupsSentTodayCount = day3SentTodayLeads.length + day7SentTodayLeads.length;
+  const day30SentTodayLeads = filteredAllLeads.filter(
+    (l) => normalizeToLocalDateStr(l.followup3SentDate) === todayStr
+  );
+  const followupsSentTodayCount = day7SentTodayLeads.length + day14SentTodayLeads.length + day30SentTodayLeads.length;
 
-  // Total tasks completed across all of today's schedule (Initial DM + Day 3 FU + Day 7 FU)
+  // Total tasks completed across all of today's schedule (Initial DM + Day 7 FU + Day 14 FU + Day 30 FU)
   const totalTasksCompletedToday = initialSentTodayCount + followupsSentTodayCount;
 
   // 5. FOLLOW-UPS DUE TODAY (Section 2 - Strict Time-Lock Enforced)
@@ -215,13 +224,18 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     if (isLeadDismissedToday(l)) return false;
     if (!l.initialSentDate) return false;
 
-    // Day 3 check: strictly due today
-    if (l.followupCount === 0 && isDateToday(l.followup1Date)) {
+    // Day 7 check: due today
+    if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDay7FollowupDue(l, todayStr))) {
       return true;
     }
 
-    // Day 7 check: strictly due today
-    if (l.followupCount === 1 && isDateToday(l.followup2Date)) {
+    // Day 14 check: due today
+    if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDay14FollowupDue(l, todayStr))) {
+      return true;
+    }
+
+    // Day 30 check: due today
+    if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDay30FollowupDue(l, todayStr))) {
       return true;
     }
 
@@ -881,18 +895,24 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
             {overdueLeads.map((lead) => {
               const templates = getCadenceMessageTemplates(lead);
               const isInitial = !lead.initialSentDate;
-              const isDay3 = lead.initialSentDate && lead.followupCount === 0;
+              const isStep1 = lead.initialSentDate && lead.followupCount === 0;
+              const isStep2 = lead.initialSentDate && lead.followupCount === 1;
+              const isStep3 = lead.initialSentDate && lead.followupCount === 2;
               const overdueDate = isInitial
                 ? lead.scheduledDate!
-                : isDay3
-                ? lead.followup1Date!
-                : lead.followup2Date!;
+                : isStep1
+                ? (lead.followup1Date || 'Day 7')
+                : isStep2
+                ? (lead.followup2Date || 'Day 14')
+                : (lead.followup3Date || 'Day 30');
               const diffDays = Math.abs(getDayDifference(overdueDate));
               const pitchText = isInitial
-                ? templates.initialPitch
-                : isDay3
-                ? templates.day3Bump
-                : templates.day7Loom;
+                ? templates.stageAMessage
+                : isStep1
+                ? templates.day7Message
+                : isStep2
+                ? templates.day14Message
+                : templates.day30Message;
 
               return (
                 <div
@@ -936,17 +956,19 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         <span>
                           {isInitial
                             ? 'Message 1: Initial DM (Day 1)'
-                            : isDay3
-                            ? 'Message 2: 3-Day Follow-Up (Day 3)'
-                            : 'Message 3: 7-Day Breakup (Day 7)'}
+                            : isStep1
+                            ? 'Message 2: Day 7 Value Check-In (Kitchen Ticket PDF)'
+                            : isStep2
+                            ? 'Message 3: Day 14 Social Proof (Case Study)'
+                            : 'Message 4: Day 30 Breakup (60s Loom Audit)'}
                         </span>
-                        {(isInitial ? lead.initialDM : isDay3 ? lead.followup3DM : lead.followup7DM) ? (
+                        {(isInitial ? lead.initialDM : isStep1 ? lead.followup3DM : lead.followup7DM) ? (
                           <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
                             Custom Pitch
                           </span>
                         ) : (
                           <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.2 rounded">
-                            Default Template
+                            Value-First Template
                           </span>
                         )}
                       </div>
@@ -966,9 +988,11 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                             <span>
                               {isInitial
                                 ? 'Copy Initial DM'
-                                : isDay3
-                                ? 'Copy 3-Day Follow-Up'
-                                : 'Copy 7-Day Breakup'}
+                                : isStep1
+                                ? 'Copy Day 7 Follow-Up'
+                                : isStep2
+                                ? 'Copy Day 14 Follow-Up'
+                                : 'Copy Day 30 Breakup'}
                             </span>
                           </>
                         )}
@@ -1050,10 +1074,12 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         onClick={() => {
                           if (isInitial) {
                             handleUpdateLead(markInitialSent(lead));
-                          } else if (isDay3) {
+                          } else if (isStep1) {
                             handleUpdateLead(markFollowupSent(lead, 1));
-                          } else {
+                          } else if (isStep2) {
                             handleUpdateLead(markFollowupSent(lead, 2));
+                          } else {
+                            handleUpdateLead(markFollowupSent(lead, 3));
                           }
                         }}
                         className={`px-4 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition ${
@@ -1065,7 +1091,13 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                       >
                         <Send className="w-3.5 h-3.5" />
                         <span>
-                          {isInitial ? 'Mark Initial Sent' : isDay3 ? 'Mark FU 1 Sent' : 'Mark FU 2 Sent'}
+                          {isInitial
+                            ? 'Mark Initial Sent'
+                            : isStep1
+                            ? 'Mark Day 7 Sent'
+                            : isStep2
+                            ? 'Mark Day 14 Sent'
+                            : 'Mark Day 30 Sent'}
                         </span>
                       </button>
                     </div>
@@ -1292,7 +1324,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                 </span>
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Proactive touchpoints reaching exact 3-Day (quick check) or 7-Day (final Loom offer) mark today.
+                Proactive touchpoints reaching exact Day 7 (kitchen ticket PDF), Day 14 (social proof), or Day 30 (Loom audit) mark today.
               </p>
             </div>
           </div>
@@ -1303,22 +1335,31 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
             <CheckCircle2 className="w-8 h-8 text-emerald-400/50 mx-auto mb-2" />
             <p className="text-sm font-semibold text-slate-300">No follow-ups due today!</p>
             <p className="text-xs text-slate-500 mt-1">
-              Any prospects that reach their 3rd or 7th day will automatically populate here.
+              Any prospects that reach their Day 7, 14, or 30 milestone will automatically populate here.
             </p>
           </div>
         ) : (
           <div className="space-y-3">
             {followupsDueToday.map((lead) => {
-              const isDay3 = lead.followupCount === 0;
+              const isStep1 = lead.followupCount === 0;
+              const isStep2 = lead.followupCount === 1;
+              const isStep3 = lead.followupCount === 2;
+              const step = isStep1 ? 1 : isStep2 ? 2 : 3;
               const templates = getCadenceMessageTemplates(lead);
-              const followText = isDay3 ? templates.day3Bump : templates.day7Loom;
+              const followText = isStep1
+                ? templates.day7Message
+                : isStep2
+                ? templates.day14Message
+                : templates.day30Message;
 
               return (
                 <div
                   key={`${lead.channel}-${lead.id}`}
                   className={`rounded-2xl border p-4 space-y-3 shadow-lg transition ${
-                    isDay3
-                      ? 'border-amber-500/30 bg-slate-950/80 hover:border-amber-500/50'
+                    isStep1
+                      ? 'border-indigo-500/30 bg-slate-950/80 hover:border-indigo-500/50'
+                      : isStep2
+                      ? 'border-emerald-500/30 bg-slate-950/80 hover:border-emerald-500/50'
                       : 'border-rose-500/30 bg-slate-950/80 hover:border-rose-500/50'
                   }`}
                 >
@@ -1338,12 +1379,18 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                       )}
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded border font-mono ${
-                          isDay3
-                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                          isStep1
+                            ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                            : isStep2
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                             : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
                         }`}
                       >
-                        {isDay3 ? '⚡ Follow-Up #1 (Day +3)' : '🔥 Follow-Up #2 (Day +7 - Final)'}
+                        {isStep1
+                          ? '⚡ Follow-Up #1 (Day +7 Value Check-In)'
+                          : isStep2
+                          ? '📈 Follow-Up #2 (Day +14 Social Proof)'
+                          : '🛑 Follow-Up #3 (Day +30 Breakup Loom)'}
                       </span>
                     </div>
 
@@ -1361,23 +1408,29 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                   {/* Pre-staged Follow-Up Copy Box */}
                   <div
                     className={`rounded-xl border p-2.5 space-y-1.5 ${
-                      isDay3
-                        ? 'border-amber-500/20 bg-amber-950/20'
+                      isStep1
+                        ? 'border-indigo-500/20 bg-indigo-950/20'
+                        : isStep2
+                        ? 'border-emerald-500/20 bg-emerald-950/20'
                         : 'border-rose-500/20 bg-rose-950/20'
                     }`}
                   >
                     <div className="flex items-center justify-between text-[11px] font-bold">
                       <div className="flex items-center gap-1.5">
-                        <span className={isDay3 ? 'text-amber-300' : 'text-rose-300'}>
-                          {isDay3 ? 'Message 2: 3-Day Follow-Up (Day 3)' : 'Message 3: 7-Day Breakup (Day 7)'}
+                        <span className={isStep1 ? 'text-indigo-300' : isStep2 ? 'text-emerald-300' : 'text-rose-300'}>
+                          {isStep1
+                            ? 'Message 2: Day 7 Value Check-In (Kitchen Ticket PDF)'
+                            : isStep2
+                            ? 'Message 3: Day 14 Social Proof (Case Study)'
+                            : 'Message 4: Day 30 Breakup (60s Loom Audit)'}
                         </span>
-                        {(isDay3 ? lead.followup3DM : lead.followup7DM) ? (
+                        {(isStep1 ? lead.followup3DM : isStep2 ? lead.followup7DM : null) ? (
                           <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
                             Custom Pitch
                           </span>
                         ) : (
                           <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.2 rounded">
-                            Default Template
+                            Value-First Template
                           </span>
                         )}
                       </div>
@@ -1385,7 +1438,11 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         type="button"
                         onClick={() => handleCopyText(`${lead.id}-fu`, followText)}
                         className={`flex items-center gap-1 text-xs transition cursor-pointer font-semibold ${
-                          isDay3 ? 'text-amber-300 hover:text-white' : 'text-rose-300 hover:text-white'
+                          isStep1
+                            ? 'text-indigo-300 hover:text-white'
+                            : isStep2
+                            ? 'text-emerald-300 hover:text-white'
+                            : 'text-rose-300 hover:text-white'
                         }`}
                       >
                         {copiedKey === `${lead.id}-fu` ? (
@@ -1396,7 +1453,13 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         ) : (
                           <>
                             <Copy className="w-3 h-3" />
-                            <span>{isDay3 ? 'Copy 3-Day Follow-Up' : 'Copy 7-Day Breakup'}</span>
+                            <span>
+                              {isStep1
+                                ? 'Copy Day 7 Follow-Up'
+                                : isStep2
+                                ? 'Copy Day 14 Follow-Up'
+                                : 'Copy Day 30 Breakup'}
+                            </span>
                           </>
                         )}
                       </button>
@@ -1474,18 +1537,26 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                       <button
                         type="button"
                         disabled={!lead.isWarmedUp}
-                        onClick={() => handleUpdateLead(markFollowupSent(lead, isDay3 ? 1 : 2))}
+                        onClick={() => handleUpdateLead(markFollowupSent(lead, step as 1 | 2 | 3))}
                         className={`px-4 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition ${
                           !lead.isWarmedUp
                             ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed opacity-60'
-                            : isDay3
-                            ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30 cursor-pointer'
+                            : isStep1
+                            ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30 cursor-pointer'
+                            : isStep2
+                            ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30 cursor-pointer'
                             : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30 cursor-pointer'
                         }`}
                         title={!lead.isWarmedUp ? 'Check "Warmed Up?" to unlock sending' : 'Mark follow-up as dispatched'}
                       >
                         <Check className="w-3.5 h-3.5" />
-                        <span>{isDay3 ? 'Mark FU 1 Sent (Day 3)' : 'Mark FU 2 Sent (Day 7)'}</span>
+                        <span>
+                          {isStep1
+                            ? 'Mark Day 7 Sent'
+                            : isStep2
+                            ? 'Mark Day 14 Sent'
+                            : 'Mark Day 30 Sent (Archive)'}
+                        </span>
                       </button>
                     </div>
                   </div>

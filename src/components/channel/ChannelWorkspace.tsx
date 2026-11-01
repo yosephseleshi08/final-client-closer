@@ -9,12 +9,14 @@ import {
   Clock,
   Image as ImageIcon,
   AlertCircle,
+  Film,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType, MultiChannelSubTab } from '../../types';
 import { LeadsSubPage } from './LeadsSubPage';
 import { DmSubPage } from './DmSubPage';
 import { ScheduleSubPage } from './ScheduleSubPage';
 import { FollowupScheduleSubPage } from './FollowupScheduleSubPage';
+import { ReelQueueSubPage } from './ReelQueueSubPage';
 import { MockupSubPage } from './MockupSubPage';
 import { getChannelLabel } from '../../utils/channelStorage';
 
@@ -77,6 +79,10 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads, onNavigateToCh
     return false;
   }).length;
 
+  const pendingReelsCount = leads.filter(
+    (l) => Boolean(l.videoRecorded) && !l.reelPosted
+  ).length;
+
   const subTabs: { id: MultiChannelSubTab; label: string; icon: React.ReactNode; badge?: number }[] = [
     {
       id: 'leads',
@@ -101,6 +107,12 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads, onNavigateToCh
       label: 'Follow-Up Schedule',
       icon: <Clock className="w-4 h-4" />,
       badge: urgentCount > 0 ? urgentCount : undefined,
+    },
+    {
+      id: 'reel-queue',
+      label: 'Reel Queue',
+      icon: <Film className="w-4 h-4" />,
+      badge: pendingReelsCount > 0 ? pendingReelsCount : undefined,
     },
     {
       id: 'mockup',
@@ -224,6 +236,15 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads, onNavigateToCh
             leads={leads}
             onUpdateLeads={onUpdateLeads}
             onNavigateToSchedule={() => setActiveSubTab('schedule')}
+          />
+        )}
+
+        {activeSubTab === 'reel-queue' && (
+          <ReelQueueSubPage
+            channel={channel}
+            leads={leads}
+            onUpdateLeads={onUpdateLeads}
+            onNavigateToLeads={() => setActiveSubTab('leads')}
           />
         )}
 
