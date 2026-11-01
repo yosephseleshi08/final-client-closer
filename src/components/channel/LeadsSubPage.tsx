@@ -63,6 +63,8 @@ import { playWarningChime } from '../../utils/soundEffects';
 import { LeadAnalysisModal } from './LeadAnalysisModal';
 import { QuickNoteModal } from '../QuickNoteModal';
 import { VideoScriptModal } from '../VideoScriptModal';
+import { VideoVerificationModal } from '../VideoVerificationModal';
+import { recordVideoVerification } from '../../utils/videoVerification';
 
 interface LeadsSubPageProps {
   channel: MultiChannelType;
@@ -402,10 +404,36 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   // Video Value First Script Modal State
   const [selectedScriptLead, setSelectedScriptLead] = useState<ChannelLead | null>(null);
 
+  // Video Verification Gate Modal State (Requirement #1 & #2)
+  const [verifyingLead, setVerifyingLead] = useState<ChannelLead | null>(null);
+  const [toastAlert, setToastAlert] = useState<{
+    id: number;
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  const showToast = (type: 'success' | 'error', message: string) => {
+    setToastAlert({ id: Date.now(), type, message });
+  };
+
+  useEffect(() => {
+    if (!toastAlert) return;
+    const timer = setTimeout(() => {
+      setToastAlert(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [toastAlert]);
+
   const handleToggleWorkflow = (
     lead: ChannelLead,
     field: 'videoRecorded' | 'reelPosted' | 'dmSent' | 'repliedSendIt' | 'liveLinkSent'
   ) => {
+    // 2-Second Verification Gate: When setting videoRecorded to true, gate with confirmation modal
+    if (field === 'videoRecorded' && !lead.videoRecorded) {
+      setVerifyingLead(lead);
+      return;
+    }
+
     const nowIso = new Date().toISOString();
     const currentVal = Boolean(lead[field]);
     const nextVal = !currentVal;
@@ -415,6 +443,9 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       [`${field}At`]: nextVal ? nowIso : undefined,
     };
 
+    if (field === 'videoRecorded' && !nextVal) {
+      patch.videoVerifiedAt = undefined;
+    }
     if (field === 'dmSent' && nextVal && !lead.initialSentDate) {
       patch.initialSentDate = getLocalTodayStr();
     }
@@ -431,6 +462,33 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     if (selectedLeadForDetails && selectedLeadForDetails.id === lead.id) {
       setSelectedLeadForDetails({ ...selectedLeadForDetails, ...patch });
     }
+    if (selectedScriptLead && selectedScriptLead.id === lead.id) {
+      setSelectedScriptLead({ ...selectedScriptLead, ...patch });
+    }
+  };
+
+  const handleVideoVerificationSuccess = (lead: ChannelLead) => {
+    const nowIso = new Date().toISOString();
+    const patch: Partial<ChannelLead> = {
+      videoRecorded: true,
+      videoRecordedAt: nowIso,
+      videoVerifiedAt: nowIso,
+    };
+
+    // Record verified proof in persistent log
+    recordVideoVerification(lead.id, lead.name, lead.channel);
+
+    const updated = leads.map((l) => (l.id === lead.id ? { ...l, ...patch } : l));
+    onUpdateLeads(updated);
+
+    if (selectedLeadForDetails && selectedLeadForDetails.id === lead.id) {
+      setSelectedLeadForDetails({ ...selectedLeadForDetails, ...patch });
+    }
+    if (selectedScriptLead && selectedScriptLead.id === lead.id) {
+      setSelectedScriptLead({ ...selectedScriptLead, ...patch });
+    }
+
+    showToast('success', '✅ Video verified.');
   };
 
   const handleOpenDetails = (lead: ChannelLead) => {
@@ -1429,6 +1487,45 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         onSave={handleSaveQuickNote}
         onDelete={handleDeleteQuickNote}
       />
+
+      {/* Video Verification Gate Modal (Requirement #1 & #2) */}
+      <VideoVerificationModal
+        isOpen={Boolean(verifyingLead)}
+        lead={verifyingLead}
+        onClose={() => setVerifyingLead(null)}
+        onConfirmSuccess={handleVideoVerificationSuccess}
+        onShowToast={showToast}
+      />
+
+      {/* Floating Toast Notification Banner */}
+      {toastAlert && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed top-5 right-5 z-50 max-w-sm w-[calc(100vw-2.5rem)] rounded-2xl border p-4 text-xs sm:text-sm font-semibold shadow-2xl backdrop-blur-md animate-in slide-in-from-top-3 flex items-center justify-between gap-3 ${
+            toastAlert.type === 'success'
+              ? 'border-emerald-500/50 bg-emerald-950/95 text-emerald-100 shadow-emerald-950/60'
+              : 'border-rose-500/50 bg-rose-950/95 text-rose-100 shadow-rose-950/60'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            {toastAlert.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
+            )}
+            <span>{toastAlert.message}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setToastAlert(null)}
+            className="p-1 rounded-lg hover:bg-white/10 transition cursor-pointer text-slate-300 hover:text-white shrink-0"
+            aria-label="Dismiss notification"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Floating Add Lead Circular Button (Visible strictly on Leads tab) */}
       <div className="fixed bottom-20 right-6 sm:bottom-24 sm:right-8 z-40">

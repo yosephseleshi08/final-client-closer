@@ -156,6 +156,7 @@ export interface Lead {
   // Video Value First Strategy Fields
   videoRecorded?: boolean;
   videoRecordedAt?: string;
+  videoVerifiedAt?: string;
   reelPosted?: boolean;
   reelPostedAt?: string;
   reelLink?: string;
@@ -268,6 +269,7 @@ export interface DailyHistoryRecord {
   initialDmsTarget?: number;
   followupsSent?: number; // Day 3 + Day 7 follow-ups completed
   followupsTarget?: number;
+  videosVerified?: number; // Count of videos verified today through the 2-second confirmation gate
 }
 
 export interface HistoryStreakStats {
@@ -276,6 +278,7 @@ export interface HistoryStreakStats {
   completedDaysCount: number;
   averageCompletionRate: number;
   totalDMsSent: number;
+  videosVerifiedToday?: number;
 }
 
 export type MultiChannelSubTab = 'leads' | 'dm' | 'schedule' | 'followup' | 'reel-queue' | 'mockup';
@@ -317,6 +320,7 @@ export interface ChannelLead {
   // Video Value First Workflow Flags
   videoRecorded?: boolean;
   videoRecordedAt?: string;
+  videoVerifiedAt?: string;
   reelPosted?: boolean;
   reelPostedAt?: string;
   reelLink?: string;

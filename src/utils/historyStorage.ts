@@ -1,6 +1,7 @@
 import { DailyHistoryRecord, DailyHistoryStatus, HistoryStreakStats, MultiChannelType } from '../types';
 import { getLocalTodayStr, normalizeToLocalDateStr } from './cadenceEngine';
 import { loadChannelLeads } from './channelStorage';
+import { getVideosVerifiedTodayCount, getVideosVerifiedOnDate } from './videoVerification';
 
 export const HISTORY_STORAGE_KEY = 'outreach_daily_history';
 export const OUTREACH_START_DATE = '2026-10-26'; // User's verified launch day
@@ -173,6 +174,7 @@ export interface TodayCompletionDetails {
   initialRemainingDue: number;
   followupsSent: number;
   followupsRemainingDue: number;
+  videosVerified?: number;
   notes?: string;
 }
 
@@ -196,6 +198,7 @@ export function recordTodayCompletion(
   let initialRemainingDue: number | undefined;
   let followupsSent: number | undefined;
   let followupsRemainingDue: number | undefined;
+  let videosVerified: number | undefined;
   let notes: string | undefined;
 
   if (typeof completedCountOrDetails === 'object') {
@@ -205,6 +208,7 @@ export function recordTodayCompletion(
     initialRemainingDue = completedCountOrDetails.initialRemainingDue;
     followupsSent = completedCountOrDetails.followupsSent;
     followupsRemainingDue = completedCountOrDetails.followupsRemainingDue;
+    videosVerified = completedCountOrDetails.videosVerified ?? getVideosVerifiedTodayCount();
     notes = completedCountOrDetails.notes;
   } else {
     totalCompleted = completedCountOrDetails;
@@ -213,6 +217,7 @@ export function recordTodayCompletion(
     initialRemainingDue = legacyRemainingDue || 0;
     followupsSent = 0;
     followupsRemainingDue = 0;
+    videosVerified = getVideosVerifiedTodayCount();
     notes = legacyNotes;
   }
 
@@ -262,6 +267,7 @@ export function recordTodayCompletion(
     initialDmsTarget: initialTarget,
     followupsSent,
     followupsTarget,
+    videosVerified,
   };
 
   if (existingIdx >= 0) {
@@ -286,15 +292,26 @@ export function getDateOffset(daysFromToday: number): string {
   return `${y}-${m}-${d}`;
 }
 
+export interface CalculateStreaksOptions {
+  todayDmsSent?: number;
+  todayVideosVerified?: number;
+}
+
 /**
  * Calculates current streak and best streak from the history records.
  * Rules:
  * 1. A streak day is a non-Sunday day with percentage >= 100.
  * 2. Sunday is a rest day and DOES NOT break the streak.
- * 3. If today is Sunday or today is already 100%, today contributes to the streak.
- * 4. If today is a weekday and not yet 100% (in progress), the streak is measured up to yesterday.
+ * 3. STREAK LOCK: Current Streak ONLY increments if BOTH conditions are met today:
+ *    - DMs Sent Today >= 6
+ *    - Videos Verified Today >= 1 (verified today through the modal)
+ *    If a lead has videoRecorded: true but NO verification was logged today, the streak does NOT increment.
+ * 4. If today is a weekday and not yet fulfilled, the streak is measured up to yesterday.
  */
-export function calculateStreaks(records: DailyHistoryRecord[]): HistoryStreakStats {
+export function calculateStreaks(
+  records: DailyHistoryRecord[],
+  options?: CalculateStreaksOptions
+): HistoryStreakStats {
   const mapByDate = new Map<string, DailyHistoryRecord>();
   for (const r of records) {
     mapByDate.set(r.date, r);
@@ -302,17 +319,36 @@ export function calculateStreaks(records: DailyHistoryRecord[]): HistoryStreakSt
 
   const todayStr = getLocalTodayStr();
   const todayEntry = mapByDate.get(todayStr);
-  const isToday100 = todayEntry ? todayEntry.percentage >= 100 : false;
   const isTodaySun = isDateStringSunday(todayStr);
 
+  const effectiveTodayDms =
+    options?.todayDmsSent !== undefined
+      ? options.todayDmsSent
+      : todayEntry?.initialDmsSent ?? todayEntry?.dmsSent ?? 0;
+
+  const effectiveTodayVideosVerified =
+    options?.todayVideosVerified !== undefined
+      ? options.todayVideosVerified
+      : todayEntry?.videosVerified ?? getVideosVerifiedTodayCount();
+
+  // Streak Lock Rule:
+  // Today increments the streak ONLY IF DMs Sent Today >= 6 AND Videos Verified Today >= 1
+  const isTodayStreakUnlocked =
+    !isTodaySun && effectiveTodayDms >= 6 && effectiveTodayVideosVerified >= 1;
+
   // 1. Calculate Current Streak
-  // We evaluate backwards starting from today (if completed or Sunday) or yesterday (if today in progress).
   let currentStreak = 0;
   let startOffset = 0;
 
-  if (!isTodaySun && !isToday100) {
-    // Today is in progress; start checking from yesterday so pending tasks don't break the streak
+  if (isTodaySun) {
+    // Sunday is a rest day: streak continues unbroken up to Saturday
     startOffset = -1;
+  } else if (!isTodayStreakUnlocked) {
+    // Weekday in progress or streak locked (needs 6 DMs & >= 1 verified video today)
+    startOffset = -1;
+  } else {
+    // Both 6 DMs and >= 1 verified video are achieved today! Today increments streak!
+    startOffset = 0;
   }
 
   // Iterate backwards day by day up to 365 days
@@ -330,11 +366,18 @@ export function calculateStreaks(records: DailyHistoryRecord[]): HistoryStreakSt
       continue;
     }
 
+    if (offset === 0) {
+      if (isTodayStreakUnlocked) {
+        currentStreak++;
+      }
+      continue;
+    }
+
     const entry = mapByDate.get(dateStr);
     if (entry && entry.percentage >= 100) {
       currentStreak++;
     } else {
-      // Encountered a weekday with < 100% completion; streak breaks
+      // Encountered a past weekday with < 100% completion; streak breaks
       break;
     }
   }
@@ -361,6 +404,16 @@ export function calculateStreaks(records: DailyHistoryRecord[]): HistoryStreakSt
       continue; // Sunday does not reset or count
     }
 
+    if (dateStr === todayStr) {
+      if (isTodayStreakUnlocked) {
+        tempStreak++;
+        if (tempStreak > bestStreak) {
+          bestStreak = tempStreak;
+        }
+      }
+      continue;
+    }
+
     const entry = mapByDate.get(dateStr);
     if (entry && entry.percentage >= 100) {
       tempStreak++;
@@ -368,10 +421,7 @@ export function calculateStreaks(records: DailyHistoryRecord[]): HistoryStreakSt
         bestStreak = tempStreak;
       }
     } else {
-      // If it's today and today is in progress, don't reset tempStreak for past days
-      if (dateStr !== todayStr) {
-        tempStreak = 0;
-      }
+      tempStreak = 0;
     }
   }
 
@@ -387,9 +437,8 @@ export function calculateStreaks(records: DailyHistoryRecord[]): HistoryStreakSt
     const isSunday = isDateStringSunday(dateStr);
 
     if (entry) {
-      // Total DMs Dispatches strictly tracks initial DM sends only
       const initialSends =
-        entry.initialDmsSent !== undefined ? entry.initialDmsSent : (entry.dmsSent || 0);
+        entry.initialDmsSent !== undefined ? entry.initialDmsSent : entry.dmsSent || 0;
       totalDMs += initialSends;
       if (!isSunday) {
         totalPercentages += entry.percentage;
@@ -408,6 +457,7 @@ export function calculateStreaks(records: DailyHistoryRecord[]): HistoryStreakSt
     completedDaysCount,
     averageCompletionRate: avgCompletion,
     totalDMsSent: totalDMs,
+    videosVerifiedToday: effectiveTodayVideosVerified,
   };
 }
 

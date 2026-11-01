@@ -16,6 +16,8 @@ import {
 import { ChannelLead, MultiChannelType } from '../types';
 import { getChannelLabel } from '../utils/channelStorage';
 import { getLocalTodayStr } from '../utils/cadenceEngine';
+import { VideoVerificationModal } from './VideoVerificationModal';
+import { recordVideoVerification } from '../utils/videoVerification';
 
 interface VideoScriptModalProps {
   isOpen: boolean;
@@ -36,6 +38,7 @@ export const VideoScriptModal: React.FC<VideoScriptModalProps> = ({
 
   const [activeStage, setActiveStage] = useState<'A' | 'B'>('A');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [customLiveLink, setCustomLiveLink] = useState<string>(
     lead.mockupLink || (lead.link ? (lead.link.startsWith('http') ? lead.link : `https://${lead.link}`) : '')
   );
@@ -56,6 +59,12 @@ export const VideoScriptModal: React.FC<VideoScriptModalProps> = ({
   };
 
   const handleToggleWorkflowField = (field: 'videoRecorded' | 'reelPosted' | 'dmSent' | 'repliedSendIt' | 'liveLinkSent') => {
+    // 2-Second Verification Gate: When setting videoRecorded to true, open confirmation modal
+    if (field === 'videoRecorded' && !lead.videoRecorded) {
+      setIsVerifying(true);
+      return;
+    }
+
     const nowIso = new Date().toISOString();
     const currentVal = Boolean(lead[field]);
     const nextVal = !currentVal;
@@ -65,6 +74,9 @@ export const VideoScriptModal: React.FC<VideoScriptModalProps> = ({
       [`${field}At`]: nextVal ? nowIso : undefined,
     };
 
+    if (field === 'videoRecorded' && !nextVal) {
+      patch.videoVerifiedAt = undefined;
+    }
     if (field === 'dmSent' && nextVal && !lead.initialSentDate) {
       patch.initialSentDate = getLocalTodayStr();
     }
@@ -80,6 +92,17 @@ export const VideoScriptModal: React.FC<VideoScriptModalProps> = ({
       ...lead,
       ...patch,
       mockupLink: customLiveLink.trim() || lead.mockupLink,
+    });
+  };
+
+  const handleVerificationSuccess = (verifiedLead: ChannelLead) => {
+    const nowIso = new Date().toISOString();
+    recordVideoVerification(verifiedLead.id, verifiedLead.name, verifiedLead.channel);
+    onUpdateLead({
+      ...verifiedLead,
+      videoRecorded: true,
+      videoRecordedAt: nowIso,
+      videoVerifiedAt: nowIso,
     });
   };
 
@@ -415,6 +438,14 @@ export const VideoScriptModal: React.FC<VideoScriptModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Video Verification Gate Modal */}
+      <VideoVerificationModal
+        isOpen={isVerifying}
+        lead={lead}
+        onClose={() => setIsVerifying(false)}
+        onConfirmSuccess={handleVerificationSuccess}
+      />
     </div>
   );
 };

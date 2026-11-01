@@ -1,4 +1,4 @@
-# Video Value First Sales Strategy Upgrade (Outreach Engine Pro)
+# Video Value First Sales Strategy Upgrade & Video Verification Gate (Outreach Engine Pro)
 
 Upgrading the CRM from traditional cold DM prospecting to a high-converting **"Video Value First"** sales workflow:
 `Record Video → Post Reel (Tagging) → Send DM with Link → Follow up with Value`
@@ -10,15 +10,19 @@ Upgrading the CRM from traditional cold DM prospecting to a high-converting **"V
 ### Top Dashboard Metrics (Executive Summary)
 - **DMs Sent Today:** Real-time progress bar tracking against daily quota `"X / 6"` with completion percentage.
 - **Reels Posted Today:** Real-time progress bar tracking against daily quota `"X / 2"` with completion percentage.
+- **Videos Verified Today:** Counter showing `"X"` (how many videos were verified today through the 2-second confirmation gate).
 - **Videos Pending Reel:** Counter highlighting prospects where `videoRecorded: true && !reelPosted`.
-- **Preserved Metrics:** Current Streak and Best Streak counter cards preserved intact.
+- **Current Streak:** Streak Lock enabled: only increments if **BOTH** `DMs Sent Today >= 6` AND `Videos Verified Today >= 1`.
+- **Best Streak:** All-time execution record preserved.
 
 ---
 
 ## 2. Lead Data Schema & Table Workflow Columns
 
 ### Extended Lead Schema
-- `videoRecorded`: boolean (with `videoRecordedAt` ISO timestamp)
+- `videoRecorded`: boolean
+- `videoRecordedAt`: string (ISO timestamp)
+- `videoVerifiedAt`: string (ISO timestamp of 2-second proof confirmation)
 - `reelPosted`: boolean (with `reelPostedAt` timestamp and optional `reelLink` URL)
 - `dmSent`: boolean (with `dmSentAt` timestamp)
 - `repliedSendIt`: boolean (with `repliedSendItAt` timestamp)
@@ -28,7 +32,7 @@ Upgrading the CRM from traditional cold DM prospecting to a high-converting **"V
 
 ### Leads Table Workflow Columns
 - Added 5 interactive workflow toggle buttons with subtle icon + status dot directly alongside the "Details" action in the Leads table:
-  1. 🎥 **Video Recorded** (Cyan dot)
+  1. 🎥 **Video Recorded** (Cyan dot) — Gated with 2-second confirmation modal
   2. 📱 **Reel Posted** (Pink dot)
   3. ✈️ **DM Sent** (Indigo dot)
   4. 💬 **Replied "Send it"** (Amber dot)
@@ -37,46 +41,67 @@ Upgrading the CRM from traditional cold DM prospecting to a high-converting **"V
 
 ---
 
-## 3. Video Value First Script Generator ("⚡ Script" / Warm-Up)
+## 3. The "2-Second" Video Verification Gate
 
-Mounted a dedicated **Video Value First Script Generator** modal and quick drawer accessible directly via the `"⚡ Script"` button next to Details:
-- **Milestone Progress Bar:** Highlights current step (Stage A Pending → Video Recorded → Reel Posted → Stage A Sent → Lead Replied "Send it" → Stage B Sent).
+### Verification Modal ("🎥 Video Recorded — Confirm")
+- Clicking the "Video Recorded" checkbox on a lead (`videoRecorded: false -> true`) opens the verification modal.
+- **Label:** *"Type the restaurant's name to confirm you recorded the video."*
+- Displays expected name below the input with a 1-click **Copy Name** button.
+- Single text input (auto-focused, submits on Enter).
+- **"Confirm"** and **"Cancel"** action buttons.
+
+### Validation & Toast Feedback
+- **Case-insensitive, trimmed comparison**: `input.trim().toLowerCase() === lead.name.trim().toLowerCase()`.
+- **Mismatch**: Shows error toast: *"❌ Name doesn't match. Please try again."* Modal stays open.
+- **Match**:
+  - Sets `videoRecorded: true`, `videoRecordedAt: nowIso`, `videoVerifiedAt: nowIso`.
+  - Records verification event in persistent storage (`recordVideoVerification`).
+  - Closes modal.
+  - Displays success toast: *"✅ Video verified."*
+
+---
+
+## 4. The Streak Lock Logic
+
+- In `calculateStreaks` (`src/utils/historyStorage.ts`):
+  - Today only increments `currentStreak` if:
+    - `DMs Sent Today >= 6` AND
+    - `Videos Verified Today >= 1` (verified today through the modal)
+  - If a lead had `videoRecorded: true` prior to today but no verification was logged today, the streak does not increment.
+  - Sunday Rest Mode is strictly preserved (rest day; continues streak without breaking or incrementing).
+
+---
+
+## 5. Video Value First Script Generator ("⚡ Script" / Warm-Up)
+
+Mounted a dedicated **Video Value First Script Generator** modal:
+- **Milestone Progress Bar:** Highlights current step.
 - **Stage A Script (Initial Contact - Day 1):**
   > *"Hey [Lead Name]! I just posted a quick video on my story/feed breaking down your menu design/website and how you could easily add 15-20 more covers this weekend. Tagged you guys! Mind if I send the direct link to the full breakdown here?"*
 - **Stage B Script (Post-Reaction - "Send it"):**
   > *"Here you go: [Live Link]. Let me know what you think of the online ordering tip at 1:12! If you want the full kitchen ticket PDF I mentioned, happy to send that over too."*
-- Features instant 1-click clipboard copy and auto-population of `[Live Link]`, `[Lead Name]`, and customizable placeholders.
 
 ---
 
-## 4. Dedicated "Reel Queue" Sub-Tab
+## 6. Dedicated "Reel Queue" Sub-Tab
 
-Added a new dedicated sub-page right next to "Follow-Up Schedule":
-- **Badge Indicator:** Shows count of videos recorded but not yet posted on social feed.
-- **Helper Banner:** *"You have [X] videos waiting to be posted. Goal: Post 2 today. Save the rest for tomorrow."*
-- **Queue Cards:**
-  - Lead Name, Channel handle link, and recording timestamp.
-  - Optional Reel URL input field.
-  - One-click `"Mark as Posted"` button that sets `reelPosted = true` and updates state in real time.
-- Filter toggle to toggle between pending queue and already-posted reels.
+- Dedicated sub-page right next to "Follow-Up Schedule".
+- Shows count of videos recorded and pending reel posting.
+- Helper Banner: *"You have [X] videos waiting to be posted. Goal: Post 2 today. Save the rest for tomorrow."*
+- Card list with handle link, optional Reel link input, and 1-click "Mark as Posted" button.
 
 ---
 
-## 5. Value-Based Follow-Up Timeline (Day 7, Day 14, Day 30)
+## 7. Value-Based Follow-Up Timeline (Day 7, Day 14, Day 30)
 
-Replaced generic follow-up copy with high-converting value milestones:
-1. **Day 7 Trigger (Value Check-In):**
-   > *"Hey [Lead Name], did you get a chance to see that breakdown video? We just put together a quick PDF on 3 ways to speed up kitchen ticket times on Friday nights—want me to drop it here?"*
-2. **Day 14 Trigger (Social Proof / Case Study):**
-   > *"Hey [Lead Name]! Quick update—another spot in [City/Area] implemented that online ordering tweak from the video we tagged you in and saw a 12% jump in takeout orders last week. Thought of you guys!"*
-3. **Day 30 Trigger (The "Breakup" / Final Audit):**
-   > *"Hey [Lead Name], I know you're super busy running service. I'm archiving our video breakdown this week, but I recorded a quick 60-second Loom showing the #1 leak on your mobile checkout. Should I send the Loom or would you rather I close your file?"*
-- Integrated seamlessly into both the **Follow-Up Schedule** sub-tab and the unified **Today's Execution Schedule** page.
+1. **Day 7 Trigger (Value Check-In):** Friday night kitchen ticket speed-up PDF.
+2. **Day 14 Trigger (Social Proof):** Area takeout order surge (+12%) case study.
+3. **Day 30 Trigger (Breakup / Loom):** Archiving notice with 60-second mobile checkout Loom offer.
 
 ---
 
-## 6. Verification & Data Safety
+## 8. Verification & Data Safety
 
-- Strict adherence to non-destructive updates: existing leads in Instagram, Facebook, and Email remain intact.
-- TypeScript compilation (`compile_applet`) and linting (`tsc --noEmit`) verified clean with 0 errors.
-- Dark theme styling and Sunday Rest Mode preserved intact.
+- Existing leads across Email, Instagram, and Facebook workspaces preserved intact.
+- TypeScript compilation and linter verified with 0 errors.
+- Dark theme styling and Sunday Rest Mode preserved.

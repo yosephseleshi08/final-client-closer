@@ -23,8 +23,9 @@ import {
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../types';
 import { exportChannelData } from '../utils/channelStorage';
-import { loadDailyHistory, calculateStreaks } from '../utils/historyStorage';
+import { loadDailyHistory, calculateStreaks, isDateStringSunday } from '../utils/historyStorage';
 import { getLocalTodayStr, normalizeToLocalDateStr } from '../utils/cadenceEngine';
+import { getVideosVerifiedTodayCount } from '../utils/videoVerification';
 
 interface ExecutiveDashboardProps {
   emailLeads: ChannelLead[];
@@ -43,7 +44,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
 }) => {
   const todayStr = getLocalTodayStr();
   const historyRecords = loadDailyHistory();
-  const streakStats = calculateStreaks(historyRecords);
 
   const allLeads = [
     ...emailLeads.map((l) => ({ ...l, channelName: 'Email' as const })),
@@ -51,7 +51,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
     ...facebookLeads.map((l) => ({ ...l, channelName: 'Facebook' as const })),
   ];
 
-  // Video Value First Daily Quota Metrics (User Requirement #1)
+  // Video Value First Daily Quota Metrics
   const dmsSentTodayCount = allLeads.filter(
     (l) =>
       (l.dmSent && normalizeToLocalDateStr(l.dmSentAt) === todayStr) ||
@@ -70,9 +70,23 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   const reelQuotaTarget = 2;
   const reelProgressPercent = Math.min(100, Math.round((reelsPostedTodayCount / reelQuotaTarget) * 100));
 
+  // Videos Verified Today (User Requirement #4)
+  const loggedVerificationsCount = getVideosVerifiedTodayCount();
+  const leadsVerifiedCount = allLeads.filter(
+    (l) => Boolean(l.videoRecorded) && normalizeToLocalDateStr(l.videoVerifiedAt) === todayStr
+  ).length;
+  const videosVerifiedTodayCount = Math.max(loggedVerificationsCount, leadsVerifiedCount);
+
+  // Videos Pending Reel (videoRecorded: true && !reelPosted)
   const videosPendingReelCount = allLeads.filter(
     (l) => Boolean(l.videoRecorded) && !l.reelPosted
   ).length;
+
+  // Streak Stats with Streak Lock (Requirement #3)
+  const streakStats = calculateStreaks(historyRecords, {
+    todayDmsSent: effectiveDmsSentToday,
+    todayVideosVerified: videosVerifiedTodayCount,
+  });
 
   const totalLeads = allLeads.length;
   const totalPitches = allLeads.filter((l) => Boolean(l.customPitch)).length;
@@ -157,8 +171,8 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
         </button>
       </div>
 
-      {/* Executive Summary Cards: Video Value First Daily Quotas & Streaks (Requirement #1) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+      {/* Executive Summary Cards: Video Value First Daily Quotas, Verifications & Streaks */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
         {/* 1. DMs Sent Today (X / 6 with Progress Bar) */}
         <div className="rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-950/30 via-slate-900/80 to-slate-900 p-4 shadow-xl space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-sky-400 uppercase tracking-wider">
@@ -221,7 +235,38 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
           </div>
         </div>
 
-        {/* 3. Videos Pending Reel (videoRecorded: true && !reelPosted) */}
+        {/* 3. Videos Verified Today (User Requirement #4) */}
+        <div className={`rounded-2xl border p-4 shadow-xl space-y-2 ${
+          videosVerifiedTodayCount >= 1
+            ? 'border-emerald-500/40 bg-gradient-to-br from-emerald-950/35 via-slate-900/80 to-slate-900'
+            : 'border-purple-500/30 bg-gradient-to-br from-purple-950/25 via-slate-900/80 to-slate-900'
+        }`}>
+          <div className="flex items-center justify-between text-xs font-bold text-purple-400 uppercase tracking-wider">
+            <span>Videos Verified Today</span>
+            <CheckCircle2 className={`w-4 h-4 ${videosVerifiedTodayCount >= 1 ? 'text-emerald-400' : 'text-purple-400'}`} />
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-white font-mono tabular-nums">
+              {videosVerifiedTodayCount}
+            </span>
+            {videosVerifiedTodayCount >= 1 ? (
+              <span className="ml-auto text-[10px] font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30 font-mono">
+                Verified!
+              </span>
+            ) : (
+              <span className="ml-auto text-[10px] font-bold text-amber-400 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 font-mono">
+                Streak Gate
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-400 font-mono">
+            {videosVerifiedTodayCount >= 1
+              ? '✅ Proof confirmed for streak'
+              : '⚡ Verify 1 video to unlock streak'}
+          </div>
+        </div>
+
+        {/* 4. Videos Pending Reel (videoRecorded: true && !reelPosted) */}
         <div className={`rounded-2xl border p-4 shadow-xl space-y-2 ${
           videosPendingReelCount > 0
             ? 'border-purple-500/40 bg-gradient-to-br from-purple-950/30 via-slate-900/80 to-slate-900'
@@ -244,7 +289,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
           </div>
         </div>
 
-        {/* 4. Current Streak (Keep Existing) */}
+        {/* 5. Current Streak (Streak Locked: Requires DMs >= 6 and Videos Verified >= 1) */}
         <div className="rounded-2xl border border-orange-500/30 bg-gradient-to-br from-orange-950/30 via-slate-900/80 to-slate-900 p-4 shadow-xl space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-orange-400 uppercase tracking-wider">
             <span>Current Streak</span>
@@ -259,11 +304,15 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
             </span>
           </div>
           <div className="text-[11px] text-slate-400">
-            Consecutive 100% days · Sundays rest
+            {isDateStringSunday(todayStr)
+              ? '🌿 Sunday Rest Day (streak safe)'
+              : effectiveDmsSentToday >= 6 && videosVerifiedTodayCount >= 1
+              ? '🔥 Goal met! Streak incremented'
+              : '🔒 Needs 6 DMs & 1 verified video'}
           </div>
         </div>
 
-        {/* 5. Best Streak (Keep Existing) */}
+        {/* 6. Best Streak */}
         <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-950/30 via-slate-900/80 to-slate-900 p-4 shadow-xl space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-amber-400 uppercase tracking-wider">
             <span>Best Streak</span>
