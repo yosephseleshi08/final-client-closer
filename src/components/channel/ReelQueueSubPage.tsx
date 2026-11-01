@@ -16,6 +16,7 @@ import {
 import { ChannelLead, MultiChannelType } from '../../types';
 import { getChannelLabel } from '../../utils/channelStorage';
 import { getLocalTodayStr, normalizeToLocalDateStr } from '../../utils/cadenceEngine';
+import { canMarkReelOnDate, getGrowthCurveWeekInfo } from '../../utils/growthCurve';
 import { VideoScriptModal } from '../VideoScriptModal';
 
 interface ReelQueueSubPageProps {
@@ -35,8 +36,10 @@ export function ReelQueueSubPage({
   const [reelLinkInputs, setReelLinkInputs] = useState<Record<string, string>>({});
   const [justPostedId, setJustPostedId] = useState<string | null>(null);
   const [showPostedHistory, setShowPostedHistory] = useState<boolean>(false);
+  const [quotaError, setQuotaError] = useState<string | null>(null);
 
   const todayStr = getLocalTodayStr();
+  const weekInfo = getGrowthCurveWeekInfo(todayStr);
 
   // Pending Reels: videoRecorded === true AND !reelPosted
   const pendingReels = leads.filter(
@@ -57,6 +60,13 @@ export function ReelQueueSubPage({
   };
 
   const handleMarkAsPosted = (lead: ChannelLead) => {
+    const allowedCheck = canMarkReelOnDate();
+    if (!allowedCheck.allowed) {
+      setQuotaError(allowedCheck.reason || 'Reels can only be marked on Mon, Wed, Fri, Sun in Week 1.');
+      setTimeout(() => setQuotaError(null), 5000);
+      return;
+    }
+
     const inputUrl = reelLinkInputs[lead.id]?.trim() || lead.reelLink || '';
     const nowIso = new Date().toISOString();
 
@@ -102,6 +112,24 @@ export function ReelQueueSubPage({
   return (
     <div className="space-y-6">
       {/* Motivational Top Helper Banner (User Requirement #4) */}
+      {/* Quota Error / Restriction Alert */}
+      {quotaError && (
+        <div className="rounded-2xl border border-rose-500/50 bg-rose-950/80 p-4 text-xs font-semibold text-rose-200 flex items-center justify-between gap-3 shadow-xl">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{quotaError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setQuotaError(null)}
+            className="text-rose-400 hover:text-white px-2 py-1 rounded-lg bg-white/5 transition"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Main Header Card */}
       <div className="rounded-3xl border border-pink-500/30 bg-gradient-to-r from-pink-950/40 via-purple-950/40 to-slate-900/90 p-5 sm:p-6 backdrop-blur-xl shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-start gap-3.5">
           <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-pink-500/20 to-purple-500/20 text-pink-300 border border-pink-500/40 flex items-center justify-center shrink-0 shadow-lg shadow-pink-950/50">
@@ -113,11 +141,11 @@ export function ReelQueueSubPage({
                 🎬 Reel Dispatch Pipeline
               </span>
               <span className="px-2.5 py-0.5 rounded-full bg-pink-500/20 border border-pink-500/30 text-pink-300 text-xs font-bold font-mono">
-                Daily Goal: 2 Reels
+                {weekInfo.weekLabel} Quota: {weekInfo.weeklyQuota} / week ({weekInfo.dailyQuotaDisplay})
               </span>
             </div>
             <h2 className="text-lg sm:text-xl font-black text-white font-['Outfit']">
-              You have {pendingReels.length} videos waiting to be posted. Goal: Post 2 today. Save the rest for tomorrow.
+              You have {pendingReels.length} videos in queue · {weekInfo.hint}
             </h2>
             <p className="text-xs text-slate-400">
               Post the breakdown video on your feed/story, tag the restaurant handle, and click "Mark as Posted" to trigger Stage A outreach.
@@ -135,13 +163,23 @@ export function ReelQueueSubPage({
               <span className="text-2xl font-black text-pink-400 tabular-nums">
                 {postedToday.length}
               </span>
-              <span className="text-slate-500 text-sm font-semibold">/ 2</span>
+              <span className="text-slate-500 text-sm font-semibold">
+                / {weekInfo.dailyQuota === 0.5 ? '0.5' : weekInfo.dailyQuota}
+              </span>
             </div>
           </div>
           <div className="w-16 h-2 bg-slate-900 rounded-full overflow-hidden border border-white/10">
             <div
               className="h-full bg-gradient-to-r from-pink-500 to-purple-500 transition-all duration-300"
-              style={{ width: `${Math.min(100, Math.round((postedToday.length / 2) * 100))}%` }}
+              style={{
+                width: `${Math.min(
+                  100,
+                  Math.round(
+                    (postedToday.length / (weekInfo.dailyQuota === 0.5 ? 1 : weekInfo.dailyQuota)) *
+                      100
+                  )
+                )}%`,
+              }}
             />
           </div>
         </div>

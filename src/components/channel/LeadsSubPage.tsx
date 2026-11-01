@@ -60,6 +60,7 @@ import {
   getLocalTodayStr,
 } from '../../utils/cadenceEngine';
 import { playWarningChime } from '../../utils/soundEffects';
+import { canMarkReelOnDate, logStoryToday } from '../../utils/growthCurve';
 import { LeadAnalysisModal } from './LeadAnalysisModal';
 import { QuickNoteModal } from '../QuickNoteModal';
 import { VideoScriptModal } from '../VideoScriptModal';
@@ -80,7 +81,7 @@ interface SortableLeadRowProps {
   onToggleWarmup: (lead: ChannelLead) => void;
   onToggleWorkflow: (
     lead: ChannelLead,
-    field: 'videoRecorded' | 'reelPosted' | 'dmSent' | 'repliedSendIt' | 'liveLinkSent'
+    field: 'videoRecorded' | 'reelPosted' | 'dmSent' | 'repliedSendIt' | 'liveLinkSent' | 'storyPosted'
   ) => void;
   onOpenScriptModal: (lead: ChannelLead) => void;
   isJustAdded?: boolean;
@@ -221,6 +222,43 @@ function SortableLeadRow({
           <span className="truncate">{lead.link}</span>
           <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-70 group-hover/link:opacity-100" />
         </a>
+      </td>
+
+      {/* 4. THE LEAD ROW UPDATE: Story Posted Column (Requirement #4) */}
+      <td className="py-3.5 px-3 text-center align-middle whitespace-nowrap">
+        <div className="flex flex-col items-center justify-center gap-1">
+          <button
+            type="button"
+            onClick={() => onToggleWorkflow(lead, 'storyPosted')}
+            className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+              lead.storyPosted
+                ? 'bg-pink-500/20 text-pink-300 border-pink-500/40 shadow-sm shadow-pink-950/40'
+                : 'bg-white/5 text-slate-400 hover:text-slate-200 border-white/10 hover:border-white/20'
+            }`}
+            title={`Story Posted: ${lead.storyPosted ? 'Yes (Click to untoggle)' : 'No (Click to log Story)'}`}
+            aria-label="Toggle Story Posted"
+          >
+            {/* Pink dot matching the Reel dot */}
+            <span
+              className={`w-2 h-2 rounded-full ${
+                lead.storyPosted
+                  ? 'bg-pink-400 shadow-[0_0_6px_rgba(244,114,182,0.8)]'
+                  : 'bg-slate-600'
+              }`}
+            />
+            <span>{lead.storyPosted ? 'Story Logged' : 'Log Story'}</span>
+          </button>
+          {lead.storyPosted && (
+            <span className="text-[10px] text-pink-300/80 font-mono">
+              {lead.storyPostedAt
+                ? new Date(lead.storyPostedAt).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                : 'Today'}
+            </span>
+          )}
+        </div>
       </td>
 
       {/* Action Column: Workflow Milestones, Warm Up, Script, Details & Delete */}
@@ -426,12 +464,21 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
 
   const handleToggleWorkflow = (
     lead: ChannelLead,
-    field: 'videoRecorded' | 'reelPosted' | 'dmSent' | 'repliedSendIt' | 'liveLinkSent'
+    field: 'videoRecorded' | 'reelPosted' | 'dmSent' | 'repliedSendIt' | 'liveLinkSent' | 'storyPosted'
   ) => {
     // 2-Second Verification Gate: When setting videoRecorded to true, gate with confirmation modal
     if (field === 'videoRecorded' && !lead.videoRecorded) {
       setVerifyingLead(lead);
       return;
+    }
+
+    // Week 1 Growth Curve Check: When setting reelPosted to true, check if today is Mon, Wed, Fri, or Sun
+    if (field === 'reelPosted' && !lead.reelPosted) {
+      const allowedCheck = canMarkReelOnDate();
+      if (!allowedCheck.allowed) {
+        showToast('error', allowedCheck.reason || 'In Week 1, Reels can only be marked on Mon, Wed, Fri, Sun.');
+        return;
+      }
     }
 
     const nowIso = new Date().toISOString();
@@ -442,6 +489,15 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       [field]: nextVal,
       [`${field}At`]: nextVal ? nowIso : undefined,
     };
+
+    if (field === 'storyPosted' && nextVal) {
+      logStoryToday(lead.id, lead.name, lead.channel);
+      showToast('success', `Logged Story for ${lead.name} · Story Goal: 1/day`);
+    }
+
+    if (field === 'reelPosted' && nextVal) {
+      showToast('success', `Reel marked as posted for ${lead.name}`);
+    }
 
     if (field === 'videoRecorded' && !nextVal) {
       patch.videoVerifiedAt = undefined;
@@ -1031,16 +1087,17 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-4 text-left w-32">ID</th>
+                  <th className="py-3 px-4 text-left w-28">ID</th>
                   <th className="py-3 px-4 text-left">Name</th>
                   <th className="py-3 px-4 text-left">Link</th>
+                  <th className="py-3 px-3 text-center w-36">Story Posted</th>
                   <th className="py-3 px-4 text-right">Workflow &amp; Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
                 {leads.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="py-16 text-center text-slate-500">
+                    <td colSpan={5} className="py-16 text-center text-slate-500">
                       <div className="max-w-sm mx-auto space-y-2">
                         <p className="text-sm font-medium text-slate-400">No leads in {getChannelLabel(channel)} yet</p>
                         <p className="text-xs text-slate-500">
@@ -1051,7 +1108,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                   </tr>
                 ) : filteredLeads.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="py-12 text-center text-slate-500 text-xs">
+                    <td colSpan={5} className="py-12 text-center text-slate-500 text-xs">
                       No leads match "{searchQuery}"
                     </td>
                   </tr>

@@ -26,6 +26,8 @@ import {
   OUTREACH_START_DATE,
 } from '../utils/historyStorage';
 import { getLocalTodayStr } from '../utils/cadenceEngine';
+import { getVideosVerifiedTodayCount } from '../utils/videoVerification';
+import { getStoriesPostedTodayCount } from '../utils/growthCurve';
 
 interface HistoryPageProps {
   onNavigateToToday: () => void;
@@ -42,7 +44,14 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
   const todayStr = getLocalTodayStr();
 
   // Streak calculations and aggregates
-  const streakStats = useMemo(() => calculateStreaks(historyRecords), [historyRecords]);
+  const streakStats = useMemo(
+    () =>
+      calculateStreaks(historyRecords, {
+        todayVideosVerified: getVideosVerifiedTodayCount(),
+        todayStoriesPosted: getStoriesPostedTodayCount(),
+      }),
+    [historyRecords]
+  );
 
   // 30-day window
   const thirtyDayWindow = useMemo(

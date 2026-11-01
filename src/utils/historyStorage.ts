@@ -175,6 +175,8 @@ export interface TodayCompletionDetails {
   followupsSent: number;
   followupsRemainingDue: number;
   videosVerified?: number;
+  storiesPosted?: number;
+  reelsPosted?: number;
   notes?: string;
 }
 
@@ -199,6 +201,8 @@ export function recordTodayCompletion(
   let followupsSent: number | undefined;
   let followupsRemainingDue: number | undefined;
   let videosVerified: number | undefined;
+  let storiesPosted: number | undefined;
+  let reelsPosted: number | undefined;
   let notes: string | undefined;
 
   if (typeof completedCountOrDetails === 'object') {
@@ -209,6 +213,8 @@ export function recordTodayCompletion(
     followupsSent = completedCountOrDetails.followupsSent;
     followupsRemainingDue = completedCountOrDetails.followupsRemainingDue;
     videosVerified = completedCountOrDetails.videosVerified ?? getVideosVerifiedTodayCount();
+    storiesPosted = completedCountOrDetails.storiesPosted;
+    reelsPosted = completedCountOrDetails.reelsPosted;
     notes = completedCountOrDetails.notes;
   } else {
     totalCompleted = completedCountOrDetails;
@@ -268,6 +274,8 @@ export function recordTodayCompletion(
     followupsSent,
     followupsTarget,
     videosVerified,
+    storiesPosted,
+    reelsPosted,
   };
 
   if (existingIdx >= 0) {
@@ -295,17 +303,20 @@ export function getDateOffset(daysFromToday: number): string {
 export interface CalculateStreaksOptions {
   todayDmsSent?: number;
   todayVideosVerified?: number;
+  todayReelsPosted?: number;
+  todayStoriesPosted?: number;
 }
 
 /**
  * Calculates current streak and best streak from the history records.
  * Rules:
  * 1. A streak day is a non-Sunday day with percentage >= 100.
- * 2. Sunday is a rest day and DOES NOT break the streak.
- * 3. STREAK LOCK: Current Streak ONLY increments if BOTH conditions are met today:
+ * 2. Sunday is a rest day and DOES NOT break the streak (preserves streak unbroken).
+ * 3. STREAK LOCK: Current Streak ONLY increments if ALL 4 conditions are met today:
  *    - DMs Sent Today >= 6
- *    - Videos Verified Today >= 1 (verified today through the modal)
- *    If a lead has videoRecorded: true but NO verification was logged today, the streak does NOT increment.
+ *    - Reels Posted Today >= 1 (or on Week 1 off-days: 0 required; on Week 1 active days: >= 1)
+ *    - Videos Verified Today >= 1 (verified today through the 2-second confirmation gate)
+ *    - Stories Posted Today >= 1
  * 4. If today is a weekday and not yet fulfilled, the streak is measured up to yesterday.
  */
 export function calculateStreaks(
@@ -331,10 +342,28 @@ export function calculateStreaks(
       ? options.todayVideosVerified
       : todayEntry?.videosVerified ?? getVideosVerifiedTodayCount();
 
+  const effectiveTodayReels =
+    options?.todayReelsPosted !== undefined
+      ? options.todayReelsPosted
+      : todayEntry?.reelsPosted ?? 0;
+
+  const effectiveTodayStories =
+    options?.todayStoriesPosted !== undefined
+      ? options.todayStoriesPosted
+      : todayEntry?.storiesPosted ?? 0;
+
   // Streak Lock Rule:
-  // Today increments the streak ONLY IF DMs Sent Today >= 6 AND Videos Verified Today >= 1
+  // Today increments the streak ONLY IF:
+  // 1. DMs Sent Today >= 6
+  // 2. Reels Posted Today >= required (Week 1 Mon/Wed/Fri/Sun: 1, off-days: 0; Week 2+: 1)
+  // 3. Videos Verified Today >= 1
+  // 4. Stories Posted Today >= 1
   const isTodayStreakUnlocked =
-    !isTodaySun && effectiveTodayDms >= 6 && effectiveTodayVideosVerified >= 1;
+    !isTodaySun &&
+    effectiveTodayDms >= 6 &&
+    effectiveTodayVideosVerified >= 1 &&
+    effectiveTodayStories >= 1 &&
+    effectiveTodayReels >= 1;
 
   // 1. Calculate Current Streak
   let currentStreak = 0;
@@ -458,6 +487,8 @@ export function calculateStreaks(
     averageCompletionRate: avgCompletion,
     totalDMsSent: totalDMs,
     videosVerifiedToday: effectiveTodayVideosVerified,
+    storiesPostedToday: effectiveTodayStories,
+    reelsPostedToday: effectiveTodayReels,
   };
 }
 

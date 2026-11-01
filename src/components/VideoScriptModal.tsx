@@ -16,6 +16,7 @@ import {
 import { ChannelLead, MultiChannelType } from '../types';
 import { getChannelLabel } from '../utils/channelStorage';
 import { getLocalTodayStr } from '../utils/cadenceEngine';
+import { canMarkReelOnDate } from '../utils/growthCurve';
 import { VideoVerificationModal } from './VideoVerificationModal';
 import { recordVideoVerification } from '../utils/videoVerification';
 
@@ -63,6 +64,15 @@ export const VideoScriptModal: React.FC<VideoScriptModalProps> = ({
     if (field === 'videoRecorded' && !lead.videoRecorded) {
       setIsVerifying(true);
       return;
+    }
+
+    // Week 1 Growth Curve Check: When setting reelPosted to true, check if today is Mon, Wed, Fri, or Sun
+    if (field === 'reelPosted' && !lead.reelPosted) {
+      const allowedCheck = canMarkReelOnDate();
+      if (!allowedCheck.allowed) {
+        alert(allowedCheck.reason || 'In Week 1, Reels can only be marked on Mon, Wed, Fri, Sun.');
+        return;
+      }
     }
 
     const nowIso = new Date().toISOString();

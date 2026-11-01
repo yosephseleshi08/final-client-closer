@@ -166,6 +166,8 @@ export interface Lead {
   repliedSendItAt?: string;
   liveLinkSent?: boolean;
   liveLinkSentAt?: string;
+  storyPosted?: boolean;
+  storyPostedAt?: string;
 }
 
 export type LeadSortOption =
@@ -270,6 +272,8 @@ export interface DailyHistoryRecord {
   followupsSent?: number; // Day 3 + Day 7 follow-ups completed
   followupsTarget?: number;
   videosVerified?: number; // Count of videos verified today through the 2-second confirmation gate
+  storiesPosted?: number; // Stories posted today
+  reelsPosted?: number; // Reels posted today
 }
 
 export interface HistoryStreakStats {
@@ -279,6 +283,8 @@ export interface HistoryStreakStats {
   averageCompletionRate: number;
   totalDMsSent: number;
   videosVerifiedToday?: number;
+  storiesPostedToday?: number;
+  reelsPostedToday?: number;
 }
 
 export type MultiChannelSubTab = 'leads' | 'dm' | 'schedule' | 'followup' | 'reel-queue' | 'mockup';
@@ -330,6 +336,8 @@ export interface ChannelLead {
   repliedSendItAt?: string;
   liveLinkSent?: boolean;
   liveLinkSentAt?: string;
+  storyPosted?: boolean;
+  storyPostedAt?: string;
 
   // Sub-page D: Follow-up & Cadence Status
   isCompleted?: boolean;

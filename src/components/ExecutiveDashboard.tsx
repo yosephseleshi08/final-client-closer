@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Mail,
   Instagram,
@@ -26,6 +26,14 @@ import { exportChannelData } from '../utils/channelStorage';
 import { loadDailyHistory, calculateStreaks, isDateStringSunday } from '../utils/historyStorage';
 import { getLocalTodayStr, normalizeToLocalDateStr } from '../utils/cadenceEngine';
 import { getVideosVerifiedTodayCount } from '../utils/videoVerification';
+import {
+  getGrowthCurveWeekInfo,
+  getReelsPostedThisWeekCount,
+  getStoriesPostedTodayCount,
+  logStoryToday,
+  getGrowthCurveWeekOverride,
+  setGrowthCurveWeekOverride,
+} from '../utils/growthCurve';
 
 interface ExecutiveDashboardProps {
   emailLeads: ChannelLead[];
@@ -45,13 +53,19 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   const todayStr = getLocalTodayStr();
   const historyRecords = loadDailyHistory();
 
+  const [weekOverride, setWeekOverride] = useState<number | null>(() => getGrowthCurveWeekOverride());
+  const [localStoryCount, setLocalStoryCount] = useState<number | null>(null);
+
   const allLeads = [
     ...emailLeads.map((l) => ({ ...l, channelName: 'Email' as const })),
     ...instagramLeads.map((l) => ({ ...l, channelName: 'Instagram' as const })),
     ...facebookLeads.map((l) => ({ ...l, channelName: 'Facebook' as const })),
   ];
 
-  // Video Value First Daily Quota Metrics
+  // 1. Growth Curve Week Info (Week 1: 4/wk (0.5/day), Week 2: 7/wk (1/day), Week 3: 12/wk (2/day), Week 4+: 14/wk (2/day))
+  const weekInfo = getGrowthCurveWeekInfo(todayStr);
+
+  // 2. DMs Sent Today
   const dmsSentTodayCount = allLeads.filter(
     (l) =>
       (l.dmSent && normalizeToLocalDateStr(l.dmSentAt) === todayStr) ||
@@ -62,31 +76,62 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   const dmQuotaTarget = 6;
   const dmProgressPercent = Math.min(100, Math.round((effectiveDmsSentToday / dmQuotaTarget) * 100));
 
+  // 3. Reels Posted Today & This Week
   const reelsPostedTodayCount = allLeads.filter(
     (l) =>
       l.reelPosted &&
       (normalizeToLocalDateStr(l.reelPostedAt) === todayStr || (!l.reelPostedAt && l.reelPosted))
   ).length;
-  const reelQuotaTarget = 2;
-  const reelProgressPercent = Math.min(100, Math.round((reelsPostedTodayCount / reelQuotaTarget) * 100));
 
-  // Videos Verified Today (User Requirement #4)
+  const reelsPostedThisWeekCount = getReelsPostedThisWeekCount(allLeads, todayStr);
+  const reelProgressPercent = Math.min(
+    100,
+    Math.round((reelsPostedThisWeekCount / weekInfo.weeklyQuota) * 100)
+  );
+
+  // 4. Story Tracker (Requirement #2: 1/day, shows X / 1 with progress bar)
+  const systemStoriesToday = getStoriesPostedTodayCount(allLeads);
+  const storiesPostedTodayCount = localStoryCount !== null ? Math.max(localStoryCount, systemStoriesToday) : systemStoriesToday;
+  const storyQuotaTarget = 1;
+  const storyProgressPercent = Math.min(100, Math.round((storiesPostedTodayCount / storyQuotaTarget) * 100));
+
+  const handleQuickLogStory = () => {
+    logStoryToday(undefined, 'Daily Story Post');
+    setLocalStoryCount((prev) => (prev !== null ? prev + 1 : systemStoriesToday + 1));
+  };
+
+  // 5. Videos Verified Today
   const loggedVerificationsCount = getVideosVerifiedTodayCount();
   const leadsVerifiedCount = allLeads.filter(
     (l) => Boolean(l.videoRecorded) && normalizeToLocalDateStr(l.videoVerifiedAt) === todayStr
   ).length;
   const videosVerifiedTodayCount = Math.max(loggedVerificationsCount, leadsVerifiedCount);
 
-  // Videos Pending Reel (videoRecorded: true && !reelPosted)
+  // 6. Videos Pending Reel (videoRecorded: true && !reelPosted)
   const videosPendingReelCount = allLeads.filter(
     (l) => Boolean(l.videoRecorded) && !l.reelPosted
   ).length;
 
-  // Streak Stats with Streak Lock (Requirement #3)
+  // 7. Streak Lock Calculation (Requirement #3)
+  // Current streak increments ONLY if:
+  // - DMs Sent Today >= 6
+  // - Reels Posted Today >= 1 (or Week 1 on-pace/allowed day quota)
+  // - Videos Verified Today >= 1
+  // - Stories Posted Today >= 1
+  // Sunday Rest Mode preserved
   const streakStats = calculateStreaks(historyRecords, {
     todayDmsSent: effectiveDmsSentToday,
     todayVideosVerified: videosVerifiedTodayCount,
+    todayReelsPosted: reelsPostedTodayCount,
+    todayStoriesPosted: storiesPostedTodayCount,
   });
+
+  const isTodaySunday = isDateStringSunday(todayStr);
+  const isStreakCriteriaMet =
+    effectiveDmsSentToday >= 6 &&
+    videosVerifiedTodayCount >= 1 &&
+    reelsPostedTodayCount >= (weekInfo.weekNumber === 1 && !weekInfo.isCurrentDayReelDay ? 0 : 1) &&
+    storiesPostedTodayCount >= 1;
 
   const totalLeads = allLeads.length;
   const totalPitches = allLeads.filter((l) => Boolean(l.customPitch)).length;
@@ -144,35 +189,92 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Top Deck Banner */}
-      <div className="rounded-3xl border border-white/10 bg-slate-900/80 p-5 sm:p-6 backdrop-blur-xl shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <h1 className="text-xl sm:text-2xl font-black text-white font-['Outfit']">
-              Executive Outreach Deck
-            </h1>
-            <span className="rounded-full bg-indigo-500/20 border border-indigo-500/30 px-3 py-0.5 text-xs font-bold text-indigo-300 font-mono">
-              3 Active Pipelines
-            </span>
+      {/* 5. THE 'WEEK X' BANNER (Requirement #5) */}
+      <div className="rounded-3xl border border-indigo-500/40 bg-gradient-to-r from-indigo-950/80 via-purple-950/60 to-slate-900 p-5 sm:p-6 backdrop-blur-xl shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-start sm:items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-0.5 flex items-center justify-center shadow-lg shadow-indigo-500/30 shrink-0">
+            <div className="w-full h-full bg-slate-950/80 rounded-[14px] flex items-center justify-center">
+              <TrendingUp className="w-6 h-6 text-indigo-300" />
+            </div>
           </div>
-          <p className="text-xs text-slate-400 mt-1 max-w-xl">
-            Real-time aggregate intelligence across Email, Instagram, and Facebook outreach channels.
-          </p>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-base sm:text-xl font-black text-white font-['Outfit'] tracking-wide">
+                Week {weekInfo.weekNumber} of the Growth Curve · Reel Goal: {weekInfo.weeklyQuota} this week · Story Goal: 1/day
+              </h2>
+              <span className="rounded-full bg-purple-500/20 border border-purple-500/30 px-2.5 py-0.5 text-xs font-bold text-purple-300 font-mono">
+                {weekInfo.dailyQuotaDisplay}
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 mt-1 flex items-center gap-2 flex-wrap">
+              <span className="text-indigo-200">{weekInfo.hint}</span>
+              <span className="text-slate-500">·</span>
+              <span className="text-emerald-400 font-medium">Sunday Rest Mode Active</span>
+              <span className="text-slate-500">·</span>
+              <span className="text-slate-400 font-mono text-[11px]">
+                Week Progress: {reelsPostedThisWeekCount}/{weekInfo.weeklyQuota} Reels ({reelProgressPercent}%) · Stories: {storiesPostedTodayCount}/1 Today
+              </span>
+            </p>
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleExportAllChannels}
-          disabled={totalLeads === 0}
-          className="px-4 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-2 transition cursor-pointer self-start md:self-auto"
-        >
-          <Download className="w-4 h-4 text-indigo-400" />
-          <span>Export All Channels (CSV)</span>
-        </button>
+        {/* Growth Curve Preview / Selector */}
+        <div className="flex items-center gap-2 self-start md:self-auto">
+          <div className="flex items-center gap-1 bg-black/50 p-1 rounded-xl border border-white/10">
+            <span className="text-[10px] text-slate-400 font-mono uppercase px-2 font-bold">Curve:</span>
+            {[1, 2, 3, 4].map((w) => (
+              <button
+                key={w}
+                type="button"
+                onClick={() => {
+                  if (weekOverride === w) {
+                    setGrowthCurveWeekOverride(null);
+                    setWeekOverride(null);
+                  } else {
+                    setGrowthCurveWeekOverride(w);
+                    setWeekOverride(w);
+                  }
+                }}
+                className={`px-2 py-1 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
+                  weekInfo.weekNumber === w
+                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/40'
+                    : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+                }`}
+                title={`Test Week ${w} quota (${w === 1 ? '4/wk' : w === 2 ? '7/wk' : w === 3 ? '12/wk' : '14/wk'})`}
+              >
+                W{w}
+              </button>
+            ))}
+            {weekOverride !== null && (
+              <button
+                type="button"
+                onClick={() => {
+                  setGrowthCurveWeekOverride(null);
+                  setWeekOverride(null);
+                }}
+                className="px-2 py-1 text-[10px] text-amber-300 hover:text-white transition cursor-pointer font-mono"
+                title="Reset to automatic calendar calculation"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleExportAllChannels}
+            disabled={totalLeads === 0}
+            className="px-3.5 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-slate-200 hover:text-white text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shrink-0"
+            title="Download CSV export across all channels"
+          >
+            <Download className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden sm:inline">Export</span>
+          </button>
+        </div>
       </div>
 
-      {/* Executive Summary Cards: Video Value First Daily Quotas, Verifications & Streaks */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3.5">
+      {/* Primary Quotas & Streak Lock Dashboard Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-3.5">
         {/* 1. DMs Sent Today (X / 6 with Progress Bar) */}
         <div className="rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-950/30 via-slate-900/80 to-slate-900 p-4 shadow-xl space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-sky-400 uppercase tracking-wider">
@@ -199,23 +301,28 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
           </div>
           <div className="text-[11px] text-slate-400 font-mono">
             {effectiveDmsSentToday >= 6
-              ? '🎯 Daily quota complete'
+              ? '🎯 Daily DM quota complete'
               : `${6 - effectiveDmsSentToday} more to hit daily goal`}
           </div>
         </div>
 
-        {/* 2. Reels Posted Today (X / 2 with Progress Bar) */}
+        {/* 2. THE WEEKLY REEL QUOTA CURVE CARD (Requirement #1) */}
+        {/* Displays: "Reels Posted: X / Y (Week Z Quota)" — where Y is the current week's quota */}
         <div className="rounded-2xl border border-pink-500/30 bg-gradient-to-br from-pink-950/30 via-slate-900/80 to-slate-900 p-4 shadow-xl space-y-2">
-          <div className="flex items-center justify-between text-xs font-bold text-pink-400 uppercase tracking-wider">
-            <span>Reels Posted Today</span>
-            <Film className="w-4 h-4 text-pink-400" />
+          <div className="flex items-center justify-between text-[11px] font-bold text-pink-400 uppercase tracking-wider">
+            <span className="truncate" title={`Reels Posted: ${reelsPostedThisWeekCount} / ${weekInfo.weeklyQuota} (${weekInfo.weekLabel} Quota)`}>
+              Reels Posted: {reelsPostedThisWeekCount} / {weekInfo.weeklyQuota} ({weekInfo.weekLabel} Quota)
+            </span>
+            <Film className="w-4 h-4 text-pink-400 shrink-0 ml-1" />
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-black text-white font-mono tabular-nums">
               {reelsPostedTodayCount}
             </span>
-            <span className="text-sm font-bold text-slate-400 font-mono">/ 2</span>
-            {reelsPostedTodayCount >= 2 && (
+            <span className="text-xs font-bold text-slate-400 font-mono">
+              today · {weekInfo.dailyQuotaDisplay}
+            </span>
+            {reelsPostedThisWeekCount >= weekInfo.weeklyQuota && (
               <span className="ml-auto text-[10px] font-bold text-pink-300 bg-pink-500/20 px-2 py-0.5 rounded border border-pink-500/30 font-mono">
                 Hit!
               </span>
@@ -228,14 +335,58 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
               style={{ width: `${reelProgressPercent}%` }}
             />
           </div>
-          <div className="text-[11px] text-slate-400 font-mono">
-            {reelsPostedTodayCount >= 2
-              ? '🔥 Target achieved (2/2)'
-              : `${2 - reelsPostedTodayCount} more to hit target`}
+          <div className="text-[11px] text-slate-400 font-mono flex items-center justify-between">
+            <span className="truncate" title={weekInfo.hint}>{weekInfo.hint}</span>
+            <span className="text-pink-300 font-bold shrink-0">{reelsPostedThisWeekCount}/{weekInfo.weeklyQuota} wk</span>
           </div>
         </div>
 
-        {/* 3. Videos Verified Today (User Requirement #4) */}
+        {/* 3. THE STORY TRACKER CARD (Requirement #2) */}
+        {/* Shows "X / 1" with progress bar and a "Log Story" action button */}
+        <div className={`rounded-2xl border p-4 shadow-xl space-y-2 ${
+          storiesPostedTodayCount >= 1
+            ? 'border-rose-500/40 bg-gradient-to-br from-rose-950/35 via-slate-900/80 to-slate-900'
+            : 'border-rose-500/25 bg-gradient-to-br from-rose-950/20 via-slate-900/80 to-slate-900'
+        }`}>
+          <div className="flex items-center justify-between text-xs font-bold text-rose-400 uppercase tracking-wider">
+            <span>Stories Posted Today</span>
+            <Sparkles className="w-4 h-4 text-rose-400" />
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-black text-white font-mono tabular-nums">
+              {storiesPostedTodayCount}
+            </span>
+            <span className="text-sm font-bold text-slate-400 font-mono">/ 1</span>
+            {storiesPostedTodayCount >= 1 ? (
+              <span className="ml-auto text-[10px] font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded border border-rose-500/30 font-mono">
+                Hit!
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={handleQuickLogStory}
+                className="ml-auto text-[10px] font-bold text-rose-300 bg-rose-500/20 hover:bg-rose-500/30 px-2 py-0.5 rounded border border-rose-500/40 font-mono transition cursor-pointer active:scale-95 flex items-center gap-1"
+                title="Log a story posted today"
+              >
+                <span>+ Log Story</span>
+              </button>
+            )}
+          </div>
+          {/* Progress Bar */}
+          <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-white/10">
+            <div
+              className="h-full bg-gradient-to-r from-rose-500 to-pink-500 transition-all duration-300"
+              style={{ width: `${storyProgressPercent}%` }}
+            />
+          </div>
+          <div className="text-[11px] text-slate-400 font-mono">
+            {storiesPostedTodayCount >= 1
+              ? '🎯 Story complete (1/1)'
+              : 'Quota: 1/day (Mon through Sun)'}
+          </div>
+        </div>
+
+        {/* 4. Videos Verified Today (2-Second Gate) */}
         <div className={`rounded-2xl border p-4 shadow-xl space-y-2 ${
           videosVerifiedTodayCount >= 1
             ? 'border-emerald-500/40 bg-gradient-to-br from-emerald-950/35 via-slate-900/80 to-slate-900'
@@ -262,11 +413,11 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
           <div className="text-[11px] text-slate-400 font-mono">
             {videosVerifiedTodayCount >= 1
               ? '✅ Proof confirmed for streak'
-              : '⚡ Verify 1 video to unlock streak'}
+              : '⚡ Verify 1 video for streak'}
           </div>
         </div>
 
-        {/* 4. Videos Pending Reel (videoRecorded: true && !reelPosted) */}
+        {/* 5. Videos Pending Reel (videoRecorded: true && !reelPosted) */}
         <div className={`rounded-2xl border p-4 shadow-xl space-y-2 ${
           videosPendingReelCount > 0
             ? 'border-purple-500/40 bg-gradient-to-br from-purple-950/30 via-slate-900/80 to-slate-900'
@@ -284,12 +435,12 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
           </div>
           <div className="text-[11px] text-slate-400">
             {videosPendingReelCount > 0
-              ? 'Recorded & waiting to be posted'
-              : 'All recorded videos are posted'}
+              ? 'Recorded & waiting to post'
+              : 'All recorded videos posted'}
           </div>
         </div>
 
-        {/* 5. Current Streak (Streak Locked: Requires DMs >= 6 and Videos Verified >= 1) */}
+        {/* 6. Current Streak (Streak Locked: DMs >= 6, Reels >= 1, Videos Verified >= 1, Stories >= 1) */}
         <div className="rounded-2xl border border-orange-500/30 bg-gradient-to-br from-orange-950/30 via-slate-900/80 to-slate-900 p-4 shadow-xl space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-orange-400 uppercase tracking-wider">
             <span>Current Streak</span>
@@ -304,15 +455,15 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
             </span>
           </div>
           <div className="text-[11px] text-slate-400">
-            {isDateStringSunday(todayStr)
+            {isTodaySunday
               ? '🌿 Sunday Rest Day (streak safe)'
-              : effectiveDmsSentToday >= 6 && videosVerifiedTodayCount >= 1
-              ? '🔥 Goal met! Streak incremented'
-              : '🔒 Needs 6 DMs & 1 verified video'}
+              : isStreakCriteriaMet
+              ? '🔥 All 4 goals met! Streak unlocked'
+              : '🔒 Needs 6 DMs, 1 Reel, 1 Story, 1 Video'}
           </div>
         </div>
 
-        {/* 6. Best Streak */}
+        {/* 7. Best Streak */}
         <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-950/30 via-slate-900/80 to-slate-900 p-4 shadow-xl space-y-2">
           <div className="flex items-center justify-between text-xs font-bold text-amber-400 uppercase tracking-wider">
             <span>Best Streak</span>
