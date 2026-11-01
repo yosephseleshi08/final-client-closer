@@ -2,6 +2,7 @@ import { DailyHistoryRecord, DailyHistoryStatus, HistoryStreakStats, MultiChanne
 import { getLocalTodayStr, normalizeToLocalDateStr } from './cadenceEngine';
 import { loadChannelLeads } from './channelStorage';
 import { getVideosVerifiedTodayCount, getVideosVerifiedOnDate } from './videoVerification';
+import { isPipelineFrozenNow, isDateFrozen } from './pipelineFreeze';
 
 export const HISTORY_STORAGE_KEY = 'outreach_daily_history';
 export const OUTREACH_START_DATE = '2026-10-26'; // User's verified launch day
@@ -227,8 +228,10 @@ export function recordTodayCompletion(
     notes = legacyNotes;
   }
 
+  const isFrozen = isPipelineFrozenNow();
+
   const totalTarget = Math.max(totalCompleted + totalRemainingDue, totalCompleted, 1);
-  const percentage = isSunday
+  const percentage = isSunday || isFrozen
     ? 100
     : totalCompleted + totalRemainingDue === 0
     ? 100
@@ -237,7 +240,9 @@ export function recordTodayCompletion(
     : 100;
 
   let status: DailyHistoryStatus = 'zero';
-  if (isSunday) {
+  if (isFrozen) {
+    status = 'frozen';
+  } else if (isSunday) {
     status = 'sunday';
   } else if (percentage >= 100) {
     status = 'full';
@@ -369,8 +374,10 @@ export function calculateStreaks(
   let currentStreak = 0;
   let startOffset = 0;
 
-  if (isTodaySun) {
-    // Sunday is a rest day: streak continues unbroken up to Saturday
+  const isTodayFrozen = isPipelineFrozenNow() || isDateFrozen(todayStr);
+
+  if (isTodaySun || isTodayFrozen) {
+    // Sunday or Frozen day is a rest mode: streak continues unbroken up to the last active day
     startOffset = -1;
   } else if (!isTodayStreakUnlocked) {
     // Weekday in progress or streak locked (needs 6 DMs & >= 1 verified video today)
@@ -390,8 +397,9 @@ export function calculateStreaks(
     }
 
     const isSunday = isDateStringSunday(dateStr);
-    if (isSunday) {
-      // Sunday is neutral rest day; continues the streak without incrementing or breaking
+    const isFrozen = isDateFrozen(dateStr);
+    if (isSunday || isFrozen) {
+      // Sunday or Frozen day is neutral rest mode; continues the streak without incrementing or breaking
       continue;
     }
 
@@ -403,7 +411,7 @@ export function calculateStreaks(
     }
 
     const entry = mapByDate.get(dateStr);
-    if (entry && entry.percentage >= 100) {
+    if (entry && (entry.percentage >= 100 || entry.status === 'frozen')) {
       currentStreak++;
     } else {
       // Encountered a past weekday with < 100% completion; streak breaks
@@ -429,8 +437,8 @@ export function calculateStreaks(
   }
 
   for (const dateStr of allDates) {
-    if (isDateStringSunday(dateStr)) {
-      continue; // Sunday does not reset or count
+    if (isDateStringSunday(dateStr) || isDateFrozen(dateStr)) {
+      continue; // Sunday or Frozen day does not reset or count as a break
     }
 
     if (dateStr === todayStr) {
@@ -507,14 +515,23 @@ export function get30DayHistoryView(records: DailyHistoryRecord[]): DailyHistory
   for (let i = 0; i < 30; i++) {
     const dateStr = getDateOffset(-i);
     const isSunday = isDateStringSunday(dateStr);
+    const isFrozen = isDateFrozen(dateStr);
     const existing = mapByDate.get(dateStr);
 
     if (existing) {
-      result.push(existing);
+      result.push({
+        ...existing,
+        isFrozen: isFrozen || existing.status === 'frozen',
+        status: isFrozen ? 'frozen' : existing.status,
+        percentage: isFrozen ? 100 : existing.percentage,
+        notes: isFrozen ? 'Pipeline Frozen (Streak Protected)' : existing.notes,
+      });
     } else {
       // Prior to launch or missing
       const isBeforeLaunch = dateStr < OUTREACH_START_DATE;
-      const status: DailyHistoryStatus = isSunday
+      const status: DailyHistoryStatus = isFrozen
+        ? 'frozen'
+        : isSunday
         ? 'sunday'
         : isBeforeLaunch
         ? 'zero'
@@ -525,10 +542,13 @@ export function get30DayHistoryView(records: DailyHistoryRecord[]): DailyHistory
         displayDate: formatDisplayDate(dateStr),
         dmsSent: 0,
         dmsTarget: 0,
-        percentage: isSunday ? 100 : 0,
+        percentage: isSunday || isFrozen ? 100 : 0,
         isSunday,
+        isFrozen,
         status,
-        notes: isSunday
+        notes: isFrozen
+          ? 'Pipeline Frozen (Streak Protected)'
+          : isSunday
           ? 'Sunday Rest Day'
           : isBeforeLaunch
           ? 'Before outreach launch'

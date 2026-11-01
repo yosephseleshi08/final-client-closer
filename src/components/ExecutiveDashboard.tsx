@@ -41,6 +41,8 @@ interface ExecutiveDashboardProps {
   facebookLeads: ChannelLead[];
   onNavigateToChannel: (channel: MultiChannelType) => void;
   onNavigateToToday?: () => void;
+  isFrozen?: boolean;
+  onToggleFreeze?: () => void;
 }
 
 export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
@@ -49,6 +51,8 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   facebookLeads,
   onNavigateToChannel,
   onNavigateToToday,
+  isFrozen = false,
+  onToggleFreeze,
 }) => {
   const todayStr = getLocalTodayStr();
   const historyRecords = loadDailyHistory();
@@ -189,6 +193,40 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Pipeline Freeze Banner (When Activated) */}
+      {isFrozen && (
+        <div className="rounded-3xl border border-cyan-500/50 bg-gradient-to-r from-cyan-950/90 via-slate-900/95 to-blue-950/80 p-5 sm:p-6 backdrop-blur-xl shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 animate-in fade-in">
+          <div className="flex items-start sm:items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300 text-2xl shrink-0 shadow-lg shadow-cyan-950/60">
+              ❄️
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-base sm:text-xl font-black text-white font-['Outfit'] tracking-wide">
+                  Pipeline Frozen For This Week · Streaks &amp; Quotas Paused
+                </h2>
+                <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-xs font-bold font-mono">
+                  ❄️ 100% Streak Safe
+                </span>
+              </div>
+              <p className="text-xs text-cyan-100/80 mt-1 max-w-2xl leading-relaxed">
+                You have paused all outreach for this week. No leads, follow-ups, reels, or stories will be marked overdue or broken. Your active streak of <strong>{streakStats.currentStreak} {streakStats.currentStreak === 1 ? 'day' : 'days'}</strong> is completely protected until you manually click Resume below.
+              </p>
+            </div>
+          </div>
+
+          {onToggleFreeze && (
+            <button
+              type="button"
+              onClick={onToggleFreeze}
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white text-xs font-black uppercase tracking-wider transition shadow-lg shadow-cyan-500/30 cursor-pointer flex items-center gap-2 shrink-0 active:scale-95 self-start md:self-auto"
+            >
+              <span>▶️ Resume / Start Pipeline</span>
+            </button>
+          )}
+        </div>
+      )}
+
       {/* 5. THE 'WEEK X' BANNER (Requirement #5) */}
       <div className="rounded-3xl border border-indigo-500/40 bg-gradient-to-r from-indigo-950/80 via-purple-950/60 to-slate-900 p-5 sm:p-6 backdrop-blur-xl shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-start sm:items-center gap-3.5">
@@ -205,6 +243,11 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
               <span className="rounded-full bg-purple-500/20 border border-purple-500/30 px-2.5 py-0.5 text-xs font-bold text-purple-300 font-mono">
                 {weekInfo.dailyQuotaDisplay}
               </span>
+              {isFrozen && (
+                <span className="rounded-full bg-cyan-500/20 border border-cyan-500/40 px-2.5 py-0.5 text-xs font-bold text-cyan-300 font-mono">
+                  ❄️ Week Frozen
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-300 mt-1 flex items-center gap-2 flex-wrap">
               <span className="text-indigo-200">{weekInfo.hint}</span>
@@ -218,8 +261,27 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
           </div>
         </div>
 
-        {/* Growth Curve Preview / Selector */}
-        <div className="flex items-center gap-2 self-start md:self-auto">
+        {/* Growth Curve Preview / Selector & Freeze Button */}
+        <div className="flex items-center gap-2 flex-wrap self-start md:self-auto">
+          {onToggleFreeze && (
+            <button
+              type="button"
+              onClick={onToggleFreeze}
+              className={`px-3 py-2 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+                isFrozen
+                  ? 'border-cyan-500/40 bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30'
+                  : 'border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 hover:text-white'
+              }`}
+              title={
+                isFrozen
+                  ? 'Pipeline is currently frozen. Click to resume and start your week!'
+                  : 'Freeze pipeline for this week: pauses daily tasks, protects streaks, and prevents missed penalties.'
+              }
+            >
+              <span>{isFrozen ? '▶️ Resume Work' : '❄️ Freeze Week'}</span>
+            </button>
+          )}
+
           <div className="flex items-center gap-1 bg-black/50 p-1 rounded-xl border border-white/10">
             <span className="text-[10px] text-slate-400 font-mono uppercase px-2 font-bold">Curve:</span>
             {[1, 2, 3, 4].map((w) => (
@@ -300,7 +362,9 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
             />
           </div>
           <div className="text-[11px] text-slate-400 font-mono">
-            {effectiveDmsSentToday >= 6
+            {isFrozen
+              ? '⏸️ Week Frozen (0 tasks due)'
+              : effectiveDmsSentToday >= 6
               ? '🎯 Daily DM quota complete'
               : `${6 - effectiveDmsSentToday} more to hit daily goal`}
           </div>
@@ -336,7 +400,9 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
             />
           </div>
           <div className="text-[11px] text-slate-400 font-mono flex items-center justify-between">
-            <span className="truncate" title={weekInfo.hint}>{weekInfo.hint}</span>
+            <span className="truncate" title={isFrozen ? 'Week is frozen · Quota on hold' : weekInfo.hint}>
+              {isFrozen ? '⏸️ Week Frozen (Quota on hold)' : weekInfo.hint}
+            </span>
             <span className="text-pink-300 font-bold shrink-0">{reelsPostedThisWeekCount}/{weekInfo.weeklyQuota} wk</span>
           </div>
         </div>
@@ -380,7 +446,9 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
             />
           </div>
           <div className="text-[11px] text-slate-400 font-mono">
-            {storiesPostedTodayCount >= 1
+            {isFrozen
+              ? '⏸️ Week Frozen (Quota on hold)'
+              : storiesPostedTodayCount >= 1
               ? '🎯 Story complete (1/1)'
               : 'Quota: 1/day (Mon through Sun)'}
           </div>
@@ -455,7 +523,9 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
             </span>
           </div>
           <div className="text-[11px] text-slate-400">
-            {isTodaySunday
+            {isFrozen
+              ? '❄️ Pipeline Frozen (Streak 100% Safe)'
+              : isTodaySunday
               ? '🌿 Sunday Rest Day (streak safe)'
               : isStreakCriteriaMet
               ? '🔥 All 4 goals met! Streak unlocked'

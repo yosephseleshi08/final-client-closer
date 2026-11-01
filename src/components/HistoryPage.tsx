@@ -83,6 +83,15 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
 
   // Helper for status styling & icons
   const getStatusDisplay = (record: DailyHistoryRecord) => {
+    if (record.status === 'frozen' || record.isFrozen) {
+      return {
+        dotClass: 'bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]',
+        badgeBg: 'bg-cyan-950/60 text-cyan-300 border-cyan-500/40',
+        label: '❄️ Frozen',
+        icon: <span className="text-xs">❄️</span>,
+        desc: 'Pipeline frozen for the week · 100% streak immunity preserved',
+      };
+    }
     if (record.isSunday) {
       return {
         dotClass: 'bg-slate-400',
@@ -295,6 +304,10 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
               <span>0% Missed</span>
             </div>
             <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
+              <span>❄️ Frozen</span>
+            </div>
+            <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
               <span>Sunday Rest</span>
             </div>
@@ -311,6 +324,8 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
             let borderStyle = 'border-white/5 hover:border-white/20';
             if (isSelected) {
               borderStyle = 'border-indigo-400 ring-2 ring-indigo-400/20 bg-indigo-500/10';
+            } else if (day.status === 'frozen' || day.isFrozen) {
+              borderStyle = 'border-cyan-500/40 bg-cyan-950/30 hover:border-cyan-400/60 shadow-sm shadow-cyan-950/30';
             } else if (day.status === 'full') {
               borderStyle = 'border-emerald-500/30 bg-emerald-950/20 hover:border-emerald-400/50';
             } else if (day.isSunday) {

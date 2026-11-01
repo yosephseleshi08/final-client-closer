@@ -254,7 +254,7 @@ export type MultiChannelType = 'email' | 'instagram' | 'facebook';
 
 export type GlobalNavTab = 'email' | 'instagram' | 'facebook' | 'today' | 'dashboard' | 'insights' | 'history';
 
-export type DailyHistoryStatus = 'full' | 'partial' | 'zero' | 'sunday';
+export type DailyHistoryStatus = 'full' | 'partial' | 'zero' | 'sunday' | 'frozen';
 
 export interface DailyHistoryRecord {
   date: string; // 'YYYY-MM-DD'
@@ -263,6 +263,7 @@ export interface DailyHistoryRecord {
   dmsTarget: number; // Total schedule tasks due today
   percentage: number; // 0 to 100
   isSunday: boolean;
+  isFrozen?: boolean;
   status: DailyHistoryStatus;
   notes?: string;
   updatedAt: string;

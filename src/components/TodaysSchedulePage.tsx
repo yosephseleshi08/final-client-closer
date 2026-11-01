@@ -22,6 +22,8 @@ import {
   StickyNote,
   Coffee,
   AlertTriangle,
+  Snowflake,
+  Play,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../types';
 import { QuickNoteModal } from './QuickNoteModal';
@@ -59,6 +61,8 @@ interface TodaysSchedulePageProps {
   onUpdateInstagramLeads: (leads: ChannelLead[]) => void;
   onUpdateFacebookLeads: (leads: ChannelLead[]) => void;
   onNavigateToChannel: (channel: MultiChannelType) => void;
+  isFrozen?: boolean;
+  onToggleFreeze?: () => void;
 }
 
 export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
@@ -69,12 +73,15 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   onUpdateInstagramLeads,
   onUpdateFacebookLeads,
   onNavigateToChannel,
+  isFrozen = false,
+  onToggleFreeze,
 }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [channelFilter, setChannelFilter] = useState<'all' | 'email' | 'instagram' | 'facebook'>('all');
   const [showDismissedDrawer, setShowDismissedDrawer] = useState(false);
   const [reminderSavedId, setReminderSavedId] = useState<string | null>(null);
   const [noteModalLead, setNoteModalLead] = useState<ChannelLead | null>(null);
+  const [showFrozenOverride, setShowFrozenOverride] = useState(false);
 
   const isActualSunday = isTodaySunday();
   // Toggle defaults to ON if it is actually Sunday, and OFF on other days
@@ -357,6 +364,92 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     </button>
   );
 
+  // Dedicated Freeze Mode Screen when user has paused outreach for the week
+  if (isFrozen && !showFrozenOverride) {
+    return (
+      <div className="space-y-6 animate-in fade-in duration-200">
+        <div className="rounded-3xl border-2 border-cyan-500/40 bg-gradient-to-r from-cyan-950/70 via-slate-900/95 to-slate-900/95 p-6 sm:p-8 backdrop-blur-xl shadow-2xl">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-start gap-4">
+              <div className="w-14 h-14 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300 shadow-xl shadow-cyan-950/50 shrink-0">
+                <Snowflake className="w-7 h-7 text-cyan-400 animate-pulse" />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h1 className="text-2xl sm:text-3xl font-black text-white font-['Outfit']">
+                    Pipeline Frozen For This Week
+                  </h1>
+                  <span className="px-3 py-1 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-xs font-mono font-bold flex items-center gap-1.5 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                    PAUSED &amp; STREAK PROTECTED
+                  </span>
+                </div>
+                <p className="text-sm text-slate-300 max-w-2xl leading-relaxed">
+                  You paused outreach for this week because you have other commitments. No daily DMs, Follow-ups, Reels, or Stories will be marked as missed or overdue. Your active streak is completely protected and will not break.
+                </p>
+                <div className="flex items-center gap-4 text-xs font-mono text-cyan-300/80 pt-1 flex-wrap">
+                  <span>🛡️ 100% Streak Safe</span>
+                  <span>•</span>
+                  <span>📦 0 Overdue Tasks</span>
+                  <span>•</span>
+                  <span>🎯 Quotas Suspended</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+              {onToggleFreeze && (
+                <button
+                  type="button"
+                  onClick={onToggleFreeze}
+                  className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm shadow-xl shadow-cyan-950/60 transition cursor-pointer flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95"
+                >
+                  <Play className="w-4 h-4 fill-white" />
+                  <span>Resume / Start Pipeline</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowFrozenOverride(true)}
+                className="px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
+                title="Inspect today's queue in read-only preview mode"
+              >
+                <span>👁️ View Queue Anyway</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-5 rounded-2xl border border-white/5 bg-slate-900/60 backdrop-blur-sm space-y-2">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <span className="text-cyan-400">🛡️</span> Zero Penalty Guarantee
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              When life or other urgent work takes over, freezing this week preserves your record. The History matrix records all frozen days as protected rest.
+            </p>
+          </div>
+          <div className="p-5 rounded-2xl border border-white/5 bg-slate-900/60 backdrop-blur-sm space-y-2">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <span className="text-cyan-400">🔒</span> Streak Locked &amp; Safe
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Your Current Streak count will bridge seamlessly without zeroing out until you manually click "Resume / Start Pipeline".
+            </p>
+          </div>
+          <div className="p-5 rounded-2xl border border-white/5 bg-slate-900/60 backdrop-blur-sm space-y-2">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <span className="text-cyan-400">⚡</span> 1-Click Reactivation
+            </h3>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Whenever you're ready to start work again, click Resume from the top bar or right here to unfreeze all quotas and schedules.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (isSundayMode) {
     return (
       <div className="space-y-6">
@@ -415,6 +508,50 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Frozen Override Active Banner */}
+      {isFrozen && showFrozenOverride && (
+        <div className="rounded-2xl border-2 border-cyan-500/50 bg-cyan-950/70 p-4 sm:p-5 backdrop-blur-xl shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-in fade-in duration-200">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center justify-center shrink-0">
+              <Snowflake className="w-5 h-5 text-cyan-400" />
+            </div>
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-bold text-cyan-300 uppercase tracking-wider font-mono">
+                  ❄️ Pipeline Frozen (Previewing Queue)
+                </span>
+                <span className="text-[11px] text-cyan-400/80 font-mono">
+                  (Tasks on hold · Streak 100% protected)
+                </span>
+              </div>
+              <p className="text-xs text-slate-300">
+                You are previewing today's queue while the week is frozen. No tasks count as missed or overdue.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {onToggleFreeze && (
+              <button
+                type="button"
+                onClick={onToggleFreeze}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md shadow-cyan-950/50 cursor-pointer active:scale-95"
+              >
+                <Play className="w-3.5 h-3.5 fill-white" />
+                <span>Resume Pipeline</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowFrozenOverride(false)}
+              className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 text-xs font-semibold transition cursor-pointer"
+            >
+              Hide Queue
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Persistent Sunday Override Active Banner */}
       {showQueuesOverride && (isActualSunday || forceSundayPreview) && (
         <div className="rounded-2xl border-2 border-amber-500/50 bg-amber-950/70 p-4 sm:p-5 backdrop-blur-xl shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-in fade-in duration-200">

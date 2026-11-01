@@ -22,9 +22,27 @@ import {
   isLeadDismissedToday,
   isTodaySunday,
 } from './utils/cadenceEngine';
+import { isPipelineFrozenNow, togglePipelineFreeze } from './utils/pipelineFreeze';
 
 export default function App() {
   const [activeNavTab, setActiveNavTab] = useState<GlobalNavTab>('today');
+  const [isFrozen, setIsFrozen] = useState<boolean>(() => isPipelineFrozenNow());
+
+  // Listen for pipeline freeze changes across components
+  React.useEffect(() => {
+    const handler = () => setIsFrozen(isPipelineFrozenNow());
+    window.addEventListener('pipeline_freeze_changed', handler);
+    window.addEventListener('storage', handler);
+    return () => {
+      window.removeEventListener('pipeline_freeze_changed', handler);
+      window.removeEventListener('storage', handler);
+    };
+  }, []);
+
+  const handleToggleFreeze = () => {
+    const updated = togglePipelineFreeze();
+    setIsFrozen(updated.isFrozen);
+  };
 
   // Channel Leads State (Completely Isolated per Channel)
   const [emailLeads, setEmailLeads] = useState<ChannelLead[]>(() =>
@@ -58,7 +76,7 @@ export default function App() {
 
   // Calculate live daily tasks due across all channels
   const todayTaskCount = useMemo(() => {
-    if (isTodaySunday()) return 0; // Paused on Sunday Rest Mode
+    if (isTodaySunday() || isFrozen) return 0; // Paused on Sunday Rest Mode or Pipeline Freeze Mode
     const all = [...emailLeads, ...instagramLeads, ...facebookLeads];
     return all.filter((l) => {
       if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
@@ -81,7 +99,7 @@ export default function App() {
 
       return false;
     }).length;
-  }, [emailLeads, instagramLeads, facebookLeads, todayStr]);
+  }, [emailLeads, instagramLeads, facebookLeads, todayStr, isFrozen]);
 
   return (
     <div className="min-h-screen bg-[#080c14] text-slate-100 flex flex-col selection:bg-indigo-500/30 selection:text-indigo-200">
@@ -96,6 +114,8 @@ export default function App() {
           instagramLeadCount={instagramLeads.length}
           facebookLeadCount={facebookLeads.length}
           todayTaskCount={todayTaskCount}
+          isFrozen={isFrozen}
+          onToggleFreeze={handleToggleFreeze}
         />
 
         {/* Workspace or Overview Views */}
@@ -136,6 +156,8 @@ export default function App() {
               onUpdateInstagramLeads={handleUpdateInstagramLeads}
               onUpdateFacebookLeads={handleUpdateFacebookLeads}
               onNavigateToChannel={(channel: MultiChannelType) => setActiveNavTab(channel)}
+              isFrozen={isFrozen}
+              onToggleFreeze={handleToggleFreeze}
             />
           )}
 
@@ -146,6 +168,8 @@ export default function App() {
               facebookLeads={facebookLeads}
               onNavigateToChannel={(channel: MultiChannelType) => setActiveNavTab(channel)}
               onNavigateToToday={() => setActiveNavTab('today')}
+              isFrozen={isFrozen}
+              onToggleFreeze={handleToggleFreeze}
             />
           )}
 
