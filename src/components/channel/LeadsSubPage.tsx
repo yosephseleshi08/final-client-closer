@@ -24,23 +24,11 @@ import {
   Plus,
   Link as LinkIcon,
   Search,
-  Check,
   FileSpreadsheet,
   FileCode,
   AlertCircle,
   X,
   ArrowRight,
-  StickyNote,
-  Flame,
-  Info,
-  Calendar,
-  CheckCircle2,
-  Video,
-  Film,
-  Send,
-  MessageCircleReply,
-  Link2,
-  Sparkles,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import {
@@ -55,17 +43,9 @@ import {
 } from '../../utils/channelStorage';
 import {
   getScheduleDayStyle,
-  shouldShowWarmupAlert,
   isDateToday,
-  getLocalTodayStr,
 } from '../../utils/cadenceEngine';
 import { playWarningChime } from '../../utils/soundEffects';
-import { canMarkReelOnDate, logStoryToday } from '../../utils/growthCurve';
-import { LeadAnalysisModal } from './LeadAnalysisModal';
-import { QuickNoteModal } from '../QuickNoteModal';
-import { VideoScriptModal } from '../VideoScriptModal';
-import { VideoVerificationModal } from '../VideoVerificationModal';
-import { recordVideoVerification } from '../../utils/videoVerification';
 
 interface LeadsSubPageProps {
   channel: MultiChannelType;
@@ -77,23 +57,12 @@ interface LeadsSubPageProps {
 interface SortableLeadRowProps {
   lead: ChannelLead;
   onDelete: (id: string) => void;
-  onOpenDetails: (lead: ChannelLead) => void;
-  onToggleWarmup: (lead: ChannelLead) => void;
-  onToggleWorkflow: (
-    lead: ChannelLead,
-    field: 'videoRecorded' | 'reelPosted' | 'dmSent' | 'repliedSendIt' | 'liveLinkSent' | 'storyPosted'
-  ) => void;
-  onOpenScriptModal: (lead: ChannelLead) => void;
   isJustAdded?: boolean;
 }
 
 function SortableLeadRow({
   lead,
   onDelete,
-  onOpenDetails,
-  onToggleWarmup,
-  onToggleWorkflow,
-  onOpenScriptModal,
   isJustAdded,
 }: SortableLeadRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -109,14 +78,8 @@ function SortableLeadRow({
     ? lead.link
     : `https://${lead.link}`;
 
-  // 1. Color-code leads by scheduled day (Monday: Blue, Tuesday: Purple, etc.)
   const dayStyle = getScheduleDayStyle(lead.scheduledDate);
-
-  // 2. Highlight Today's Leads with subtle emerald glow / badge
   const isDueToday = isDateToday(lead.scheduledDate);
-
-  // 3. Smart Warm-Up Alert Check
-  const isWarmupAlert = shouldShowWarmupAlert(lead);
 
   return (
     <tr
@@ -163,51 +126,21 @@ function SortableLeadRow({
         </div>
       </td>
 
-      {/* Name, Schedule Day & Quick Note Indicator (Click to open Lead Details) */}
+      {/* Prospect Name & Scheduled Day */}
       <td className="py-3.5 px-4 text-left">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => onOpenDetails(lead)}
-              className="text-left font-medium text-slate-100 hover:text-indigo-300 transition-colors font-['Outfit'] truncate max-w-xs cursor-pointer flex items-center gap-1.5 group/name"
-              title="Click to view Lead Details & Notes"
-            >
-              <span className="truncate">{lead.name}</span>
-            </button>
-
-            {/* Schedule Day Badge */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-slate-100 font-['Outfit'] truncate max-w-xs">
+            {lead.name}
+          </span>
+          {lead.scheduledDate && (
             <span
               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold font-mono border ${dayStyle.badgeClass}`}
-              title={`Scheduled for ${dayStyle.dayName} (${lead.scheduledDate || 'Unscheduled'})`}
+              title={`Scheduled for ${dayStyle.dayName} (${lead.scheduledDate})`}
             >
               <span>{dayStyle.dayShort}</span>
-              {lead.scheduledDate && (
-                <span className="opacity-75">· {lead.scheduledDate.split('-').slice(1).join('/')}</span>
-              )}
+              <span className="opacity-75">· {lead.scheduledDate.split('-').slice(1).join('/')}</span>
             </span>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            {lead.leadAnalysis ? (
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
-                Analysis Ready
-              </span>
-            ) : null}
-
-            {lead.quickNote && (
-              <button
-                type="button"
-                onClick={() => onOpenDetails(lead)}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[10px] font-medium transition cursor-pointer max-w-xs truncate"
-                title={`Note: "${lead.quickNote}" (click to view details)`}
-              >
-                <StickyNote className="w-2.5 h-2.5 text-amber-400 shrink-0" />
-                <span className="truncate">"{lead.quickNote}"</span>
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </td>
 
@@ -224,179 +157,14 @@ function SortableLeadRow({
         </a>
       </td>
 
-      {/* 4. THE LEAD ROW UPDATE: Story Posted Column (Requirement #4) */}
-      <td className="py-3.5 px-3 text-center align-middle whitespace-nowrap">
-        <div className="flex flex-col items-center justify-center gap-1">
-          <button
-            type="button"
-            onClick={() => onToggleWorkflow(lead, 'storyPosted')}
-            className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 active:scale-95 ${
-              lead.storyPosted
-                ? 'bg-pink-500/20 text-pink-300 border-pink-500/40 shadow-sm shadow-pink-950/40'
-                : 'bg-white/5 text-slate-400 hover:text-slate-200 border-white/10 hover:border-white/20'
-            }`}
-            title={`Story Posted: ${lead.storyPosted ? 'Yes (Click to untoggle)' : 'No (Click to log Story)'}`}
-            aria-label="Toggle Story Posted"
-          >
-            {/* Pink dot matching the Reel dot */}
-            <span
-              className={`w-2 h-2 rounded-full ${
-                lead.storyPosted
-                  ? 'bg-pink-400 shadow-[0_0_6px_rgba(244,114,182,0.8)]'
-                  : 'bg-slate-600'
-              }`}
-            />
-            <span>{lead.storyPosted ? 'Story Logged' : 'Log Story'}</span>
-          </button>
-          {lead.storyPosted && (
-            <span className="text-[10px] text-pink-300/80 font-mono">
-              {lead.storyPostedAt
-                ? new Date(lead.storyPostedAt).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
-                : 'Today'}
-            </span>
-          )}
-        </div>
-      </td>
-
-      {/* Action Column: Workflow Milestones, Warm Up, Script, Details & Delete */}
+      {/* Action: ONLY Delete Button (🗑️) */}
       <td className="py-3.5 px-4 text-right">
-        <div className="flex items-center justify-end gap-2 flex-wrap sm:flex-nowrap">
-          {/* 🔥 Warm-Up System Button */}
-          <button
-            type="button"
-            onClick={() => onToggleWarmup(lead)}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95 shrink-0 ${
-              lead.isWarmedUp
-                ? 'border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 shadow-emerald-950/40'
-                : isWarmupAlert
-                ? 'border-amber-500/50 bg-amber-500/25 text-amber-300 hover:bg-amber-500/35 animate-pulse shadow-amber-500/25 ring-1 ring-amber-400/40'
-                : 'border-amber-500/30 bg-amber-500/10 text-amber-300/85 hover:bg-amber-500/20 hover:border-amber-500/40'
-            }`}
-            title={
-              lead.isWarmedUp
-                ? '🔥 Profile Warmed Up! (Click to toggle)'
-                : isWarmupAlert
-                ? '🔥 Warm-up alert! Engage prospect before outreach'
-                : 'Click to mark profile as warmed up'
-            }
-          >
-            <span className={!lead.isWarmedUp && isWarmupAlert ? 'animate-bounce' : ''}>🔥</span>
-            <span className="hidden sm:inline">{lead.isWarmedUp ? 'Warmed' : 'Warm Up'}</span>
-          </button>
-
-          {/* 5-Step Video Value First Workflow Toggle Strip (Requirement #2) */}
-          <div className="flex items-center gap-0.5 bg-slate-950/70 p-1 rounded-xl border border-white/10 shrink-0">
-            {/* 1. Video Recorded */}
-            <button
-              type="button"
-              onClick={() => onToggleWorkflow(lead, 'videoRecorded')}
-              className={`p-1.5 rounded-lg border text-xs transition cursor-pointer flex items-center gap-1 active:scale-90 ${
-                lead.videoRecorded
-                  ? 'bg-purple-500/20 text-purple-300 border-purple-500/40 shadow-sm shadow-purple-950/40'
-                  : 'bg-white/5 text-slate-500 hover:text-slate-300 border-white/5'
-              }`}
-              title={`[1] Video Recorded: ${lead.videoRecorded ? 'Yes' : 'No'} (Click to toggle)`}
-              aria-label="Toggle Video Recorded"
-            >
-              <Video className="w-3.5 h-3.5" />
-              <span className={`w-1.5 h-1.5 rounded-full ${lead.videoRecorded ? 'bg-purple-400 shadow-[0_0_6px_rgba(192,132,252,0.8)]' : 'bg-slate-600'}`} />
-            </button>
-
-            {/* 2. Reel Posted */}
-            <button
-              type="button"
-              onClick={() => onToggleWorkflow(lead, 'reelPosted')}
-              className={`p-1.5 rounded-lg border text-xs transition cursor-pointer flex items-center gap-1 active:scale-90 ${
-                lead.reelPosted
-                  ? 'bg-pink-500/20 text-pink-300 border-pink-500/40 shadow-sm shadow-pink-950/40'
-                  : 'bg-white/5 text-slate-500 hover:text-slate-300 border-white/5'
-              }`}
-              title={`[2] Reel Posted: ${lead.reelPosted ? 'Yes' : 'No'} (Click to toggle)`}
-              aria-label="Toggle Reel Posted"
-            >
-              <Film className="w-3.5 h-3.5" />
-              <span className={`w-1.5 h-1.5 rounded-full ${lead.reelPosted ? 'bg-pink-400 shadow-[0_0_6px_rgba(244,114,182,0.8)]' : 'bg-slate-600'}`} />
-            </button>
-
-            {/* 3. DM Sent */}
-            <button
-              type="button"
-              onClick={() => onToggleWorkflow(lead, 'dmSent')}
-              className={`p-1.5 rounded-lg border text-xs transition cursor-pointer flex items-center gap-1 active:scale-90 ${
-                lead.dmSent || lead.initialSentDate
-                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 shadow-sm shadow-sky-950/40'
-                  : 'bg-white/5 text-slate-500 hover:text-slate-300 border-white/5'
-              }`}
-              title={`[3] DM Sent: ${lead.dmSent || lead.initialSentDate ? 'Yes' : 'No'} (Click to toggle)`}
-              aria-label="Toggle DM Sent"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span className={`w-1.5 h-1.5 rounded-full ${lead.dmSent || lead.initialSentDate ? 'bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.8)]' : 'bg-slate-600'}`} />
-            </button>
-
-            {/* 4. Replied "Send it" */}
-            <button
-              type="button"
-              onClick={() => onToggleWorkflow(lead, 'repliedSendIt')}
-              className={`p-1.5 rounded-lg border text-xs transition cursor-pointer flex items-center gap-1 active:scale-90 ${
-                lead.repliedSendIt
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-950/40'
-                  : 'bg-white/5 text-slate-500 hover:text-slate-300 border-white/5'
-              }`}
-              title={`[4] Replied "Send it": ${lead.repliedSendIt ? 'Yes' : 'No'} (Click to toggle)`}
-              aria-label="Toggle Replied Send It"
-            >
-              <MessageCircleReply className="w-3.5 h-3.5" />
-              <span className={`w-1.5 h-1.5 rounded-full ${lead.repliedSendIt ? 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]' : 'bg-slate-600'}`} />
-            </button>
-
-            {/* 5. Live Link Sent */}
-            <button
-              type="button"
-              onClick={() => onToggleWorkflow(lead, 'liveLinkSent')}
-              className={`p-1.5 rounded-lg border text-xs transition cursor-pointer flex items-center gap-1 active:scale-90 ${
-                lead.liveLinkSent
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm shadow-emerald-950/40'
-                  : 'bg-white/5 text-slate-500 hover:text-slate-300 border-white/5'
-              }`}
-              title={`[5] Live Link Sent: ${lead.liveLinkSent ? 'Yes' : 'No'} (Click to toggle)`}
-              aria-label="Toggle Live Link Sent"
-            >
-              <Link2 className="w-3.5 h-3.5" />
-              <span className={`w-1.5 h-1.5 rounded-full ${lead.liveLinkSent ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]' : 'bg-slate-600'}`} />
-            </button>
-          </div>
-
-          {/* ⚡ Video Script Button (Requirement #3) */}
-          <button
-            type="button"
-            onClick={() => onOpenScriptModal(lead)}
-            className="px-2.5 py-1.5 rounded-xl border border-purple-500/30 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 hover:text-white text-xs font-bold transition cursor-pointer flex items-center gap-1 active:scale-95 shadow-sm shrink-0"
-            title="Open Video Value First Script Generator (Stage A & Stage B)"
-          >
-            <Sparkles className="w-3 h-3 text-purple-400" />
-            <span>Script</span>
-          </button>
-
-          {/* Details & Notes Button */}
-          <button
-            type="button"
-            onClick={() => onOpenDetails(lead)}
-            className="px-2.5 py-1.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1 shrink-0"
-            title="Open Lead Details, Notes & Prompt Hub"
-          >
-            <span>Details</span>
-          </button>
-
-          {/* Delete Button */}
+        <div className="flex items-center justify-end">
           <button
             type="button"
             onClick={() => onDelete(lead.id)}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
-            title="Delete lead (remaining IDs will re-sequence with no gaps)"
+            className="p-2 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+            title="Delete lead (remaining IDs will re-sequence)"
             aria-label={`Delete ${lead.name}`}
           >
             <Trash2 className="w-4 h-4" />
@@ -427,247 +195,6 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   const [modalError, setModalError] = useState<string | null>(null);
   const [justAddedLeadId, setJustAddedLeadId] = useState<string | null>(null);
 
-  // Gemini Lead Analysis Modal state
-  const [selectedLeadForAnalysis, setSelectedLeadForAnalysis] = useState<ChannelLead | null>(null);
-  const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
-
-  // Lead Details & Notes Modal state
-  const [selectedLeadForDetails, setSelectedLeadForDetails] = useState<ChannelLead | null>(null);
-  const [detailsNoteText, setDetailsNoteText] = useState('');
-  const [detailsNoteSaved, setDetailsNoteSaved] = useState(false);
-
-  // Quick Note Modal state (kept for backward compatibility)
-  const [noteModalLead, setNoteModalLead] = useState<ChannelLead | null>(null);
-
-  // Video Value First Script Modal State
-  const [selectedScriptLead, setSelectedScriptLead] = useState<ChannelLead | null>(null);
-
-  // Video Verification Gate Modal State (Requirement #1 & #2)
-  const [verifyingLead, setVerifyingLead] = useState<ChannelLead | null>(null);
-  const [toastAlert, setToastAlert] = useState<{
-    id: number;
-    type: 'success' | 'error';
-    message: string;
-  } | null>(null);
-
-  const showToast = (type: 'success' | 'error', message: string) => {
-    setToastAlert({ id: Date.now(), type, message });
-  };
-
-  useEffect(() => {
-    if (!toastAlert) return;
-    const timer = setTimeout(() => {
-      setToastAlert(null);
-    }, 4000);
-    return () => clearTimeout(timer);
-  }, [toastAlert]);
-
-  const handleToggleWorkflow = (
-    lead: ChannelLead,
-    field: 'videoRecorded' | 'reelPosted' | 'dmSent' | 'repliedSendIt' | 'liveLinkSent' | 'storyPosted'
-  ) => {
-    // 2-Second Verification Gate: When setting videoRecorded to true, gate with confirmation modal
-    if (field === 'videoRecorded' && !lead.videoRecorded) {
-      setVerifyingLead(lead);
-      return;
-    }
-
-    // Week 1 Growth Curve Check: When setting reelPosted to true, check if today is Mon, Wed, Fri, or Sun
-    if (field === 'reelPosted' && !lead.reelPosted) {
-      const allowedCheck = canMarkReelOnDate();
-      if (!allowedCheck.allowed) {
-        showToast('error', allowedCheck.reason || 'In Week 1, Reels can only be marked on Mon, Wed, Fri, Sun.');
-        return;
-      }
-    }
-
-    const nowIso = new Date().toISOString();
-    const currentVal = Boolean(lead[field]);
-    const nextVal = !currentVal;
-
-    let patch: Partial<ChannelLead> = {
-      [field]: nextVal,
-      [`${field}At`]: nextVal ? nowIso : undefined,
-    };
-
-    if (field === 'storyPosted' && nextVal) {
-      logStoryToday(lead.id, lead.name, lead.channel);
-      showToast('success', `Logged Story for ${lead.name} · Story Goal: 1/day`);
-    }
-
-    if (field === 'reelPosted' && nextVal) {
-      showToast('success', `Reel marked as posted for ${lead.name}`);
-    }
-
-    if (field === 'videoRecorded' && !nextVal) {
-      patch.videoVerifiedAt = undefined;
-    }
-    if (field === 'dmSent' && nextVal && !lead.initialSentDate) {
-      patch.initialSentDate = getLocalTodayStr();
-    }
-    if (field === 'repliedSendIt' && nextVal) {
-      patch.leadStatus = 'replied';
-      patch.repliedAt = nowIso;
-    }
-    if (field === 'liveLinkSent' && nextVal) {
-      patch.isCompleted = true;
-    }
-
-    const updated = leads.map((l) => (l.id === lead.id ? { ...l, ...patch } : l));
-    onUpdateLeads(updated);
-    if (selectedLeadForDetails && selectedLeadForDetails.id === lead.id) {
-      setSelectedLeadForDetails({ ...selectedLeadForDetails, ...patch });
-    }
-    if (selectedScriptLead && selectedScriptLead.id === lead.id) {
-      setSelectedScriptLead({ ...selectedScriptLead, ...patch });
-    }
-  };
-
-  const handleVideoVerificationSuccess = (lead: ChannelLead) => {
-    const nowIso = new Date().toISOString();
-    const patch: Partial<ChannelLead> = {
-      videoRecorded: true,
-      videoRecordedAt: nowIso,
-      videoVerifiedAt: nowIso,
-    };
-
-    // Record verified proof in persistent log
-    recordVideoVerification(lead.id, lead.name, lead.channel);
-
-    const updated = leads.map((l) => (l.id === lead.id ? { ...l, ...patch } : l));
-    onUpdateLeads(updated);
-
-    if (selectedLeadForDetails && selectedLeadForDetails.id === lead.id) {
-      setSelectedLeadForDetails({ ...selectedLeadForDetails, ...patch });
-    }
-    if (selectedScriptLead && selectedScriptLead.id === lead.id) {
-      setSelectedScriptLead({ ...selectedScriptLead, ...patch });
-    }
-
-    showToast('success', '✅ Video verified.');
-  };
-
-  const handleOpenDetails = (lead: ChannelLead) => {
-    setSelectedLeadForDetails(lead);
-    setDetailsNoteText(lead.quickNote || '');
-    setDetailsNoteSaved(false);
-  };
-
-  const handleToggleWarmup = (lead: ChannelLead) => {
-    const nextVal = !lead.isWarmedUp;
-    const updated = leads.map((l) =>
-      l.id === lead.id ? { ...l, isWarmedUp: nextVal } : l
-    );
-    onUpdateLeads(updated);
-    if (selectedLeadForDetails && selectedLeadForDetails.id === lead.id) {
-      setSelectedLeadForDetails({
-        ...selectedLeadForDetails,
-        isWarmedUp: nextVal,
-      });
-    }
-  };
-
-  const handleSaveNoteInDetails = () => {
-    if (!selectedLeadForDetails) return;
-    const trimmed = detailsNoteText.trim();
-    const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const updated = leads.map((l) =>
-      l.id === selectedLeadForDetails.id
-        ? {
-            ...l,
-            quickNote: trimmed || undefined,
-            quickNoteSavedAt: trimmed ? nowStr : undefined,
-          }
-        : l
-    );
-    onUpdateLeads(updated);
-    setSelectedLeadForDetails({
-      ...selectedLeadForDetails,
-      quickNote: trimmed || undefined,
-      quickNoteSavedAt: trimmed ? nowStr : undefined,
-    });
-    setDetailsNoteSaved(true);
-    setTimeout(() => setDetailsNoteSaved(false), 2000);
-  };
-
-  const handleDeleteNoteInDetails = () => {
-    if (!selectedLeadForDetails) return;
-    const updated = leads.map((l) =>
-      l.id === selectedLeadForDetails.id
-        ? {
-            ...l,
-            quickNote: undefined,
-            quickNoteSavedAt: undefined,
-          }
-        : l
-    );
-    onUpdateLeads(updated);
-    setSelectedLeadForDetails({
-      ...selectedLeadForDetails,
-      quickNote: undefined,
-      quickNoteSavedAt: undefined,
-    });
-    setDetailsNoteText('');
-  };
-
-  const handleSaveQuickNote = (noteText: string) => {
-    if (!noteModalLead) return;
-    const trimmed = noteText.trim();
-    const updated = leads.map((l) =>
-      l.id === noteModalLead.id
-        ? {
-            ...l,
-            quickNote: trimmed || undefined,
-            quickNoteSavedAt: trimmed ? new Date().toISOString() : undefined,
-          }
-        : l
-    );
-    onUpdateLeads(updated);
-    setNoteModalLead(null);
-  };
-
-  const handleDeleteQuickNote = () => {
-    if (!noteModalLead) return;
-    const updated = leads.map((l) =>
-      l.id === noteModalLead.id
-        ? {
-            ...l,
-            quickNote: undefined,
-            quickNoteSavedAt: undefined,
-          }
-        : l
-    );
-    onUpdateLeads(updated);
-    setNoteModalLead(null);
-  };
-
-  const handleOpenAnalysis = (lead: ChannelLead) => {
-    setSelectedLeadForAnalysis(lead);
-    setIsAnalysisModalOpen(true);
-  };
-
-  const handleSaveAnalysis = (leadId: string, analysisText: string) => {
-    const updated = leads.map((l) => {
-      if (l.id === leadId) {
-        return {
-          ...l,
-          leadAnalysis: analysisText,
-          analysisSavedAt: new Date().toISOString(),
-        };
-      }
-      return l;
-    });
-    onUpdateLeads(updated);
-    if (selectedLeadForAnalysis && selectedLeadForAnalysis.id === leadId) {
-      setSelectedLeadForAnalysis({
-        ...selectedLeadForAnalysis,
-        leadAnalysis: analysisText,
-        analysisSavedAt: new Date().toISOString(),
-      });
-    }
-  };
-
-  // Auto-dismiss the duplicate alert after 6 seconds
   useEffect(() => {
     if (!duplicateAlert) return;
     const timer = setTimeout(() => {
@@ -692,7 +219,6 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     const trimmed = linkInput.trim();
     if (!trimmed) return;
 
-    // 1. Strict Channel-Specific Link Validation
     const validation = validateChannelLink(trimmed, channel);
     if (!validation.isValid) {
       playWarningChime();
@@ -704,7 +230,6 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       return;
     }
 
-    // 2. Duplicate Check on Normalized URL
     const normalizedInput = normalizeUrlForDuplicateCheck(trimmed, channel);
     const existingLead = leads.find((l) => {
       const lNorm = normalizeUrlForDuplicateCheck(l.link, channel);
@@ -712,7 +237,6 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     });
 
     if (existingLead) {
-      // Do NOT save it. Trigger warning chime and red alert/toast message
       playWarningChime();
       const dateFormatted = formatAddedDate(existingLead.createdAt);
       setDuplicateAlert({
@@ -722,10 +246,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       return;
     }
 
-    // Clear any previous alert
     setDuplicateAlert(null);
-
-    // Prompt for business name upon paste (normal flow)
     const suggested = extractSuggestedName(trimmed);
     setPendingLink(trimmed);
     setPendingName(suggested);
@@ -735,7 +256,6 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   const handleConfirmAddLead = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // 1. Strict Channel Validation check
     const validation = validateChannelLink(pendingLink, channel);
     if (!validation.isValid) {
       playWarningChime();
@@ -750,136 +270,87 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       return;
     }
 
-    // 2. Duplicate Check
-    const normalizedInput = normalizeUrlForDuplicateCheck(pendingLink, channel);
-    const existingLead = leads.find((l) => {
-      const lNorm = normalizeUrlForDuplicateCheck(l.link, channel);
-      return lNorm && lNorm === normalizedInput;
-    });
-
-    if (existingLead) {
-      playWarningChime();
-      const dateFormatted = formatAddedDate(existingLead.createdAt);
-      setDuplicateAlert({
-        message: `Warning: This link has already been added. ${existingLead.name} was added on ${dateFormatted}.`,
-        timestamp: Date.now(),
-      });
-      setShowNameModal(false);
-      setPendingLink('');
-      setPendingName('');
-      return;
-    }
-
-    const finalName = pendingName.trim() || extractSuggestedName(pendingLink) || 'Prospect';
-    const { id, numericId } = getNextLeadId(channel, leads);
+    const nextIdData = getNextLeadId(channel, leads);
+    const businessName = pendingName.trim() || extractSuggestedName(pendingLink);
 
     const newLead: ChannelLead = {
-      id,
-      numericId,
-      name: finalName,
-      link: pendingLink,
+      id: nextIdData.id,
+      numericId: nextIdData.numericId,
+      name: businessName,
+      link: pendingLink.trim(),
       channel,
-      sortOrder: 0,
+      sortOrder: leads.length,
       createdAt: new Date().toISOString(),
     };
 
-    // Prepend new lead to index 0, strictly preserving all existing leads and their relative order
-    const updated = [newLead, ...leads].map((l, index) => ({
-      ...l,
-      sortOrder: index,
-    }));
-    onUpdateLeads(updated);
+    const nextLeads = [...leads, newLead];
+    onUpdateLeads(nextLeads);
 
-    // Highlight newly created lead at top
-    setJustAddedLeadId(id);
+    setJustAddedLeadId(newLead.id);
     setTimeout(() => setJustAddedLeadId(null), 3000);
 
-    // Reset state
-    setShowNameModal(false);
+    setLinkInput('');
     setPendingLink('');
     setPendingName('');
-    setLinkInput('');
+    setShowNameModal(false);
   };
 
-  const handleModalLinkChange = (value: string) => {
-    setModalLinkInput(value);
-    setModalError(null);
-    if (!modalNameInput || modalNameInput === extractSuggestedName(modalLinkInput)) {
-      setModalNameInput(extractSuggestedName(value));
-    }
-  };
-
-  const handleCreateLeadFromModal = (e: React.FormEvent) => {
+  const handleModalAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setModalError(null);
+
     const trimmedLink = modalLinkInput.trim();
     if (!trimmedLink) {
-      setModalError('Please enter a link or handle.');
+      setModalError('Please enter a valid prospect URL or handle.');
       return;
     }
 
-    // 1. Strict Channel Validation check
     const validation = validateChannelLink(trimmedLink, channel);
     if (!validation.isValid) {
       playWarningChime();
-      setModalError(validation.errorMessage || 'Invalid link format for this channel.');
+      setModalError(validation.errorMessage || 'Invalid link for this channel.');
       return;
     }
 
-    // 2. Duplicate Check
     const normalizedInput = normalizeUrlForDuplicateCheck(trimmedLink, channel);
-    const existingLead = leads.find((l) => {
+    const existing = leads.find((l) => {
       const lNorm = normalizeUrlForDuplicateCheck(l.link, channel);
       return lNorm && lNorm === normalizedInput;
     });
 
-    if (existingLead) {
+    if (existing) {
       playWarningChime();
-      const dateFormatted = formatAddedDate(existingLead.createdAt);
-      setModalError(`Warning: This link has already been added. ${existingLead.name} was added on ${dateFormatted}.`);
+      setModalError(`Duplicate: ${existing.name} is already registered (${existing.id}).`);
       return;
     }
 
-    const finalName = modalNameInput.trim() || extractSuggestedName(trimmedLink) || 'Prospect';
-    const { id, numericId } = getNextLeadId(channel, leads);
+    const nextIdData = getNextLeadId(channel, leads);
+    const businessName = modalNameInput.trim() || extractSuggestedName(trimmedLink);
 
     const newLead: ChannelLead = {
-      id,
-      numericId,
-      name: finalName,
+      id: nextIdData.id,
+      numericId: nextIdData.numericId,
+      name: businessName,
       link: trimmedLink,
       channel,
-      sortOrder: 0,
+      sortOrder: leads.length,
       createdAt: new Date().toISOString(),
     };
 
-    // Prepend new lead at index 0, strictly preserving all existing leads and their order
-    const updated = [newLead, ...leads].map((l, index) => ({
-      ...l,
-      sortOrder: index,
-    }));
-    onUpdateLeads(updated);
+    onUpdateLeads([...leads, newLead]);
 
-    // Highlight newly created lead at top
-    setJustAddedLeadId(id);
+    setJustAddedLeadId(newLead.id);
     setTimeout(() => setJustAddedLeadId(null), 3000);
 
-    // Close modal & reset
     setIsAddLeadModalOpen(false);
     setModalLinkInput('');
     setModalNameInput('');
-    setModalError(null);
   };
 
   const handleDeleteLead = (id: string) => {
-    if (window.confirm('Are you sure you want to delete this lead?')) {
-      const filtered = leads.filter((l) => l.id !== id);
-      // Re-sequence all lead IDs based on array index to eliminate gaps (e.g. IG-1, IG-2, etc.)
-      const resequenced = resequenceLeadIds(filtered, channel);
-      onUpdateLeads(resequenced);
-      if (selectedLeadForDetails?.id === id) {
-        setSelectedLeadForDetails(null);
-      }
-    }
+    const filtered = leads.filter((l) => l.id !== id);
+    const resequenced = resequenceLeadIds(filtered, channel);
+    onUpdateLeads(resequenced);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -910,7 +381,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
 
   return (
     <div className="space-y-6">
-      {/* Red Alert / Toast Message for Duplicate Link Prevention or Channel Mismatch */}
+      {/* Toast Alert for Duplicate Link or Channel Mismatch */}
       {duplicateAlert && (
         <div
           role="alert"
@@ -945,117 +416,73 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         </div>
       )}
 
-      {/* Inline Red Alert Banner */}
-      {duplicateAlert && (
-        <div
-          role="alert"
-          className="rounded-xl border border-rose-500/50 bg-rose-500/15 p-3.5 text-xs sm:text-sm font-semibold text-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg animate-in fade-in"
-        >
-          <div className="flex items-center gap-2.5">
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>{duplicateAlert.message}</span>
-          </div>
-          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-            {duplicateAlert.detectedChannel && onNavigateToChannel && (
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigateToChannel(duplicateAlert.detectedChannel!);
-                  setDuplicateAlert(null);
-                }}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition shadow-sm cursor-pointer"
-              >
-                <span>Switch to {getChannelLabel(duplicateAlert.detectedChannel)}</span>
-                <ArrowRight className="w-3 h-3" />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setDuplicateAlert(null)}
-              className="text-rose-400 hover:text-white p-1 rounded transition cursor-pointer"
-              aria-label="Dismiss alert"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Top Intake Bar & Actions */}
-      <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-        {/* Intake Input Form */}
-        <form onSubmit={handleLinkInputSubmit} className="flex-1 relative">
-          <div className="relative flex items-center">
-            <LinkIcon className="w-4 h-4 absolute left-3.5 text-slate-500 pointer-events-none" />
+      {/* Top Intake & Search Bar */}
+      <div className="rounded-2xl border border-white/[0.08] bg-slate-900/60 p-4 sm:p-5 backdrop-blur-sm shadow-xl space-y-4">
+        <form onSubmit={handleLinkInputSubmit} className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+              <LinkIcon className="w-4 h-4" />
+            </div>
             <input
               type="text"
               value={linkInput}
-              onChange={(e) => {
-                setLinkInput(e.target.value);
-                if (duplicateAlert) setDuplicateAlert(null);
-              }}
-              placeholder={`Paste ${getChannelLabel(channel)} link or handle (e.g. instagram.com/handle) and press Enter...`}
-              className={`w-full pl-10 pr-24 py-3 bg-slate-900/80 border rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none transition-all font-sans ${
-                duplicateAlert
-                  ? 'border-rose-500/80 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
-                  : 'border-white/10 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'
-              }`}
+              onChange={(e) => setLinkInput(e.target.value)}
+              placeholder={`Paste ${getChannelLabel(channel)} profile link or handle, then press Enter...`}
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-950/80 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
             />
-            <button
-              type="submit"
-              disabled={!linkInput.trim()}
-              className="absolute right-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 text-xs font-semibold text-white transition-colors cursor-pointer flex items-center gap-1"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add</span>
-            </button>
           </div>
+          <button
+            type="submit"
+            disabled={!linkInput.trim()}
+            className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-semibold transition cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Lead</span>
+          </button>
         </form>
 
-
-        {/* Search & Export Buttons */}
-        <div className="flex items-center gap-2.5">
-          {leads.length > 5 && (
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search leads..."
-                className="pl-8 pr-3 py-2 bg-slate-900/60 border border-white/10 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-36 md:w-44"
-              />
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1 border-t border-white/[0.04]">
+          <div className="relative flex-1 max-w-sm">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+              <Search className="w-3.5 h-3.5" />
             </div>
-          )}
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search leads by name, ID, or link..."
+              className="w-full pl-9 pr-3 py-1.5 bg-slate-950/50 border border-white/10 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
 
-          {/* Export Data Button */}
-          <div className="relative">
+          {/* Export Dropdown */}
+          <div className="relative self-end sm:self-auto">
             <button
               type="button"
               onClick={() => setShowExportMenu(!showExportMenu)}
               disabled={leads.length === 0}
-              className="px-3.5 py-2.5 rounded-xl border border-white/10 bg-slate-900/80 hover:bg-slate-800 disabled:opacity-40 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-2 transition cursor-pointer"
+              className="px-3.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-slate-300 hover:text-white text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export Data</span>
+              <Download className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Export</span>
             </button>
 
             {showExportMenu && (
               <>
                 <div
-                  className="fixed inset-0 z-40"
+                  className="fixed inset-0 z-20"
                   onClick={() => setShowExportMenu(false)}
                 />
-                <div className="absolute right-0 mt-1.5 w-40 rounded-xl bg-slate-900 border border-white/10 shadow-2xl p-1 z-50 backdrop-blur-xl">
+                <div className="absolute right-0 mt-2 w-44 rounded-xl border border-white/10 bg-slate-900 p-1 shadow-2xl z-30 text-xs">
                   <button
                     type="button"
                     onClick={() => {
                       exportChannelData(channel, 'csv', leads);
                       setShowExportMenu(false);
                     }}
-                    className="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-white/5 flex items-center gap-2 transition cursor-pointer"
+                    className="w-full px-3 py-2 text-left rounded-lg hover:bg-white/10 text-slate-200 hover:text-white flex items-center gap-2 transition"
                   >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
                     <span>Download CSV</span>
                   </button>
                   <button
@@ -1064,9 +491,9 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                       exportChannelData(channel, 'json', leads);
                       setShowExportMenu(false);
                     }}
-                    className="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-white/5 flex items-center gap-2 transition cursor-pointer"
+                    className="w-full px-3 py-2 text-left rounded-lg hover:bg-white/10 text-slate-200 hover:text-white flex items-center gap-2 transition"
                   >
-                    <FileCode className="w-3.5 h-3.5 text-indigo-400" />
+                    <FileCode className="w-4 h-4 text-indigo-400" />
                     <span>Download JSON</span>
                   </button>
                 </div>
@@ -1076,7 +503,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         </div>
       </div>
 
-      {/* Table Display: Shows ONLY ID, Name, Link, Delete */}
+      {/* Simplified Table: ID, Name, Link, Delete ONLY */}
       <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 backdrop-blur-sm overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
           <DndContext
@@ -1087,17 +514,16 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-4 text-left w-28">ID</th>
-                  <th className="py-3 px-4 text-left">Name</th>
-                  <th className="py-3 px-4 text-left">Link</th>
-                  <th className="py-3 px-3 text-center w-36">Story Posted</th>
-                  <th className="py-3 px-4 text-right">Workflow &amp; Actions</th>
+                  <th className="py-3 px-4 text-left w-32">ID</th>
+                  <th className="py-3 px-4 text-left">Prospect Name</th>
+                  <th className="py-3 px-4 text-left">Profile Link</th>
+                  <th className="py-3 px-4 text-right w-24">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
                 {leads.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-16 text-center text-slate-500">
+                    <td colSpan={4} className="py-16 text-center text-slate-500">
                       <div className="max-w-sm mx-auto space-y-2">
                         <p className="text-sm font-medium text-slate-400">No leads in {getChannelLabel(channel)} yet</p>
                         <p className="text-xs text-slate-500">
@@ -1108,7 +534,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                   </tr>
                 ) : filteredLeads.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-12 text-center text-slate-500 text-xs">
+                    <td colSpan={4} className="py-12 text-center text-slate-500 text-xs">
                       No leads match "{searchQuery}"
                     </td>
                   </tr>
@@ -1122,10 +548,6 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                         key={lead.id}
                         lead={lead}
                         onDelete={handleDeleteLead}
-                        onOpenDetails={handleOpenDetails}
-                        onToggleWarmup={handleToggleWarmup}
-                        onToggleWorkflow={handleToggleWorkflow}
-                        onOpenScriptModal={(l) => setSelectedScriptLead(l)}
                         isJustAdded={lead.id === justAddedLeadId}
                       />
                     ))}
@@ -1169,34 +591,29 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                   autoFocus
                   value={pendingName}
                   onChange={(e) => setPendingName(e.target.value)}
-                  placeholder="e.g. Acme Studio, Luigi's Kitchen"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  placeholder="e.g. Copper Vine Bistro"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">
-                  Pasted Link
-                </label>
-                <div className="px-3.5 py-2 bg-slate-950/60 border border-white/5 rounded-xl text-xs text-slate-400 truncate font-mono">
-                  {pendingLink}
-                </div>
+              <div className="p-3 rounded-xl bg-slate-950/60 border border-white/5 text-xs space-y-1">
+                <span className="text-slate-400">Intake Link:</span>
+                <p className="font-mono text-indigo-300 truncate">{pendingLink}</p>
               </div>
 
-              <div className="flex gap-2.5 pt-2">
+              <div className="flex items-center justify-end gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowNameModal(false)}
-                  className="flex-1 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/5 transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/30"
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer shadow-lg shadow-indigo-600/30"
                 >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Save Lead</span>
+                  Save Lead
                 </button>
               </div>
             </form>
@@ -1204,71 +621,58 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         </div>
       )}
 
-      {/* Gemini Lead Analysis & Prompt Hub Modal */}
-      <LeadAnalysisModal
-        isOpen={isAnalysisModalOpen}
-        onClose={() => setIsAnalysisModalOpen(false)}
-        lead={selectedLeadForAnalysis}
-        channel={channel}
-        onSaveAnalysis={handleSaveAnalysis}
-      />
-
-      {/* Centered Add Lead Modal (Triggered by Floating Action Button) */}
+      {/* Floating Action Button Add Lead Modal */}
       {isAddLeadModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
           <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-white/10 p-6 sm:p-7 shadow-2xl space-y-5 text-slate-100">
-            <div className="flex items-start justify-between border-b border-white/10 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 flex items-center justify-center">
-                  <Plus className="w-5 h-5 text-indigo-400" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-white font-['Outfit']">
-                    Add {getChannelLabel(channel)} Lead
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Lead will appear immediately at the top of your list.
-                  </p>
-                </div>
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 font-mono">
+                  Quick Intake
+                </span>
+                <h3 className="text-xl font-black text-white font-['Outfit'] mt-0.5">
+                  Add New {getChannelLabel(channel)} Lead
+                </h3>
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  setIsAddLeadModalOpen(false);
-                  setModalError(null);
-                }}
-                className="rounded-xl p-1.5 text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                onClick={() => setIsAddLeadModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {modalError && (
-              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                <span className="leading-snug">{modalError}</span>
+              <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-200 text-xs font-medium flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{modalError}</span>
               </div>
             )}
 
-            <form onSubmit={handleCreateLeadFromModal} className="space-y-4">
+            <form onSubmit={handleModalAddSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Profile Link or Handle <span className="text-rose-400">*</span>
+                  Prospect Link / Handle <span className="text-rose-400">*</span>
                 </label>
-                <input
-                  type="text"
-                  autoFocus
-                  value={modalLinkInput}
-                  onChange={(e) => handleModalLinkChange(e.target.value)}
-                  placeholder={
-                    channel === 'instagram'
-                      ? 'https://instagram.com/business or @handle'
-                      : channel === 'facebook'
-                      ? 'https://facebook.com/business_page'
-                      : 'contact@domain.com or https://website.com'
-                  }
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 font-mono focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                />
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                    <LinkIcon className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={modalLinkInput}
+                    onChange={(e) => {
+                      setModalLinkInput(e.target.value);
+                      if (!modalNameInput) {
+                        setModalNameInput(extractSuggestedName(e.target.value));
+                      }
+                    }}
+                    placeholder={`e.g. instagram.com/restaurant_handle`}
+                    className="w-full pl-9 pr-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
+                  />
+                </div>
               </div>
 
               <div>
@@ -1279,19 +683,16 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                   type="text"
                   value={modalNameInput}
                   onChange={(e) => setModalNameInput(e.target.value)}
-                  placeholder="e.g. Trattoria Luigi"
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  placeholder="e.g. Bella Luna Trattoria"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
-              <div className="flex gap-2.5 pt-2">
+              <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setIsAddLeadModalOpen(false);
-                    setModalError(null);
-                  }}
-                  className="flex-1 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition cursor-pointer"
+                  onClick={() => setIsAddLeadModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1308,283 +709,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         </div>
       )}
 
-      {/* Lead Details & Notes Modal */}
-      {selectedLeadForDetails && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="w-full max-w-lg rounded-3xl bg-slate-900 border border-white/10 p-6 sm:p-7 shadow-2xl space-y-5 text-slate-100 max-h-[90vh] overflow-y-auto">
-            {/* Header */}
-            <div className="flex items-start justify-between border-b border-white/10 pb-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-indigo-400 bg-indigo-500/15 px-2.5 py-0.5 rounded-lg border border-indigo-500/30 text-xs font-mono">
-                    {selectedLeadForDetails.id}
-                  </span>
-                  <span className="px-2.5 py-0.5 rounded-lg bg-white/5 border border-white/10 text-xs font-medium text-slate-300">
-                    {getChannelLabel(selectedLeadForDetails.channel)}
-                  </span>
-                  {selectedLeadForDetails.isWarmedUp ? (
-                    <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold font-mono flex items-center gap-1">
-                      <span>🔥</span>
-                      <span>Warmed Up</span>
-                    </span>
-                  ) : (
-                    <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-bold font-mono flex items-center gap-1">
-                      <span>🔥</span>
-                      <span>Unwarmed</span>
-                    </span>
-                  )}
-                </div>
-                <h3 className="text-xl font-black text-white font-['Outfit'] mt-1">
-                  {selectedLeadForDetails.name}
-                </h3>
-                <a
-                  href={
-                    selectedLeadForDetails.link.startsWith('http')
-                      ? selectedLeadForDetails.link
-                      : `https://${selectedLeadForDetails.link}`
-                  }
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-mono max-w-md truncate"
-                >
-                  <span className="truncate">{selectedLeadForDetails.link}</span>
-                  <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-75" />
-                </a>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setSelectedLeadForDetails(null)}
-                className="rounded-xl p-1.5 text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Schedule Day & Warm-Up Control Strip */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Day info */}
-              <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-white/10 space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">
-                  Scheduled Day
-                </span>
-                {(() => {
-                  const style = getScheduleDayStyle(selectedLeadForDetails.scheduledDate);
-                  return (
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono border ${style.badgeClass}`}>
-                        {style.dayName}
-                      </span>
-                      <span className="text-xs text-slate-300 font-mono">
-                        {selectedLeadForDetails.scheduledDate || 'Unscheduled'}
-                      </span>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Warm-Up Action */}
-              <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-white/10 space-y-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">
-                  Warm-Up Status
-                </span>
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => handleToggleWarmup(selectedLeadForDetails)}
-                    className={`w-full py-1.5 px-3 rounded-xl border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
-                      selectedLeadForDetails.isWarmedUp
-                        ? 'border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
-                        : 'border-amber-500/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
-                    }`}
-                  >
-                    <span>🔥</span>
-                    <span>
-                      {selectedLeadForDetails.isWarmedUp
-                        ? 'Warmed Up (Click to toggle)'
-                        : 'Mark as Warmed Up'}
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Note Feature (Moved to Lead Details Modal) */}
-            <div className="p-4 rounded-2xl bg-slate-950/70 border border-amber-500/30 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <StickyNote className="w-4 h-4 text-amber-400" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-amber-300 font-mono">
-                    Lead Note &amp; Intel
-                  </span>
-                </div>
-                {selectedLeadForDetails.quickNoteSavedAt && (
-                  <span className="text-[10px] text-slate-400 font-mono">
-                    Saved at {selectedLeadForDetails.quickNoteSavedAt}
-                  </span>
-                )}
-              </div>
-
-              <textarea
-                value={detailsNoteText}
-                onChange={(e) => setDetailsNoteText(e.target.value)}
-                placeholder="Add private note, owner name, pain points, or conversation takeaways for this lead..."
-                rows={3}
-                className="w-full p-3 bg-slate-900 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
-              />
-
-              <div className="flex items-center justify-between gap-2 pt-1">
-                {selectedLeadForDetails.quickNote ? (
-                  <button
-                    type="button"
-                    onClick={handleDeleteNoteInDetails}
-                    className="text-xs font-semibold text-rose-400 hover:text-rose-300 p-1.5 rounded transition cursor-pointer"
-                  >
-                    Clear Note
-                  </button>
-                ) : (
-                  <div />
-                )}
-
-                <button
-                  type="button"
-                  onClick={handleSaveNoteInDetails}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-950/40 transition cursor-pointer active:scale-95"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>{detailsNoteSaved ? 'Note Saved!' : 'Save Note'}</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Lead Analysis & Prompt Link */}
-            {selectedLeadForDetails.leadAnalysis ? (
-              <div className="p-4 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-300 uppercase font-mono">
-                    Gemini Lead Analysis
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleOpenAnalysis(selectedLeadForDetails);
-                      setSelectedLeadForDetails(null);
-                    }}
-                    className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
-                  >
-                    Open Full Prompt Hub
-                  </button>
-                </div>
-                <p className="text-xs text-slate-300 line-clamp-3 italic">
-                  "{selectedLeadForDetails.leadAnalysis}"
-                </p>
-              </div>
-            ) : null}
-
-            {/* Video Value First Strategy Action Card (Requirement #3) */}
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-indigo-950/40 to-slate-900 border border-purple-500/30 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-purple-400" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-purple-300 font-mono">
-                    Video Value First Outreach Scripts
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const leadToOpen = selectedLeadForDetails;
-                    setSelectedLeadForDetails(null);
-                    setSelectedScriptLead(leadToOpen);
-                  }}
-                  className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition shadow-sm cursor-pointer"
-                >
-                  Open Script Generator
-                </button>
-              </div>
-              <p className="text-xs text-slate-300">
-                Generate Stage A (Initial Contact) and Stage B (Post-Reaction) scripts tailored for {selectedLeadForDetails.name}.
-              </p>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="flex justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => setSelectedLeadForDetails(null)}
-                className="px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition cursor-pointer"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Video Value First Script Modal (Stage A & Stage B) */}
-      <VideoScriptModal
-        isOpen={Boolean(selectedScriptLead)}
-        onClose={() => setSelectedScriptLead(null)}
-        lead={selectedScriptLead}
-        channel={channel}
-        onUpdateLead={(updatedLead) => {
-          const nextList = leads.map((l) => (l.id === updatedLead.id ? updatedLead : l));
-          onUpdateLeads(nextList);
-          if (selectedLeadForDetails?.id === updatedLead.id) {
-            setSelectedLeadForDetails(updatedLead);
-          }
-        }}
-      />
-
-      {/* Quick Note Modal */}
-      <QuickNoteModal
-        isOpen={Boolean(noteModalLead)}
-        lead={noteModalLead}
-        onClose={() => setNoteModalLead(null)}
-        onSave={handleSaveQuickNote}
-        onDelete={handleDeleteQuickNote}
-      />
-
-      {/* Video Verification Gate Modal (Requirement #1 & #2) */}
-      <VideoVerificationModal
-        isOpen={Boolean(verifyingLead)}
-        lead={verifyingLead}
-        onClose={() => setVerifyingLead(null)}
-        onConfirmSuccess={handleVideoVerificationSuccess}
-        onShowToast={showToast}
-      />
-
-      {/* Floating Toast Notification Banner */}
-      {toastAlert && (
-        <div
-          role="status"
-          aria-live="polite"
-          className={`fixed top-5 right-5 z-50 max-w-sm w-[calc(100vw-2.5rem)] rounded-2xl border p-4 text-xs sm:text-sm font-semibold shadow-2xl backdrop-blur-md animate-in slide-in-from-top-3 flex items-center justify-between gap-3 ${
-            toastAlert.type === 'success'
-              ? 'border-emerald-500/50 bg-emerald-950/95 text-emerald-100 shadow-emerald-950/60'
-              : 'border-rose-500/50 bg-rose-950/95 text-rose-100 shadow-rose-950/60'
-          }`}
-        >
-          <div className="flex items-center gap-2.5">
-            {toastAlert.type === 'success' ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-            ) : (
-              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
-            )}
-            <span>{toastAlert.message}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setToastAlert(null)}
-            className="p-1 rounded-lg hover:bg-white/10 transition cursor-pointer text-slate-300 hover:text-white shrink-0"
-            aria-label="Dismiss notification"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* Floating Add Lead Circular Button (Visible strictly on Leads tab) */}
+      {/* Floating Add Lead Circular Button */}
       <div className="fixed bottom-20 right-6 sm:bottom-24 sm:right-8 z-40">
         <button
           type="button"

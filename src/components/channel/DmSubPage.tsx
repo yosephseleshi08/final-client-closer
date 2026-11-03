@@ -1,19 +1,17 @@
 import React, { useState } from 'react';
 import {
   Edit3,
-  Check,
-  Copy,
   ExternalLink,
   MessageSquare,
   X,
   FileText,
-  Send,
-  Clock,
-  HeartHandshake,
+  Flame,
   CheckCircle2,
+  Calendar,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import { getChannelLabel } from '../../utils/channelStorage';
+import { getLocalTodayStr, addDays } from '../../utils/cadenceEngine';
 import { LeadAnalysisModal } from './LeadAnalysisModal';
 
 interface DmSubPageProps {
@@ -31,9 +29,27 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const [followup3Draft, setFollowup3Draft] = useState('');
   const [followup7Draft, setFollowup7Draft] = useState('');
   const [activeStepTab, setActiveStepTab] = useState<'all' | 'step1' | 'step2' | 'step3'>('all');
-
   const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const todayStr = getLocalTodayStr();
+  const [year, month, day] = todayStr.split('-').map(Number);
+  const todayDate = new Date(year, month - 1, day);
+  const todayDayOfWeek = todayDate.getDay(); // 0 = Sun, 6 = Sat
+  const tomorrowStr = addDays(todayStr, 1);
+
+  // Sunday Rule:
+  // - No warm-ups on Saturday (since Sunday is rest).
+  // - Sunday warms up for Monday (tomorrowStr).
+  // - Weekdays warm up for tomorrow (tomorrowStr).
+  const isSaturday = todayDayOfWeek === 6;
+  const isSunday = todayDayOfWeek === 0;
+
+  const leadsNeedingWarmupToday = isSaturday
+    ? []
+    : leads.filter((l) => {
+        if (l.isCompleted || l.initialSentDate) return false;
+        return l.scheduledDate === tomorrowStr;
+      });
 
   const selectedLead = leads.find((l) => l.id === selectedLeadId);
 
@@ -59,7 +75,6 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
           initialDM: trimmedInitial || undefined,
           followup3DM: trimmedFollowup3 || undefined,
           followup7DM: trimmedFollowup7 || undefined,
-          // Backwards compatibility: synchronize customPitch with initialDM
           customPitch: trimmedInitial || l.customPitch,
           pitchSavedAt: new Date().toISOString(),
         };
@@ -87,60 +102,20 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
     onUpdateLeads(updated);
   };
 
-  const handleCopyText = async (key: string, text?: string, e?: React.MouseEvent) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    if (!text || !text.trim()) return;
-
-    let copied = false;
-
-    // 1. Try modern navigator.clipboard.writeText
-    if (navigator?.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(text);
-        copied = true;
-      } catch (err) {
-        console.warn('navigator.clipboard.writeText failed, using fallback:', err);
+  const handleToggleWarmup = (lead: ChannelLead) => {
+    const nextVal = !lead.isWarmedUp;
+    const nowIso = new Date().toISOString();
+    const updated = leads.map((l) => {
+      if (l.id === lead.id) {
+        return {
+          ...l,
+          isWarmedUp: nextVal,
+          warmedUpAt: nextVal ? nowIso : undefined,
+        };
       }
-    }
-
-    // 2. Fallback to textarea + document.execCommand('copy')
-    if (!copied) {
-      try {
-        const textArea = document.createElement('textarea');
-        textArea.value = text;
-        textArea.style.position = 'fixed';
-        textArea.style.top = '0';
-        textArea.style.left = '0';
-        textArea.style.width = '2em';
-        textArea.style.height = '2em';
-        textArea.style.padding = '0';
-        textArea.style.border = 'none';
-        textArea.style.outline = 'none';
-        textArea.style.boxShadow = 'none';
-        textArea.style.background = 'transparent';
-        textArea.setAttribute('readonly', '');
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        textArea.setSelectionRange(0, text.length);
-        const successful = document.execCommand('copy');
-        document.body.removeChild(textArea);
-        if (successful) {
-          copied = true;
-        }
-      } catch (fallbackErr) {
-        console.error('execCommand fallback copy failed:', fallbackErr);
-      }
-    }
-
-    // Visual feedback ONLY changes to "Copied!" after text is actually copied
-    if (copied) {
-      setCopiedKey(key);
-      setTimeout(() => setCopiedKey(null), 2000);
-    }
+      return l;
+    });
+    onUpdateLeads(updated);
   };
 
   const insertToken = (token: string, targetStep?: '1' | '2' | '3') => {
@@ -155,26 +130,25 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
     }
   };
 
-  // Helper to count how many steps in the sequence are written
   const getSequenceStepCount = (lead: ChannelLead) => {
     let count = 0;
-    if (lead.initialDM?.trim() || lead.customPitch?.trim()) count++;
-    if (lead.followup3DM?.trim()) count++;
-    if (lead.followup7DM?.trim()) count++;
+    if (lead.initialDM || lead.customPitch) count++;
+    if (lead.followup3DM) count++;
+    if (lead.followup7DM) count++;
     return count;
   };
 
-  const completeSequencesCount = leads.filter((l) => getSequenceStepCount(l) === 3).length;
+  const completeSequencesCount = leads.filter(
+    (l) => (l.initialDM || l.customPitch) && l.followup3DM && l.followup7DM
+  ).length;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* Header Banner */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-base font-bold text-white font-['Outfit'] flex items-center gap-2">
-            <span>{getChannelLabel(channel)} 3-Step Outreach Sequence</span>
-            <span className="text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded-full">
-              Day 1 · Day 3 · Day 7
-            </span>
+          <h2 className="text-base font-bold text-white font-['Outfit']">
+            {getChannelLabel(channel)} DM Cadence &amp; Sequences
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
             Craft full 3-touch cadence messages (Initial DM, 3-Day Bump, 7-Day Breakup) per prospect.
@@ -186,6 +160,92 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
             {completeSequencesCount} / {leads.length}
           </span>
         </div>
+      </div>
+
+      {/* Warm Up Today Section */}
+      <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-950/25 via-slate-900/90 to-slate-900 p-5 shadow-xl space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2 border-b border-amber-500/20 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center shadow-sm">
+              <Flame className="w-4 h-4 text-amber-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-white font-['Outfit']">
+                  🔥 Warm Up Today
+                </h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  {leadsNeedingWarmupToday.length} Due for Tomorrow
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {isSaturday
+                  ? 'Saturday Rest Mode: No warm-ups today (Sunday outreach is paused).'
+                  : isSunday
+                  ? 'Sunday Warm-Up: Warming up prospects scheduled for Monday dispatch.'
+                  : 'Warm up these prospects today so they recognize your profile when outreach sends tomorrow.'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {leadsNeedingWarmupToday.length === 0 ? (
+          <div className="py-4 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <span>
+              {isSaturday
+                ? 'No warm-ups needed on Saturday. Enjoy your weekend prep!'
+                : 'All prospects scheduled for tomorrow are warmed up, or no leads are scheduled for tomorrow.'}
+            </span>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+            {leadsNeedingWarmupToday.map((lead) => (
+              <div
+                key={lead.id}
+                className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-2.5 ${
+                  lead.isWarmedUp
+                    ? 'border-emerald-500/40 bg-emerald-950/20 shadow-sm'
+                    : 'border-amber-500/50 bg-amber-950/20 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500/30'
+                }`}
+              >
+                <div className="space-y-0.5 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/20">
+                      {lead.id}
+                    </span>
+                    <span className="font-medium text-xs text-slate-200 truncate block font-['Outfit']">
+                      {lead.name}
+                    </span>
+                  </div>
+                  <a
+                    href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 truncate max-w-[170px]"
+                  >
+                    <span className="truncate">{lead.link}</span>
+                    <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                  </a>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleToggleWarmup(lead)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 shrink-0 ${
+                    lead.isWarmedUp
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/50 shadow-amber-950/40 animate-pulse'
+                  }`}
+                  title={lead.isWarmedUp ? 'Profile Warmed Up (Click to untoggle)' : 'Mark profile as Warmed Up'}
+                >
+                  <span>🔥</span>
+                  <span>{lead.isWarmedUp ? 'Warmed' : 'Warm Up'}</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {leads.length === 0 ? (
@@ -205,7 +265,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                   <th className="py-3 px-4 text-left w-28">Lead ID</th>
                   <th className="py-3 px-4 text-left w-56">Name &amp; Profile</th>
                   <th className="py-3 px-4 text-left">3-Step Sequence Status &amp; Previews</th>
-                  <th className="py-3 px-4 text-right w-48">Actions</th>
+                  <th className="py-3 px-4 text-right w-56">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
@@ -216,8 +276,26 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                   const step2Msg = lead.followup3DM;
                   const step3Msg = lead.followup7DM;
 
+                  // Warm-Up Logic & Glow Styling:
+                  // Glows when lead is in "Warm Up" status:
+                  // 1) isWarmedUp is true, OR
+                  // 2) Lead is due for warm up today (scheduled for tomorrow, not Saturday)
+                  const isDueForWarmupToday =
+                    !isSaturday &&
+                    lead.scheduledDate === tomorrowStr &&
+                    !lead.isCompleted &&
+                    !lead.initialSentDate;
+                  const isInWarmupStatus = Boolean(lead.isWarmedUp || isDueForWarmupToday);
+
                   return (
-                    <tr key={lead.id} className="hover:bg-white/[0.02] transition-colors">
+                    <tr
+                      key={lead.id}
+                      className={`transition-all duration-200 ${
+                        isInWarmupStatus
+                          ? 'border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500/30 bg-amber-950/10'
+                          : 'hover:bg-white/[0.02]'
+                      }`}
+                    >
                       {/* ID */}
                       <td className="py-3.5 px-4 text-left font-mono text-xs tabular-nums">
                         <span className="font-semibold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20">
@@ -227,7 +305,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
 
                       {/* Name & Link */}
                       <td className="py-3.5 px-4 text-left">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-medium text-sm text-slate-100 font-['Outfit'] truncate max-w-xs">
                             {lead.name}
                           </span>
@@ -235,6 +313,12 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                               Analysis Ready
+                            </span>
+                          )}
+                          {lead.scheduledDate && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 bg-white/5 border border-white/10">
+                              <Calendar className="w-2.5 h-2.5" />
+                              <span>{lead.scheduledDate}</span>
                             </span>
                           )}
                         </div>
@@ -266,7 +350,6 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                               {stepCount === 3 ? '✓ 3/3 Steps Ready' : `${stepCount}/3 Steps Set`}
                             </span>
 
-                            {/* Mini indicator pills for each step */}
                             <span
                               className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
                                 initialMsg
@@ -313,34 +396,33 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                         </div>
                       </td>
 
-                      {/* Action Buttons */}
+                      {/* Action Buttons: 🔥 Warm Up replaces Copy DM */}
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {initialMsg && (
-                            <button
-                              type="button"
-                              onClick={async (e) => await handleCopyText(`${lead.id}-step1`, initialMsg, e)}
-                              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-                                copiedKey === `${lead.id}-step1`
-                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                  : 'bg-white/5 text-slate-300 hover:text-white hover:bg-white/10 border border-white/10'
-                              }`}
-                              title="Copy Initial DM"
-                            >
-                              {copiedKey === `${lead.id}-step1` ? (
-                                <>
-                                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                                  <span className="text-[10px]">Copied</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="w-3.5 h-3.5" />
-                                  <span className="text-[10px]">Copy DM</span>
-                                </>
-                              )}
-                            </button>
-                          )}
+                          {/* 🔥 Warm Up Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleWarmup(lead)}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 border shadow-sm active:scale-95 ${
+                              lead.isWarmedUp
+                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-emerald-950/30'
+                                : isDueForWarmupToday
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 animate-pulse'
+                                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300/80 hover:text-amber-200 border-amber-500/30'
+                            }`}
+                            title={
+                              lead.isWarmedUp
+                                ? 'Profile Warmed Up (Click to toggle)'
+                                : isDueForWarmupToday
+                                ? '🔥 Prospect scheduled for tomorrow: Warm up profile today!'
+                                : 'Click to mark profile as Warmed Up'
+                            }
+                          >
+                            <span>🔥</span>
+                            <span>{lead.isWarmedUp ? 'Warmed Up' : 'Warm Up'}</span>
+                          </button>
 
+                          {/* Prompt Hub */}
                           <button
                             type="button"
                             onClick={() => setPromptModalLeadId(lead.id)}
@@ -358,6 +440,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                             )}
                           </button>
 
+                          {/* Write/Edit 3-Step */}
                           <button
                             type="button"
                             onClick={() => handleOpenPitchEditor(lead)}
@@ -448,137 +531,164 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
               >
                 Lead Name
               </button>
+              {selectedLead.city && (
+                <button
+                  type="button"
+                  onClick={() => insertToken(selectedLead.city!, '1')}
+                  className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] text-indigo-300 cursor-pointer"
+                >
+                  City
+                </button>
+              )}
+            </div>
+
+            {/* Sequence Steps Navigation Tabs */}
+            <div className="flex border-b border-white/10 gap-2">
               <button
                 type="button"
-                onClick={() => insertToken(selectedLead.link, '1')}
-                className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] text-indigo-300 cursor-pointer"
+                onClick={() => setActiveStepTab('all')}
+                className={`pb-2 px-3 text-xs font-semibold border-b-2 transition ${
+                  activeStepTab === 'all'
+                    ? 'border-indigo-500 text-indigo-300'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
               >
-                Link
+                All 3 Steps (Full View)
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveStepTab('step1')}
+                className={`pb-2 px-3 text-xs font-semibold border-b-2 transition ${
+                  activeStepTab === 'step1'
+                    ? 'border-indigo-500 text-indigo-300'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                1. Initial DM
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveStepTab('step2')}
+                className={`pb-2 px-3 text-xs font-semibold border-b-2 transition ${
+                  activeStepTab === 'step2'
+                    ? 'border-indigo-500 text-indigo-300'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                2. 3-Day Bump
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveStepTab('step3')}
+                className={`pb-2 px-3 text-xs font-semibold border-b-2 transition ${
+                  activeStepTab === 'step3'
+                    ? 'border-indigo-500 text-indigo-300'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                3. 7-Day Breakup
               </button>
             </div>
 
-            {/* 3 DISTINCT TEXTAREAS */}
-            <div className="space-y-4 pt-1">
-              {/* Message 1: Initial DM */}
-              <div className="rounded-xl border border-indigo-500/20 bg-slate-950/60 p-3.5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="p-1 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                      <Send className="w-3.5 h-3.5" />
-                    </span>
-                    <label className="text-xs font-bold text-white uppercase tracking-wider">
-                      Message 1: Initial DM (Day 1)
+            {/* Editor Forms */}
+            <div className="space-y-4">
+              {/* Step 1: Initial DM */}
+              {(activeStepTab === 'all' || activeStepTab === 'step1') && (
+                <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/10 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                      <span>1. Initial Outreach DM (Day 1)</span>
+                      <span className="text-[10px] text-slate-500 font-normal">Under 75 words</span>
                     </label>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {initialDraft.trim().split(/\s+/).filter(Boolean).length} words
+                    </span>
                   </div>
-                  <span className="text-[10px] font-mono text-indigo-400 font-semibold bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                    Sent First
-                  </span>
+                  <textarea
+                    rows={3}
+                    value={initialDraft}
+                    onChange={(e) => setInitialDraft(e.target.value)}
+                    placeholder={`Hey ${selectedLead.name} team, noticed your online ordering link leads to a 404 on mobile. Made a quick clean mockup solving this. Mind if I send the live link?`}
+                    className="w-full p-2.5 bg-slate-900 border border-white/10 rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-sans"
+                  />
                 </div>
-                <textarea
-                  rows={3}
-                  value={initialDraft}
-                  onChange={(e) => setInitialDraft(e.target.value)}
-                  placeholder="Hey {name}! Loved what you're doing. Built a 0.3s interactive prototype for you: mind if I share the 20-second preview?"
-                  className="w-full p-3 bg-slate-900 border border-white/10 rounded-lg text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 leading-relaxed font-sans"
-                />
-                <div className="flex items-center justify-between text-[10px] text-slate-500">
-                  <span>Initial outreach hook tailored to their business</span>
-                  <span>{initialDraft.length} chars</span>
-                </div>
-              </div>
+              )}
 
-              {/* Message 2: 3-Day Follow-Up */}
-              <div className="rounded-xl border border-amber-500/20 bg-slate-950/60 p-3.5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="p-1 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                      <Clock className="w-3.5 h-3.5" />
-                    </span>
-                    <label className="text-xs font-bold text-amber-300 uppercase tracking-wider">
-                      Message 2: 3-Day Follow-Up (Day 3)
+              {/* Step 2: 3-Day Bump */}
+              {(activeStepTab === 'all' || activeStepTab === 'step2') && (
+                <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/10 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                      <span>2. 3-Day Value Follow-Up</span>
+                      <span className="text-[10px] text-slate-500 font-normal">Under 60 words</span>
                     </label>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {followup3Draft.trim().split(/\s+/).filter(Boolean).length} words
+                    </span>
                   </div>
-                  <span className="text-[10px] font-mono text-amber-400 font-semibold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                    Day +3 Bump
-                  </span>
+                  <textarea
+                    rows={3}
+                    value={followup3Draft}
+                    onChange={(e) => setFollowup3Draft(e.target.value)}
+                    placeholder={`Hey ${selectedLead.name}, put together a 30-sec video breakdown of how the checkout flow is leaking table reservations. Would that be helpful to see?`}
+                    className="w-full p-2.5 bg-slate-900 border border-white/10 rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-sans"
+                  />
                 </div>
-                <textarea
-                  rows={3}
-                  value={followup3Draft}
-                  onChange={(e) => setFollowup3Draft(e.target.value)}
-                  placeholder="Hey {name}, bumping this quick! Wondering if you had 30 seconds to click through the interactive demo I put together for you? No pressure at all!"
-                  className="w-full p-3 bg-slate-900 border border-white/10 rounded-lg text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 leading-relaxed font-sans"
-                />
-                <div className="flex items-center justify-between text-[10px] text-slate-500">
-                  <span>Quick low-friction check-in with zero pressure</span>
-                  <span>{followup3Draft.length} chars</span>
-                </div>
-              </div>
+              )}
 
-              {/* Message 3: 7-Day Breakup */}
-              <div className="rounded-xl border border-rose-500/20 bg-slate-950/60 p-3.5 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="p-1 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                      <HeartHandshake className="w-3.5 h-3.5" />
-                    </span>
-                    <label className="text-xs font-bold text-rose-300 uppercase tracking-wider">
-                      Message 3: 7-Day Breakup (Day 7)
+              {/* Step 3: 7-Day Breakup */}
+              {(activeStepTab === 'all' || activeStepTab === 'step3') && (
+                <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/10 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
+                      <span>3. 7-Day Breakup Message</span>
+                      <span className="text-[10px] text-slate-500 font-normal">Under 45 words</span>
                     </label>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {followup7Draft.trim().split(/\s+/).filter(Boolean).length} words
+                    </span>
                   </div>
-                  <span className="text-[10px] font-mono text-rose-400 font-semibold bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">
-                    Day +7 Final
-                  </span>
+                  <textarea
+                    rows={3}
+                    value={followup7Draft}
+                    onChange={(e) => setFollowup7Draft(e.target.value)}
+                    placeholder={`Assume this isn't a priority right now, ${selectedLead.name}. I'll archive the mockup on Friday. If you ever want to fix the booking leak, just reach out!`}
+                    className="w-full p-2.5 bg-slate-900 border border-white/10 rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-rose-500 font-sans"
+                  />
                 </div>
-                <textarea
-                  rows={3}
-                  value={followup7Draft}
-                  onChange={(e) => setFollowup7Draft(e.target.value)}
-                  placeholder="Hey {name}, wanted to send one final quick note! Recorded a 45-second screen recording showing exactly how the setup works for your spot. Should I drop the link here or leave you be?"
-                  className="w-full p-3 bg-slate-900 border border-white/10 rounded-lg text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-rose-500 leading-relaxed font-sans"
-                />
-                <div className="flex items-center justify-between text-[10px] text-slate-500">
-                  <span>Final touch offering a personalized video preview or graceful signoff</span>
-                  <span>{followup7Draft.length} chars</span>
-                </div>
-              </div>
+              )}
             </div>
 
-            {/* Footer Buttons */}
-            <div className="flex items-center justify-between pt-3 border-t border-white/10">
-              <span className="text-xs text-slate-400">
-                All 3 messages will dynamically appear in <strong>Today's Schedule</strong> when cadence reaches each day.
-              </span>
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setSelectedLeadId(null)}
-                  className="px-4 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSavePitch}
-                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-indigo-600/30"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Save 3-Step Sequence</span>
-                </button>
-              </div>
+            {/* Modal Actions */}
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setSelectedLeadId(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/10 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePitch}
+                className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>Save 3-Step Sequence</span>
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Lead Analysis & Prompt Hub Modal */}
-      <LeadAnalysisModal
-        isOpen={!!promptModalLeadId}
-        onClose={() => setPromptModalLeadId(null)}
-        lead={leads.find((l) => l.id === promptModalLeadId) || null}
-        channel={channel}
-        onSaveAnalysis={handleSaveLeadAnalysis}
-      />
+      {/* Prompt Hub Modal */}
+      {promptModalLeadId && (
+        <LeadAnalysisModal
+          isOpen={Boolean(promptModalLeadId)}
+          lead={leads.find((l) => l.id === promptModalLeadId) || null}
+          onClose={() => setPromptModalLeadId(null)}
+          onSaveAnalysis={handleSaveLeadAnalysis}
+        />
+      )}
     </div>
   );
 }

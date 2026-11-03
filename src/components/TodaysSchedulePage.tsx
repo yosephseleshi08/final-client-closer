@@ -24,6 +24,7 @@ import {
   AlertTriangle,
   Snowflake,
   Play,
+  Flame,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../types';
 import { QuickNoteModal } from './QuickNoteModal';
@@ -262,6 +263,33 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     ? Math.min(100, Math.round((totalTasksCompletedToday / dailyTargetTotal) * 100))
     : (totalTasksCompletedToday > 0 ? 100 : 100);
   const isGoalFinished = dailyTargetTotal > 0 && totalTasksCompletedToday >= dailyTargetTotal;
+
+  // 6. 🔥 WARM UP FOR TOMORROW
+  // Prospects whose outreach date is tomorrow.
+  // Sunday Rule: No warm-ups on Saturday (Sunday is rest); Sunday warms up for Monday.
+  const tomorrowDateStr = addDays(todayStr, 1);
+  const [schedY, schedM, schedD] = todayStr.split('-').map(Number);
+  const schedTodayDate = new Date(schedY, schedM - 1, schedD);
+  const schedDayOfWeek = schedTodayDate.getDay();
+  const isSchedSaturday = schedDayOfWeek === 6;
+  const isSchedSunday = schedDayOfWeek === 0;
+
+  const warmupForTomorrowLeads = isSchedSaturday
+    ? []
+    : filteredAllLeads.filter((l) => {
+        if (l.isCompleted || l.initialSentDate) return false;
+        return l.scheduledDate === tomorrowDateStr;
+      });
+
+  const handleToggleLeadWarmup = (lead: ChannelLead) => {
+    const nextVal = !lead.isWarmedUp;
+    const updated: ChannelLead = {
+      ...lead,
+      isWarmedUp: nextVal,
+      warmedUpAt: nextVal ? new Date().toISOString() : undefined,
+    };
+    handleUpdateLead(updated);
+  };
 
   // Automatically sync today's full schedule progress (Initial DM + Day 3 FU + Day 7 FU)
   // into persistent daily history, while isolating Initial DM sends for Total DMs Dispatches
@@ -871,6 +899,93 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* SECTION: 🔥 WARM UP FOR TOMORROW                                          */}
+      {/* ========================================================================= */}
+      <div className="rounded-3xl border border-amber-500/30 bg-gradient-to-br from-amber-950/25 via-slate-900/90 to-slate-900 p-5 sm:p-6 backdrop-blur-xl shadow-2xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-amber-500/20 pb-3 gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+              <Flame className="w-5 h-5 text-amber-400" />
+            </span>
+            <div>
+              <h2 className="text-base sm:text-lg font-black text-white font-['Outfit'] flex items-center gap-2">
+                <span>🔥 Warm Up for Tomorrow</span>
+                <span className="text-xs font-mono font-bold text-amber-300 bg-amber-500/20 px-2.5 py-0.5 rounded border border-amber-500/30">
+                  {warmupForTomorrowLeads.length} Due Today
+                </span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {isSchedSaturday
+                  ? 'Saturday Rest Mode: No warm-ups today since Sunday is a rest day.'
+                  : isSchedSunday
+                  ? 'Sunday Warm-Up: Engage prospects scheduled for Monday outreach.'
+                  : 'Engage these prospects today so they recognize your profile when outreach sends tomorrow.'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {warmupForTomorrowLeads.length === 0 ? (
+          <div className="py-6 text-center text-slate-500 text-xs flex flex-col items-center justify-center gap-1">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 mb-1" />
+            <span className="text-slate-300 font-semibold">
+              {isSchedSaturday
+                ? 'No warm-ups needed on Saturday. Sunday is rest!'
+                : 'All prospects scheduled for tomorrow are warmed up, or no leads scheduled for tomorrow.'}
+            </span>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {warmupForTomorrowLeads.map((lead) => (
+              <div
+                key={`warmup-${lead.channel}-${lead.id}`}
+                className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
+                  lead.isWarmedUp
+                    ? 'border-emerald-500/40 bg-emerald-950/20 shadow-sm'
+                    : 'border-amber-500/50 bg-amber-950/20 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500/30'
+                }`}
+              >
+                <div className="space-y-1 min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {renderChannelBadge(lead.channel)}
+                    <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                      {lead.id}
+                    </span>
+                  </div>
+                  <div className="font-semibold text-sm text-slate-100 truncate font-['Outfit']">
+                    {lead.name}
+                  </div>
+                  <a
+                    href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 truncate max-w-full"
+                  >
+                    <span className="truncate">{lead.link}</span>
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                  </a>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleToggleLeadWarmup(lead)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 shrink-0 ${
+                    lead.isWarmedUp
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/50 shadow-amber-950/40 animate-pulse'
+                  }`}
+                  title={lead.isWarmedUp ? 'Profile Warmed Up (Click to toggle)' : 'Mark profile as Warmed Up'}
+                >
+                  <span>🔥</span>
+                  <span>{lead.isWarmedUp ? 'Warmed' : 'Warm Up'}</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* ========================================================================= */}
       {/* SECTION: SENT TODAY LOG (Progress Tracker)                                */}

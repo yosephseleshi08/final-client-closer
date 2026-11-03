@@ -287,7 +287,7 @@ export interface HistoryStreakStats {
   reelsPostedToday?: number;
 }
 
-export type MultiChannelSubTab = 'leads' | 'inbox' | 'dm' | 'schedule' | 'followup' | 'reel-queue' | 'mockup';
+export type MultiChannelSubTab = 'leads' | 'inbox' | 'dm' | 'schedule' | 'followup' | 'mockup';
 
 export interface InboxLead {
   id: string;
@@ -332,6 +332,7 @@ export interface ChannelLead {
 
   // Warm-Up System
   isWarmedUp?: boolean;
+  warmedUpAt?: string;
 
   // Sub-page C: Schedule Date
   scheduledDate?: string; // YYYY-MM-DD format (planned initial outreach date)
@@ -368,11 +369,15 @@ export interface ChannelLead {
   repliedAt?: string;
   dismissedDate?: string; // YYYY-MM-DD: date when lead was removed/dismissed from daily queue
 
-  // Sub-page E: Mockup & Breakdown Link
+  // Sub-page E: Mockup & Breakdown Link (HTML and Screenshots)
   hasMockup?: boolean;
   mockupFileName?: string;
   mockupUploadedAt?: string;
   mockupLink?: string;
+  mockupHtml?: string;
+  mockupHtmlName?: string;
+  mockupHtmlContent?: string;
+  mockupUrl?: string;
 }
 
 

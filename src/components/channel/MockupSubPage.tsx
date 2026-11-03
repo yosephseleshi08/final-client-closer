@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Upload,
-  Image as ImageIcon,
+  FileCode,
   Download,
   Trash2,
   ExternalLink,
   Eye,
   X,
-  Check,
   AlertCircle,
   RefreshCw,
+  CheckCircle2,
+  Code,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import {
@@ -27,110 +28,84 @@ interface MockupSubPageProps {
 }
 
 export function MockupSubPage({ channel, leads, onUpdateLeads }: MockupSubPageProps) {
-  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const [loadingKeys, setLoadingKeys] = useState<Record<string, boolean>>({});
-  const [activeLightboxImage, setActiveLightboxImage] = useState<{
-    url: string;
+  const [activePreviewModal, setActivePreviewModal] = useState<{
     leadId: string;
     leadName: string;
+    htmlContent: string;
+    fileName: string;
   } | null>(null);
 
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  // Load mockup thumbnails from IndexedDB on mount / leads change
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadThumbnails() {
-      const loaded: Record<string, string> = {};
-      for (const lead of leads) {
-        if (lead.hasMockup) {
-          const key = getMockupStorageKey(channel, lead.id);
-          try {
-            const dataUrl = await getMockupImage(key);
-            if (dataUrl && isMounted) {
-              loaded[lead.id] = dataUrl;
-            }
-          } catch (e) {
-            console.warn(`Error loading mockup for ${lead.id}:`, e);
-          }
-        }
-      }
-      if (isMounted) {
-        setThumbnails(loaded);
-      }
-    }
-
-    loadThumbnails();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [channel, leads]);
-
-  const handleFileUpload = async (leadId: string, file: File) => {
+  const handleHtmlFileUpload = async (leadId: string, file: File) => {
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      alert('Please upload an image file (PNG, JPG, WebP).');
+    if (!file.name.toLowerCase().endsWith('.html') && file.type !== 'text/html') {
+      alert('Please upload an HTML file (.html).');
       return;
     }
 
     setLoadingKeys((prev) => ({ ...prev, [leadId]: true }));
 
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const dataUrl = reader.result as string;
-        const key = getMockupStorageKey(channel, leadId);
+      const htmlContent = await file.text();
+      const blobUrl = URL.createObjectURL(new Blob([htmlContent], { type: 'text/html' }));
+      const key = getMockupStorageKey(channel, leadId);
 
-        // Save to IndexedDB for persistent storage
-        await saveMockupImage(key, dataUrl);
+      // Persist HTML content into IndexedDB
+      try {
+        await saveMockupImage(key, htmlContent);
+      } catch (idbErr) {
+        console.warn('IndexedDB write error for HTML mockup:', idbErr);
+      }
 
-        // Update local thumbnail cache
-        setThumbnails((prev) => ({ ...prev, [leadId]: dataUrl }));
+      // Update lead in state
+      const nowIso = new Date().toISOString();
+      const updated = leads.map((l) => {
+        if (l.id === leadId) {
+          return {
+            ...l,
+            hasMockup: true,
+            mockupHtml: file.name,
+            mockupHtmlName: file.name,
+            mockupHtmlContent: htmlContent,
+            mockupUrl: blobUrl,
+            mockupFileName: file.name,
+            mockupUploadedAt: nowIso,
+          };
+        }
+        return l;
+      });
 
-        // Update lead in state
-        const updated = leads.map((l) => {
-          if (l.id === leadId) {
-            return {
-              ...l,
-              hasMockup: true,
-              mockupFileName: file.name,
-              mockupUploadedAt: new Date().toISOString(),
-            };
-          }
-          return l;
-        });
-
-        onUpdateLeads(updated);
-        setLoadingKeys((prev) => ({ ...prev, [leadId]: false }));
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      console.error('Failed to process image upload:', err);
+      onUpdateLeads(updated);
       setLoadingKeys((prev) => ({ ...prev, [leadId]: false }));
-      alert('Failed to save image screenshot. Please try a smaller image.');
+    } catch (err) {
+      console.error('Failed to process HTML mockup upload:', err);
+      setLoadingKeys((prev) => ({ ...prev, [leadId]: false }));
+      alert('Failed to read HTML file. Please check file permissions and try again.');
     }
   };
 
   const handleDeleteMockup = async (leadId: string) => {
-    if (!window.confirm('Delete this mockup screenshot?')) return;
+    if (!window.confirm('Delete this mockup HTML file?')) return;
 
     const key = getMockupStorageKey(channel, leadId);
-    await deleteMockupImage(key);
-
-    setThumbnails((prev) => {
-      const next = { ...prev };
-      delete next[leadId];
-      return next;
-    });
+    try {
+      await deleteMockupImage(key);
+    } catch (e) {
+      console.warn('IndexedDB delete error:', e);
+    }
 
     const updated = leads.map((l) => {
       if (l.id === leadId) {
         return {
           ...l,
           hasMockup: false,
+          mockupHtml: undefined,
+          mockupHtmlName: undefined,
+          mockupHtmlContent: undefined,
+          mockupUrl: undefined,
           mockupFileName: undefined,
           mockupUploadedAt: undefined,
         };
@@ -141,29 +116,37 @@ export function MockupSubPage({ channel, leads, onUpdateLeads }: MockupSubPagePr
     onUpdateLeads(updated);
   };
 
-  const handleDownloadMockup = (lead: ChannelLead) => {
-    const dataUrl = thumbnails[lead.id];
-    if (!dataUrl) return;
+  const handleDownloadMockupHtml = (lead: ChannelLead) => {
+    const htmlContent = lead.mockupHtmlContent;
+    const fileName = lead.mockupHtmlName || lead.mockupFileName || `${lead.name.replace(/\s+/g, '_')}_mockup.html`;
 
+    if (!htmlContent) {
+      alert('No HTML content available to download.');
+      return;
+    }
+
+    const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = `${channel}_mockup_${lead.id}_${lead.name.replace(/\s+/g, '_')}.png`;
+    a.href = url;
+    a.download = fileName.endsWith('.html') ? fileName : `${fileName}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
-  const mockupsCount = leads.filter((l) => Boolean(l.hasMockup)).length;
+  const mockupsCount = leads.filter((l) => Boolean(l.hasMockup || l.mockupHtml)).length;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-white font-['Outfit']">
-            {getChannelLabel(channel)} Mockup Screenshot Vault
+            {getChannelLabel(channel)} Mockup HTML Vault
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Store, preview, and download custom mockups bound to each Lead ID. Persisted in IndexedDB.
+            Store, preview, and manage custom HTML mockups bound to each lead ID for instant proof-of-work delivery.
           </p>
         </div>
         <div className="text-xs font-mono text-slate-400">
@@ -175,10 +158,10 @@ export function MockupSubPage({ channel, leads, onUpdateLeads }: MockupSubPagePr
 
       {leads.length === 0 ? (
         <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 p-12 text-center text-slate-400">
-          <ImageIcon className="w-8 h-8 text-slate-600 mx-auto mb-3" />
+          <FileCode className="w-8 h-8 text-slate-600 mx-auto mb-3" />
           <p className="text-sm font-semibold text-slate-300">No leads available for mockups</p>
           <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-            Add prospect leads in the "Leads" sub-tab first to upload mockup screenshots here.
+            Add prospect leads in the "Leads" sub-tab first to upload mockup HTML files here.
           </p>
         </div>
       ) : (
@@ -188,15 +171,16 @@ export function MockupSubPage({ channel, leads, onUpdateLeads }: MockupSubPagePr
               <thead>
                 <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
                   <th className="py-3 px-4 text-left w-32">Lead ID</th>
-                  <th className="py-3 px-4 text-left w-52">Prospect Name</th>
-                  <th className="py-3 px-4 text-left">Saved Mockup Preview</th>
-                  <th className="py-3 px-4 text-right w-56">Actions</th>
+                  <th className="py-3 px-4 text-left w-64">Prospect Name &amp; Profile</th>
+                  <th className="py-3 px-4 text-left">Saved Mockup HTML</th>
+                  <th className="py-3 px-4 text-right w-64">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
                 {leads.map((lead) => {
-                  const thumbnail = thumbnails[lead.id];
                   const isLoading = loadingKeys[lead.id];
+                  const hasHtml = Boolean(lead.mockupHtml || lead.mockupHtmlContent || lead.hasMockup);
+                  const fileName = lead.mockupHtmlName || lead.mockupFileName || 'mockup.html';
 
                   return (
                     <tr key={lead.id} className="hover:bg-white/[0.02] transition-colors">
@@ -223,92 +207,94 @@ export function MockupSubPage({ channel, leads, onUpdateLeads }: MockupSubPagePr
                         </a>
                       </td>
 
-                      {/* Mockup Preview Thumbnail */}
+                      {/* Mockup Status Display */}
                       <td className="py-3.5 px-4 text-left">
                         {isLoading ? (
                           <div className="flex items-center gap-2 text-xs text-indigo-400">
                             <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>Saving screenshot...</span>
+                            <span>Reading &amp; storing HTML...</span>
                           </div>
-                        ) : thumbnail ? (
-                          <div className="flex items-center gap-3">
-                            {/* Clickable Thumbnail with Hover Zoom */}
-                            <div
-                              onClick={() =>
-                                setActiveLightboxImage({
-                                  url: thumbnail,
-                                  leadId: lead.id,
-                                  leadName: lead.name,
-                                })
-                              }
-                              className="relative group/thumb cursor-pointer w-20 h-14 rounded-lg overflow-hidden border border-white/10 bg-black/40 shadow-md shrink-0"
-                              title="Click to preview full size"
-                            >
-                              <img
-                                src={thumbnail}
-                                alt={`Mockup for ${lead.name}`}
-                                className="w-full h-full object-cover group-hover/thumb:scale-110 transition-transform duration-200"
-                              />
-                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center text-white">
-                                <Eye className="w-4 h-4" />
-                              </div>
+                        ) : hasHtml ? (
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-9 h-9 rounded-xl bg-orange-500/15 text-orange-400 border border-orange-500/30 flex items-center justify-center shrink-0">
+                              <Code className="w-4 h-4" />
                             </div>
-
                             <div className="text-xs space-y-0.5">
-                              <span className="font-medium text-slate-200 truncate block max-w-xs">
-                                {lead.mockupFileName || 'mockup_screenshot.png'}
+                              <span className="font-mono font-bold text-orange-300 truncate block max-w-xs">
+                                {fileName}
                               </span>
-                              {lead.mockupUploadedAt && (
-                                <span className="text-[10px] text-slate-500 block">
-                                  Saved {new Date(lead.mockupUploadedAt).toLocaleDateString()}
-                                </span>
-                              )}
+                              <span className="text-[10px] text-slate-400 block font-mono">
+                                HTML Mockup Ready
+                                {lead.mockupUploadedAt && ` · ${new Date(lead.mockupUploadedAt).toLocaleDateString()}`}
+                              </span>
                             </div>
                           </div>
                         ) : (
                           <div className="flex items-center gap-2 text-xs text-slate-500">
-                            <ImageIcon className="w-4 h-4 opacity-40" />
-                            <span>No mockup uploaded</span>
+                            <FileCode className="w-4 h-4 opacity-40" />
+                            <span>No mockup HTML uploaded</span>
                           </div>
                         )}
                       </td>
 
-                      {/* Actions: Upload / Download / Delete */}
+                      {/* Actions: Upload Mockup HTML / Preview / Download / Delete */}
                       <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {/* Hidden File Input */}
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {/* Hidden File Input strictly for .html */}
                           <input
                             type="file"
-                            accept="image/png,image/jpeg,image/webp"
+                            accept=".html,text/html"
                             ref={(el) => {
                               fileInputRefs.current[lead.id] = el;
                             }}
                             className="hidden"
                             onChange={(e) => {
                               const file = e.target.files?.[0];
-                              if (file) handleFileUpload(lead.id, file);
+                              if (file) handleHtmlFileUpload(lead.id, file);
                             }}
                           />
 
-                          {thumbnail ? (
+                          {hasHtml ? (
                             <>
-                              {/* Download Button */}
-                              <button
-                                type="button"
-                                onClick={() => handleDownloadMockup(lead)}
-                                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition cursor-pointer flex items-center gap-1"
-                                title="Download image screenshot"
-                              >
-                                <Download className="w-3.5 h-3.5 text-indigo-400" />
-                                <span className="hidden sm:inline">Download</span>
-                              </button>
+                              {/* Preview HTML Button */}
+                              {lead.mockupHtmlContent && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setActivePreviewModal({
+                                      leadId: lead.id,
+                                      leadName: lead.name,
+                                      htmlContent: lead.mockupHtmlContent!,
+                                      fileName,
+                                    })
+                                  }
+                                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border border-indigo-500/30 transition cursor-pointer flex items-center gap-1"
+                                  title="Live interactive preview of mockup HTML"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>Preview</span>
+                                </button>
+                              )}
+
+                              {/* Download HTML Button */}
+                              {lead.mockupHtmlContent && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadMockupHtml(lead)}
+                                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition cursor-pointer flex items-center gap-1"
+                                  title="Download HTML file"
+                                >
+                                  <Download className="w-3.5 h-3.5 text-indigo-400" />
+                                  <span className="hidden sm:inline">Download</span>
+                                </button>
+                              )}
 
                               {/* Replace Button */}
                               <button
                                 type="button"
                                 onClick={() => fileInputRefs.current[lead.id]?.click()}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
-                                title="Upload new image to replace"
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer border border-white/5"
+                                title="Upload new HTML file to replace"
                               >
                                 <Upload className="w-3.5 h-3.5" />
                               </button>
@@ -318,20 +304,21 @@ export function MockupSubPage({ channel, leads, onUpdateLeads }: MockupSubPagePr
                                 type="button"
                                 onClick={() => handleDeleteMockup(lead.id)}
                                 className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
-                                title="Delete mockup"
+                                title="Delete mockup HTML"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </>
                           ) : (
-                            /* Upload Button */
+                            /* Upload Mockup HTML Button */
                             <button
                               type="button"
                               onClick={() => fileInputRefs.current[lead.id]?.click()}
-                              className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-indigo-600/20"
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white transition flex items-center gap-1.5 shadow-md shadow-indigo-600/30 cursor-pointer active:scale-95"
+                              title="Upload HTML file for this lead"
                             >
                               <Upload className="w-3.5 h-3.5" />
-                              <span>Upload Mockup</span>
+                              <span>Upload Mockup HTML</span>
                             </button>
                           )}
                         </div>
@@ -345,35 +332,54 @@ export function MockupSubPage({ channel, leads, onUpdateLeads }: MockupSubPagePr
         </div>
       )}
 
-      {/* Lightbox Image Preview Modal */}
-      {activeLightboxImage && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-          <div className="relative max-w-4xl max-h-[90vh] flex flex-col items-center">
-            {/* Header / Close */}
-            <div className="w-full flex items-center justify-between pb-3 text-white">
-              <div>
-                <span className="text-xs font-mono font-bold text-indigo-400 bg-indigo-500/20 px-2 py-0.5 rounded border border-indigo-500/30 mr-2">
-                  {activeLightboxImage.leadId}
+      {/* Live HTML Preview Modal */}
+      {activePreviewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md animate-fade-in">
+          <div className="w-full max-w-5xl h-[90vh] rounded-3xl bg-slate-900 border border-white/15 shadow-2xl flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 bg-slate-950/80">
+              <div className="flex items-center gap-2.5">
+                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  {activePreviewModal.leadId}
                 </span>
-                <span className="font-bold font-['Outfit'] text-sm">
-                  {activeLightboxImage.leadName} Mockup Preview
+                <span className="font-bold text-sm text-white font-['Outfit']">
+                  HTML Mockup Preview: {activePreviewModal.leadName}
+                </span>
+                <span className="text-xs text-slate-400 font-mono hidden sm:inline">
+                  ({activePreviewModal.fileName})
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => setActiveLightboxImage(null)}
-                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const blob = new Blob([activePreviewModal.htmlContent], { type: 'text/html' });
+                    const url = URL.createObjectURL(blob);
+                    window.open(url, '_blank');
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-slate-200 hover:text-white transition flex items-center gap-1 cursor-pointer"
+                  title="Open mockup in a new tab"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Open New Tab</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActivePreviewModal(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            {/* Image Preview Container */}
-            <div className="rounded-2xl overflow-hidden border border-white/15 bg-black/50 shadow-2xl max-h-[75vh]">
-              <img
-                src={activeLightboxImage.url}
-                alt="Full Mockup Preview"
-                className="max-h-[75vh] w-auto object-contain"
+            {/* Live iframe Viewport */}
+            <div className="flex-1 bg-white relative">
+              <iframe
+                title={`Mockup Preview for ${activePreviewModal.leadName}`}
+                srcDoc={activePreviewModal.htmlContent}
+                sandbox="allow-scripts allow-same-origin"
+                className="w-full h-full border-none"
               />
             </div>
           </div>
