@@ -287,7 +287,7 @@ export interface HistoryStreakStats {
   reelsPostedToday?: number;
 }
 
-export type MultiChannelSubTab = 'leads' | 'inbox' | 'dm' | 'schedule' | 'followup' | 'mockup';
+export type MultiChannelSubTab = 'leads' | 'dm' | 'schedule' | 'followup' | 'mockup';
 
 export interface InboxLead {
   id: string;
@@ -330,7 +330,8 @@ export interface ChannelLead {
   quickNote?: string;
   quickNoteSavedAt?: string;
 
-  // Warm-Up System
+  // Aggressive Warm-Up System
+  warmupStatus?: 'locked' | 'warmed';
   isWarmedUp?: boolean;
   warmedUpAt?: string;
 

@@ -265,31 +265,75 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const isGoalFinished = dailyTargetTotal > 0 && totalTasksCompletedToday >= dailyTargetTotal;
 
   // 6. 🔥 WARM UP FOR TOMORROW
-  // Prospects whose outreach date is tomorrow.
-  // Sunday Rule: No warm-ups on Saturday (Sunday is rest); Sunday warms up for Monday.
-  const tomorrowDateStr = addDays(todayStr, 1);
+  // Sunday Rule: No DMs on Sunday, no warm-ups on Sunday.
+  // On Saturday, warm-ups are for Monday's leads (addDays(todayStr, 2)).
+  // Mon-Fri: warm-ups are for tomorrow's leads (addDays(todayStr, 1)).
   const [schedY, schedM, schedD] = todayStr.split('-').map(Number);
   const schedTodayDate = new Date(schedY, schedM - 1, schedD);
   const schedDayOfWeek = schedTodayDate.getDay();
   const isSchedSaturday = schedDayOfWeek === 6;
   const isSchedSunday = schedDayOfWeek === 0;
 
-  const warmupForTomorrowLeads = isSchedSaturday
+  const warmupTargetDateStr = isSchedSunday
+    ? null
+    : isSchedSaturday
+    ? addDays(todayStr, 2)
+    : addDays(todayStr, 1);
+
+  const warmupForTomorrowLeads = !warmupTargetDateStr
     ? []
     : filteredAllLeads.filter((l) => {
         if (l.isCompleted || l.initialSentDate) return false;
-        return l.scheduledDate === tomorrowDateStr;
+        return l.scheduledDate === warmupTargetDateStr;
       });
 
   const handleToggleLeadWarmup = (lead: ChannelLead) => {
-    const nextVal = !lead.isWarmedUp;
+    const isCurrentlyWarmed = lead.warmupStatus === 'warmed' || Boolean(lead.isWarmedUp);
+    const nextVal = !isCurrentlyWarmed;
     const updated: ChannelLead = {
       ...lead,
+      warmupStatus: nextVal ? 'warmed' : 'locked',
       isWarmedUp: nextVal,
       warmedUpAt: nextVal ? new Date().toISOString() : undefined,
     };
     handleUpdateLead(updated);
   };
+
+  // Numbers Dashboard Channel Counts
+  const getChannelStats = (channelType: MultiChannelType) => {
+    const channelList = allLeads.filter((l) => l.channel === channelType);
+    const initialDue = channelList.filter((l) => {
+      if (l.isCompleted || l.initialSentDate) return false;
+      if (isLeadDismissedToday(l)) return false;
+      return isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate);
+    }).length;
+
+    const followupsDue = channelList.filter((l) => {
+      if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+      if (isLeadDismissedToday(l)) return false;
+      if (!l.initialSentDate) return false;
+
+      // Day 7
+      if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date) || isDay7FollowupDue(l, todayStr))) {
+        return true;
+      }
+      // Day 14
+      if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date) || isDay14FollowupDue(l, todayStr))) {
+        return true;
+      }
+      // Day 30
+      if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDateOverdue(l.followup3Date) || isDay30FollowupDue(l, todayStr))) {
+        return true;
+      }
+      return false;
+    }).length;
+
+    return { initialDue, followupsDue };
+  };
+
+  const igStats = getChannelStats('instagram');
+  const fbStats = getChannelStats('facebook');
+  const emailStats = getChannelStats('email');
 
   // Automatically sync today's full schedule progress (Initial DM + Day 3 FU + Day 7 FU)
   // into persistent daily history, while isolating Initial DM sends for Total DMs Dispatches
@@ -901,6 +945,129 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       )}
 
       {/* ========================================================================= */}
+      {/* SECTION: NUMBERS DASHBOARD (Clean Quotas & Direct Workspace Links)        */}
+      {/* ========================================================================= */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Instagram */}
+        <div className="rounded-2xl border border-pink-500/30 bg-gradient-to-br from-pink-950/25 via-slate-900/90 to-slate-900 p-5 backdrop-blur-xl shadow-xl flex flex-col justify-between gap-4">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-pink-500/20 text-pink-400 border border-pink-500/30 flex items-center justify-center shadow-sm">
+                  <Instagram className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base font-['Outfit']">Instagram</h3>
+                  <span className="text-[10px] font-mono text-pink-300/80 uppercase">Workspace Quotas</span>
+                </div>
+              </div>
+            </div>
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/5">
+              <div className="text-sm sm:text-base font-bold text-white font-mono tracking-tight">
+                <span className="text-pink-300 font-black text-lg">{igStats.initialDue}</span> Initial DMs ·{' '}
+                <span className="text-pink-300 font-black text-lg">{igStats.followupsDue}</span> Follow-Ups
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigateToChannel('instagram')}
+            className="w-full py-2.5 px-3 rounded-xl bg-pink-500/15 hover:bg-pink-500/25 text-pink-300 hover:text-white border border-pink-500/30 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm group active:scale-98"
+          >
+            <span>View IG Leads</span>
+            <span className="transition-transform group-hover:translate-x-1">→</span>
+          </button>
+        </div>
+
+        {/* Facebook */}
+        <div className="rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-950/25 via-slate-900/90 to-slate-900 p-5 backdrop-blur-xl shadow-xl flex flex-col justify-between gap-4">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center shadow-sm">
+                  <Facebook className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base font-['Outfit']">Facebook</h3>
+                  <span className="text-[10px] font-mono text-sky-300/80 uppercase">Workspace Quotas</span>
+                </div>
+              </div>
+            </div>
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/5">
+              <div className="text-sm sm:text-base font-bold text-white font-mono tracking-tight">
+                <span className="text-sky-300 font-black text-lg">{fbStats.initialDue}</span> Initial DMs ·{' '}
+                <span className="text-sky-300 font-black text-lg">{fbStats.followupsDue}</span> Follow-Ups
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigateToChannel('facebook')}
+            className="w-full py-2.5 px-3 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 hover:text-white border border-sky-500/30 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm group active:scale-98"
+          >
+            <span>View FB Leads</span>
+            <span className="transition-transform group-hover:translate-x-1">→</span>
+          </button>
+        </div>
+
+        {/* Email */}
+        <div className="rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-indigo-950/25 via-slate-900/90 to-slate-900 p-5 backdrop-blur-xl shadow-xl flex flex-col justify-between gap-4">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center shadow-sm">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base font-['Outfit']">Email</h3>
+                  <span className="text-[10px] font-mono text-indigo-300/80 uppercase">Workspace Quotas</span>
+                </div>
+              </div>
+            </div>
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/5">
+              <div className="text-sm sm:text-base font-bold text-white font-mono tracking-tight">
+                <span className="text-indigo-300 font-black text-lg">{emailStats.initialDue}</span> Initial DMs ·{' '}
+                <span className="text-indigo-300 font-black text-lg">{emailStats.followupsDue}</span> Follow-Ups
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigateToChannel('email')}
+            className="w-full py-2.5 px-3 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border border-indigo-500/30 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm group active:scale-98"
+          >
+            <span>View Email Leads</span>
+            <span className="transition-transform group-hover:translate-x-1">→</span>
+          </button>
+        </div>
+
+        {/* Warm-Ups Needed Today */}
+        <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-950/25 via-slate-900/90 to-slate-900 p-5 backdrop-blur-xl shadow-xl flex flex-col justify-between gap-4">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center shadow-sm">
+                  <Flame className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base font-['Outfit']">Warm-Ups Needed Today</h3>
+                  <span className="text-[10px] font-mono text-amber-300/80 uppercase">Pre-Outreach Target</span>
+                </div>
+              </div>
+            </div>
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/5">
+              <div className="text-sm sm:text-base font-bold text-amber-200 font-mono tracking-tight">
+                <span className="text-amber-300 font-black text-lg">{warmupForTomorrowLeads.length}</span> {warmupForTomorrowLeads.length === 1 ? 'lead' : 'leads'} to warm up {isSchedSaturday ? 'for Monday' : 'for tomorrow'}
+              </div>
+            </div>
+          </div>
+          <div className="text-[11px] text-amber-300/80 font-mono py-2 px-3 text-center bg-amber-500/10 rounded-xl border border-amber-500/20 font-semibold">
+            ↓ Engage individual leads below
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
       {/* SECTION: 🔥 WARM UP FOR TOMORROW                                          */}
       {/* ========================================================================= */}
       <div className="rounded-3xl border border-amber-500/30 bg-gradient-to-br from-amber-950/25 via-slate-900/90 to-slate-900 p-5 sm:p-6 backdrop-blur-xl shadow-2xl space-y-4">
@@ -983,838 +1150,6 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                 </button>
               </div>
             ))}
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SECTION: SENT TODAY LOG (Progress Tracker)                                */}
-      {/* ========================================================================= */}
-      <div className="rounded-3xl border border-emerald-500/30 bg-slate-900/80 p-5 sm:p-6 backdrop-blur-xl shadow-2xl space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/10 pb-3 gap-2">
-          <div className="flex items-center gap-2.5">
-            <span className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-              <CheckCircle2 className="w-5 h-5" />
-            </span>
-            <div>
-              <h2 className="text-base sm:text-lg font-black text-white font-['Outfit'] flex items-center gap-2">
-                <span>✅ Sent Today ({sentTodayLeads.length})</span>
-                <span className="text-xs font-mono font-bold text-emerald-300 bg-emerald-500/20 px-2.5 py-0.5 rounded border border-emerald-500/30">
-                  {sentTodayLeads.length} Logged
-                </span>
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Initial outreach dispatches completed today ({todayStr}). Time-locks safeguard follow-up intervals.
-              </p>
-            </div>
-          </div>
-
-          <div className="text-xs text-slate-400 font-mono">
-            {sentTodayLeads.length > 0 && (
-              <span className="text-emerald-400 font-semibold">
-                Follow-ups automatically time-locked for +3 days
-              </span>
-            )}
-          </div>
-        </div>
-
-        {sentTodayLeads.length === 0 ? (
-          <div className="py-8 text-center text-slate-500 text-xs">
-            <Send className="w-7 h-7 text-slate-600 mx-auto mb-2 opacity-50" />
-            <p className="text-sm font-semibold text-slate-300">No DMs marked sent yet today</p>
-            <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-              When you click "Mark Initial Sent" on a lead below, it moves here automatically so you can see your daily tally and reminder dates.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {sentTodayLeads.map((lead) => {
-              const day3Target = lead.followup1Date || addDays(lead.initialSentDate || todayStr, 3);
-              const day7Target = lead.followup2Date || addDays(lead.initialSentDate || todayStr, 7);
-              const isReminderSaved = reminderSavedId === lead.id;
-
-              return (
-                <div
-                  key={`sent-${lead.channel}-${lead.id}`}
-                  className="rounded-2xl border border-emerald-500/25 bg-slate-950/80 p-4 space-y-3 hover:border-emerald-500/40 transition shadow-lg"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      {renderChannelBadge(lead.channel)}
-                      <span className="font-mono text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                        {lead.id}
-                      </span>
-                      <h3 className="font-bold text-white text-sm sm:text-base font-['Outfit']">
-                        {lead.name}
-                      </h3>
-                      <span className="text-[11px] font-semibold text-emerald-300 bg-emerald-500/15 px-2 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1 font-mono">
-                        <Check className="w-3 h-3 text-emerald-400" />
-                        <span>Sent Today ({lead.initialSentDate})</span>
-                      </span>
-                      {lead.isSeen && (
-                        <span className="text-xs font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30">
-                          👀 Seen
-                        </span>
-                      )}
-                    </div>
-
-                    <a
-                      href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 self-start sm:self-auto"
-                    >
-                      <span className="truncate max-w-xs">{lead.link}</span>
-                      <ExternalLink className="w-3 h-3 shrink-0" />
-                    </a>
-                  </div>
-
-                  {/* Amber Sticky Note Box Preview (if present) */}
-                  {renderQuickNoteBox(lead)}
-
-                  {/* Follow-up reminder & Action Bar */}
-                  <div className="rounded-xl border border-emerald-500/15 bg-emerald-950/15 p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                    <div className="flex items-center gap-2 text-emerald-300 font-mono flex-wrap">
-                      <Clock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>Day 3 Follow-Up: <strong className="text-white">{day3Target}</strong></span>
-                      <span className="text-slate-500">·</span>
-                      <span className="text-slate-400">Day 7: {day7Target}</span>
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {/* Quick Note Action Button */}
-                      {renderNoteButton(lead)}
-
-                      {/* Set Day 3 Reminder Action Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleSetDay3Reminder(lead)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-                          isReminderSaved
-                            ? 'bg-emerald-500 text-slate-950 font-black shadow-md'
-                            : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30'
-                        }`}
-                        title="Auto-calculates +3 days and stores the exact follow-up date"
-                      >
-                        <CalendarCheck2 className="w-3.5 h-3.5" />
-                        <span>{isReminderSaved ? '✓ Day 3 Reminder Saved!' : 'Set Day 3 Reminder'}</span>
-                      </button>
-
-                      {/* Undo Initial Sent in case of misclick */}
-                      <button
-                        type="button"
-                        onClick={() => handleUndoSent(lead)}
-                        className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 text-xs font-medium transition cursor-pointer flex items-center gap-1"
-                        title="Revert back to un-sent status if clicked accidentally"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        <span>Undo</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SECTION 0: OVERDUE PRIORITY QUEUE                                         */}
-      {/* ========================================================================= */}
-      {overdueLeads.length > 0 && (
-        <div className="rounded-3xl border-2 border-rose-500/50 bg-rose-950/25 p-5 sm:p-6 backdrop-blur-xl shadow-2xl space-y-4">
-          <div className="flex items-center justify-between border-b border-rose-500/30 pb-3">
-            <div className="flex items-center gap-2.5">
-              <span className="p-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                <AlertCircle className="w-5 h-5 animate-pulse" />
-              </span>
-              <div>
-                <h2 className="text-base sm:text-lg font-black text-white font-['Outfit'] flex items-center gap-2">
-                  <span>Priority Alert: Overdue Outreach &amp; Follow-Ups</span>
-                  <span className="text-xs font-mono font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded border border-rose-500/30">
-                    {overdueLeads.length} Urgent
-                  </span>
-                </h2>
-                <p className="text-xs text-rose-200/80 mt-0.5">
-                  These prospects missed their planned outreach or follow-up date. Clear them first to restore cadence.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            {overdueLeads.map((lead) => {
-              const templates = getCadenceMessageTemplates(lead);
-              const isInitial = !lead.initialSentDate;
-              const isStep1 = lead.initialSentDate && lead.followupCount === 0;
-              const isStep2 = lead.initialSentDate && lead.followupCount === 1;
-              const isStep3 = lead.initialSentDate && lead.followupCount === 2;
-              const overdueDate = isInitial
-                ? lead.scheduledDate!
-                : isStep1
-                ? (lead.followup1Date || 'Day 7')
-                : isStep2
-                ? (lead.followup2Date || 'Day 14')
-                : (lead.followup3Date || 'Day 30');
-              const diffDays = Math.abs(getDayDifference(overdueDate));
-              const pitchText = isInitial
-                ? templates.stageAMessage
-                : isStep1
-                ? templates.day7Message
-                : isStep2
-                ? templates.day14Message
-                : templates.day30Message;
-
-              return (
-                <div
-                  key={`${lead.channel}-${lead.id}`}
-                  className="rounded-2xl border border-rose-500/40 bg-slate-950/90 p-4 space-y-3 shadow-lg"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      {renderChannelBadge(lead.channel)}
-                      <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                        {lead.id}
-                      </span>
-                      <h3 className="font-bold text-white text-sm sm:text-base font-['Outfit']">
-                        {lead.name}
-                      </h3>
-                      {lead.isSeen && (
-                        <span className="text-xs font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 flex items-center gap-1">
-                          <span>👀 Seen</span>
-                        </span>
-                      )}
-                      <span className="text-[11px] font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded border border-rose-500/40 font-mono">
-                        Overdue by {diffDays} {diffDays === 1 ? 'day' : 'days'}
-                      </span>
-                    </div>
-
-                    <a
-                      href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 self-start sm:self-auto"
-                    >
-                      <span className="truncate max-w-xs">{lead.link}</span>
-                      <ExternalLink className="w-3 h-3 shrink-0" />
-                    </a>
-                  </div>
-
-                  {/* Pre-staged Copy with 1-click Copy */}
-                  <div className="rounded-xl border border-rose-500/20 bg-rose-950/20 p-2.5 space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px] font-bold text-rose-300">
-                      <div className="flex items-center gap-1.5">
-                        <span>
-                          {isInitial
-                            ? 'Message 1: Initial DM (Day 1)'
-                            : isStep1
-                            ? 'Message 2: Day 7 Value Check-In (Kitchen Ticket PDF)'
-                            : isStep2
-                            ? 'Message 3: Day 14 Social Proof (Case Study)'
-                            : 'Message 4: Day 30 Breakup (60s Loom Audit)'}
-                        </span>
-                        {(isInitial ? lead.initialDM : isStep1 ? lead.followup3DM : lead.followup7DM) ? (
-                          <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
-                            Custom Pitch
-                          </span>
-                        ) : (
-                          <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.2 rounded">
-                            Value-First Template
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleCopyText(`${lead.id}-overdue`, pitchText)}
-                        className="flex items-center gap-1 text-xs text-rose-300 hover:text-white transition cursor-pointer font-semibold"
-                      >
-                        {copiedKey === `${lead.id}-overdue` ? (
-                          <>
-                            <Check className="w-3 h-3 text-emerald-400" />
-                            <span className="text-emerald-400">Copied!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" />
-                            <span>
-                              {isInitial
-                                ? 'Copy Initial DM'
-                                : isStep1
-                                ? 'Copy Day 7 Follow-Up'
-                                : isStep2
-                                ? 'Copy Day 14 Follow-Up'
-                                : 'Copy Day 30 Breakup'}
-                            </span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <p className="text-xs text-slate-300 italic select-all font-sans leading-relaxed">
-                      "{pitchText}"
-                    </p>
-                  </div>
-
-                  {/* Amber Sticky Note Box Preview (if present) */}
-                  {renderQuickNoteBox(lead)}
-
-                  {/* Action Bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5">
-                    <span className="text-[11px] text-slate-400 font-mono">
-                      Target was: {overdueDate}
-                    </span>
-
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {/* Quick Note Action Button */}
-                      {renderNoteButton(lead)}
-
-                      {/* Non-Destructive Remove / Dismiss Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateLead(dismissLeadForToday(lead))}
-                        className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 text-xs font-semibold transition cursor-pointer flex items-center gap-1"
-                        title="Remove from today's queue (lead remains safely in your database)"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                        <span>Remove</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateLead(toggleLeadSeen(lead))}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
-                          lead.isSeen
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                            : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
-                        }`}
-                        title="Toggle Seen status (retains cadence timers)"
-                      >
-                        <span>👀 Seen</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateLead(markLeadReplied(lead))}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition cursor-pointer flex items-center gap-1"
-                      >
-                        <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>Replied!</span>
-                      </button>
-
-                      {/* Warmed Up Checkbox Requirement */}
-                      <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none border border-white/10 bg-white/5 hover:bg-white/10">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(lead.isWarmedUp)}
-                          onChange={() => {
-                            handleUpdateLead({
-                              ...lead,
-                              isWarmedUp: !lead.isWarmedUp,
-                            });
-                          }}
-                          className="w-3.5 h-3.5 rounded text-amber-500 focus:ring-amber-500/30 cursor-pointer accent-amber-500"
-                        />
-                        <span className={lead.isWarmedUp ? 'text-emerald-300 flex items-center gap-1' : 'text-amber-300 flex items-center gap-1'}>
-                          <span>🔥</span>
-                          <span>{lead.isWarmedUp ? 'Warmed Up' : 'Warmed Up?'}</span>
-                        </span>
-                      </label>
-
-                      <button
-                        type="button"
-                        disabled={!lead.isWarmedUp}
-                        onClick={() => {
-                          if (isInitial) {
-                            handleUpdateLead(markInitialSent(lead));
-                          } else if (isStep1) {
-                            handleUpdateLead(markFollowupSent(lead, 1));
-                          } else if (isStep2) {
-                            handleUpdateLead(markFollowupSent(lead, 2));
-                          } else {
-                            handleUpdateLead(markFollowupSent(lead, 3));
-                          }
-                        }}
-                        className={`px-4 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition ${
-                          lead.isWarmedUp
-                            ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30 cursor-pointer'
-                            : 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed opacity-60'
-                        }`}
-                        title={!lead.isWarmedUp ? 'Check "Warmed Up?" to unlock sending' : 'Mark outreach as sent'}
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                        <span>
-                          {isInitial
-                            ? 'Mark Initial Sent'
-                            : isStep1
-                            ? 'Mark Day 7 Sent'
-                            : isStep2
-                            ? 'Mark Day 14 Sent'
-                            : 'Mark Day 30 Sent'}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* SECTION 1: NEW OUTREACH DUE TODAY                                         */}
-      {/* ========================================================================= */}
-      <div className="rounded-3xl border border-white/10 bg-slate-900/80 p-5 sm:p-6 backdrop-blur-xl shadow-2xl space-y-4">
-        <div className="flex items-center justify-between border-b border-white/10 pb-3">
-          <div className="flex items-center gap-2.5">
-            <span className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-              <Send className="w-5 h-5" />
-            </span>
-            <div>
-              <h2 className="text-base sm:text-lg font-black text-white font-['Outfit'] flex items-center gap-2">
-                <span>New Outreach Due Today</span>
-                <span className="text-xs font-mono font-bold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded border border-indigo-500/30">
-                  {newOutreachDueToday.length} Prospects
-                </span>
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Initial DMs scheduled for today ({todayStr}). Marking sent automatically activates the 3-day and 7-day follow-up timers.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {newOutreachDueToday.length === 0 ? (
-          <div className="py-12 text-center text-slate-500 text-xs">
-            <CheckCircle2 className="w-8 h-8 text-indigo-400/50 mx-auto mb-2" />
-            <p className="text-sm font-semibold text-slate-300">All new outreaches for today are cleared!</p>
-            <p className="text-xs text-slate-500 mt-1">
-              Add leads in any channel workspace or assign dates in the Schedule tab.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {newOutreachDueToday.map((lead) => {
-              const templates = getCadenceMessageTemplates(lead);
-              const pitchText = templates.initialPitch;
-
-              return (
-                <div
-                  key={`${lead.channel}-${lead.id}`}
-                  className="rounded-2xl border border-white/10 bg-slate-950/80 p-4 space-y-3 hover:border-indigo-500/30 transition shadow-lg"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      {renderChannelBadge(lead.channel)}
-                      <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                        {lead.id}
-                      </span>
-                      <h3 className="font-bold text-white text-sm sm:text-base font-['Outfit']">
-                        {lead.name}
-                      </h3>
-                      {lead.isSeen && (
-                        <span className="text-xs font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 flex items-center gap-1">
-                          <span>👀 Seen</span>
-                        </span>
-                      )}
-                      <span className="text-[11px] font-semibold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                        Initial Outreach
-                      </span>
-                    </div>
-
-                    <a
-                      href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 self-start sm:self-auto"
-                    >
-                      <span className="truncate max-w-xs">{lead.link}</span>
-                      <ExternalLink className="w-3 h-3 shrink-0" />
-                    </a>
-                  </div>
-
-                  {/* Pre-staged Pitch Copy Box */}
-                  <div className="rounded-xl border border-indigo-500/20 bg-slate-900/90 p-2.5 space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px] font-bold text-indigo-300">
-                      <div className="flex items-center gap-1.5">
-                        <span>Message 1: Initial DM (Day 1)</span>
-                        {lead.initialDM ? (
-                          <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
-                            Custom Pitch
-                          </span>
-                        ) : (
-                          <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.2 rounded">
-                            Default Template
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleCopyText(`${lead.id}-initial`, pitchText)}
-                        className="flex items-center gap-1 text-xs text-indigo-400 hover:text-white transition cursor-pointer font-semibold"
-                      >
-                        {copiedKey === `${lead.id}-initial` ? (
-                          <>
-                            <Check className="w-3 h-3 text-emerald-400" />
-                            <span className="text-emerald-400">Copied!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" />
-                            <span>Copy Initial DM</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <p className="text-xs text-slate-300 italic select-all font-sans leading-relaxed">
-                      "{pitchText}"
-                    </p>
-                  </div>
-
-                  {/* Amber Sticky Note Box Preview (if present) */}
-                  {renderQuickNoteBox(lead)}
-
-                  {/* Action Bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5">
-                    <span className="text-[11px] text-slate-500 font-mono">
-                      Cadence on send: Day +3 &amp; Day +7 auto-scheduled
-                    </span>
-
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {/* Quick Note Action Button */}
-                      {renderNoteButton(lead)}
-
-                      {/* Non-Destructive Remove / Dismiss Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateLead(dismissLeadForToday(lead))}
-                        className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 text-xs font-semibold transition cursor-pointer flex items-center gap-1"
-                        title="Remove from today's queue (lead remains safely in your database)"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                        <span>Remove</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateLead(toggleLeadSeen(lead))}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
-                          lead.isSeen
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                            : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
-                        }`}
-                        title="Toggle Seen status"
-                      >
-                        <span>👀 Seen</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateLead(markLeadReplied(lead))}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition cursor-pointer flex items-center gap-1"
-                      >
-                        <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>Replied!</span>
-                      </button>
-
-                      {/* Warmed Up Checkbox Requirement */}
-                      <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none border border-white/10 bg-white/5 hover:bg-white/10">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(lead.isWarmedUp)}
-                          onChange={() => {
-                            handleUpdateLead({
-                              ...lead,
-                              isWarmedUp: !lead.isWarmedUp,
-                            });
-                          }}
-                          className="w-3.5 h-3.5 rounded text-amber-500 focus:ring-amber-500/30 cursor-pointer accent-amber-500"
-                        />
-                        <span className={lead.isWarmedUp ? 'text-emerald-300 flex items-center gap-1' : 'text-amber-300 flex items-center gap-1'}>
-                          <span>🔥</span>
-                          <span>{lead.isWarmedUp ? 'Warmed Up' : 'Warmed Up?'}</span>
-                        </span>
-                      </label>
-
-                      <button
-                        type="button"
-                        disabled={!lead.isWarmedUp}
-                        onClick={() => handleUpdateLead(markInitialSent(lead))}
-                        className={`px-4 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition ${
-                          lead.isWarmedUp
-                            ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30 cursor-pointer'
-                            : 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed opacity-60'
-                        }`}
-                        title={!lead.isWarmedUp ? 'Check "Warmed Up?" to unlock sending' : 'Mark outreach as dispatched'}
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                        <span>Mark Initial Sent</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* ========================================================================= */}
-      {/* SECTION 2: FOLLOW-UPS DUE TODAY (Day 3 & Day 7 Cadence)                    */}
-      {/* ========================================================================= */}
-      <div className="rounded-3xl border border-white/10 bg-slate-900/80 p-5 sm:p-6 backdrop-blur-xl shadow-2xl space-y-4">
-        <div className="flex items-center justify-between border-b border-white/10 pb-3">
-          <div className="flex items-center gap-2.5">
-            <span className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-              <Clock className="w-5 h-5" />
-            </span>
-            <div>
-              <h2 className="text-base sm:text-lg font-black text-white font-['Outfit'] flex items-center gap-2">
-                <span>Follow-Ups Due Today</span>
-                <span className="text-xs font-mono font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30">
-                  {followupsDueToday.length} Pending
-                </span>
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Proactive touchpoints reaching exact Day 7 (kitchen ticket PDF), Day 14 (social proof), or Day 30 (Loom audit) mark today.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {followupsDueToday.length === 0 ? (
-          <div className="py-12 text-center text-slate-500 text-xs">
-            <CheckCircle2 className="w-8 h-8 text-emerald-400/50 mx-auto mb-2" />
-            <p className="text-sm font-semibold text-slate-300">No follow-ups due today!</p>
-            <p className="text-xs text-slate-500 mt-1">
-              Any prospects that reach their Day 7, 14, or 30 milestone will automatically populate here.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {followupsDueToday.map((lead) => {
-              const isStep1 = lead.followupCount === 0;
-              const isStep2 = lead.followupCount === 1;
-              const isStep3 = lead.followupCount === 2;
-              const step = isStep1 ? 1 : isStep2 ? 2 : 3;
-              const templates = getCadenceMessageTemplates(lead);
-              const followText = isStep1
-                ? templates.day7Message
-                : isStep2
-                ? templates.day14Message
-                : templates.day30Message;
-
-              return (
-                <div
-                  key={`${lead.channel}-${lead.id}`}
-                  className={`rounded-2xl border p-4 space-y-3 shadow-lg transition ${
-                    isStep1
-                      ? 'border-indigo-500/30 bg-slate-950/80 hover:border-indigo-500/50'
-                      : isStep2
-                      ? 'border-emerald-500/30 bg-slate-950/80 hover:border-emerald-500/50'
-                      : 'border-rose-500/30 bg-slate-950/80 hover:border-rose-500/50'
-                  }`}
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      {renderChannelBadge(lead.channel)}
-                      <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                        {lead.id}
-                      </span>
-                      <h3 className="font-bold text-white text-sm sm:text-base font-['Outfit']">
-                        {lead.name}
-                      </h3>
-                      {lead.isSeen && (
-                        <span className="text-xs font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 flex items-center gap-1">
-                          <span>👀 Seen</span>
-                        </span>
-                      )}
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded border font-mono ${
-                          isStep1
-                            ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
-                            : isStep2
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                            : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                        }`}
-                      >
-                        {isStep1
-                          ? '⚡ Follow-Up #1 (Day +7 Value Check-In)'
-                          : isStep2
-                          ? '📈 Follow-Up #2 (Day +14 Social Proof)'
-                          : '🛑 Follow-Up #3 (Day +30 Breakup Loom)'}
-                      </span>
-                    </div>
-
-                    <a
-                      href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 self-start sm:self-auto"
-                    >
-                      <span className="truncate max-w-xs">{lead.link}</span>
-                      <ExternalLink className="w-3 h-3 shrink-0" />
-                    </a>
-                  </div>
-
-                  {/* Pre-staged Follow-Up Copy Box */}
-                  <div
-                    className={`rounded-xl border p-2.5 space-y-1.5 ${
-                      isStep1
-                        ? 'border-indigo-500/20 bg-indigo-950/20'
-                        : isStep2
-                        ? 'border-emerald-500/20 bg-emerald-950/20'
-                        : 'border-rose-500/20 bg-rose-950/20'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between text-[11px] font-bold">
-                      <div className="flex items-center gap-1.5">
-                        <span className={isStep1 ? 'text-indigo-300' : isStep2 ? 'text-emerald-300' : 'text-rose-300'}>
-                          {isStep1
-                            ? 'Message 2: Day 7 Value Check-In (Kitchen Ticket PDF)'
-                            : isStep2
-                            ? 'Message 3: Day 14 Social Proof (Case Study)'
-                            : 'Message 4: Day 30 Breakup (60s Loom Audit)'}
-                        </span>
-                        {(isStep1 ? lead.followup3DM : isStep2 ? lead.followup7DM : null) ? (
-                          <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
-                            Custom Pitch
-                          </span>
-                        ) : (
-                          <span className="text-[9px] font-mono text-slate-400 bg-white/5 px-1.5 py-0.2 rounded">
-                            Value-First Template
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleCopyText(`${lead.id}-fu`, followText)}
-                        className={`flex items-center gap-1 text-xs transition cursor-pointer font-semibold ${
-                          isStep1
-                            ? 'text-indigo-300 hover:text-white'
-                            : isStep2
-                            ? 'text-emerald-300 hover:text-white'
-                            : 'text-rose-300 hover:text-white'
-                        }`}
-                      >
-                        {copiedKey === `${lead.id}-fu` ? (
-                          <>
-                            <Check className="w-3 h-3 text-emerald-400" />
-                            <span className="text-emerald-400">Copied!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" />
-                            <span>
-                              {isStep1
-                                ? 'Copy Day 7 Follow-Up'
-                                : isStep2
-                                ? 'Copy Day 14 Follow-Up'
-                                : 'Copy Day 30 Breakup'}
-                            </span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                    <p className="text-xs text-slate-300 italic select-all font-sans leading-relaxed">
-                      "{followText}"
-                    </p>
-                  </div>
-
-                  {/* Amber Sticky Note Box Preview (if present) */}
-                  {renderQuickNoteBox(lead)}
-
-                  {/* Action Bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-white/5">
-                    <span className="text-[11px] text-slate-400 font-mono">
-                      Initial sent on: {lead.initialSentDate}
-                    </span>
-
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {/* Quick Note Action Button */}
-                      {renderNoteButton(lead)}
-
-                      {/* Non-Destructive Remove / Dismiss Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateLead(dismissLeadForToday(lead))}
-                        className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 text-xs font-semibold transition cursor-pointer flex items-center gap-1"
-                        title="Remove from today's queue (lead remains safely in your database)"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                        <span>Remove</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateLead(toggleLeadSeen(lead))}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
-                          lead.isSeen
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                            : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
-                        }`}
-                        title="Toggle Seen status"
-                      >
-                        <span>👀 Seen</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateLead(markLeadReplied(lead))}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition cursor-pointer flex items-center gap-1"
-                      >
-                        <CheckCheck className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>Replied!</span>
-                      </button>
-
-                      {/* Warmed Up Checkbox Requirement */}
-                      <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none border border-white/10 bg-white/5 hover:bg-white/10">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(lead.isWarmedUp)}
-                          onChange={() => {
-                            handleUpdateLead({
-                              ...lead,
-                              isWarmedUp: !lead.isWarmedUp,
-                            });
-                          }}
-                          className="w-3.5 h-3.5 rounded text-amber-500 focus:ring-amber-500/30 cursor-pointer accent-amber-500"
-                        />
-                        <span className={lead.isWarmedUp ? 'text-emerald-300 flex items-center gap-1' : 'text-amber-300 flex items-center gap-1'}>
-                          <span>🔥</span>
-                          <span>{lead.isWarmedUp ? 'Warmed Up' : 'Warmed Up?'}</span>
-                        </span>
-                      </label>
-
-                      <button
-                        type="button"
-                        disabled={!lead.isWarmedUp}
-                        onClick={() => handleUpdateLead(markFollowupSent(lead, step as 1 | 2 | 3))}
-                        className={`px-4 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition ${
-                          !lead.isWarmedUp
-                            ? 'bg-slate-800 text-slate-500 border border-white/5 cursor-not-allowed opacity-60'
-                            : isStep1
-                            ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30 cursor-pointer'
-                            : isStep2
-                            ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30 cursor-pointer'
-                            : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30 cursor-pointer'
-                        }`}
-                        title={!lead.isWarmedUp ? 'Check "Warmed Up?" to unlock sending' : 'Mark follow-up as dispatched'}
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>
-                          {isStep1
-                            ? 'Mark Day 7 Sent'
-                            : isStep2
-                            ? 'Mark Day 14 Sent'
-                            : 'Mark Day 30 Sent (Archive)'}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         )}
       </div>

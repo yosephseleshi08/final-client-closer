@@ -32,6 +32,7 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
         return {
           ...l,
           scheduledDate: normalized || undefined,
+          warmupStatus: normalized ? (l.warmupStatus || (l.isWarmedUp ? 'warmed' : 'locked')) : undefined,
           dismissedDate: undefined, // Clear any prior dismissal when rescheduling
         };
       }
@@ -43,6 +44,7 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
   /**
    * Auto-Schedule Algorithm:
    * Takes all unscheduled leads and assigns them dates based on:
+   * - Start Date: Starts TOMORROW (not today), so today can be used to warm up tomorrow's leads.
    * - Days 1-3: 3 leads per day
    * - Days 4-6: 4 leads per day
    * - Days 7-9: 5 leads per day
@@ -50,6 +52,7 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
    * - Sunday Rule: If assigned date falls on Sunday, skip Sunday and assign to Monday.
    * - Facebook Logic: Facebook always ramps at 3 leads/day from day one (flat 3/day, skipping Sundays).
    * - Existing Data: Do not break existing scheduled leads. Only fill in the gaps for unscheduled leads.
+   * - Warm-Up Lock: Newly scheduled leads default to warmupStatus: 'locked'.
    */
   const handleAutoSchedule = () => {
     const unscheduledLeads = leads.filter((l) => !l.scheduledDate);
@@ -67,9 +70,9 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
       }
     });
 
-    // Start from today in local time
+    // Start from TOMORROW in local time (protects today for warming up)
     const [year, month, day] = todayStr.split('-').map(Number);
-    const cursor = new Date(year, month - 1, day);
+    const cursor = new Date(year, month - 1, day + 1);
 
     let outreachDayIndex = 1;
     let unscheduledIndex = 0;
@@ -123,6 +126,7 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
         return {
           ...l,
           scheduledDate: assignments[l.id],
+          warmupStatus: l.warmupStatus || (l.isWarmedUp ? 'warmed' : 'locked'),
           dismissedDate: undefined,
         };
       }

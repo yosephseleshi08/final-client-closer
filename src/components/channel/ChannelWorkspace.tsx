@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Mail,
   Instagram,
@@ -8,9 +8,6 @@ import {
   Calendar,
   Clock,
   Image as ImageIcon,
-  AlertCircle,
-  Film,
-  Inbox,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType, MultiChannelSubTab } from '../../types';
 import { LeadsSubPage } from './LeadsSubPage';
@@ -18,9 +15,7 @@ import { DmSubPage } from './DmSubPage';
 import { ScheduleSubPage } from './ScheduleSubPage';
 import { FollowupScheduleSubPage } from './FollowupScheduleSubPage';
 import { MockupSubPage } from './MockupSubPage';
-import { LeadInboxView } from '../LeadInboxView';
 import { getChannelLabel } from '../../utils/channelStorage';
-import { loadInboxLeads } from '../../utils/inboxStorage';
 
 interface ChannelWorkspaceProps {
   channel: MultiChannelType;
@@ -48,32 +43,6 @@ export function ChannelWorkspace({
   onUpdateFacebookLeads,
 }: ChannelWorkspaceProps) {
   const [activeSubTab, setActiveSubTab] = useState<MultiChannelSubTab>('leads');
-  const [inboxCount, setInboxCount] = useState<number>(() => loadInboxLeads().length);
-
-  useEffect(() => {
-    const handleInboxChange = () => {
-      setInboxCount(loadInboxLeads().length);
-    };
-    window.addEventListener('inbox_leads_changed', handleInboxChange);
-    window.addEventListener('storage', handleInboxChange);
-    return () => {
-      window.removeEventListener('inbox_leads_changed', handleInboxChange);
-      window.removeEventListener('storage', handleInboxChange);
-    };
-  }, []);
-
-  const handleInboxLeadAccepted = (targetChannel: MultiChannelType, updatedLeads: ChannelLead[]) => {
-    if (targetChannel === channel) {
-      onUpdateLeads(updatedLeads);
-    }
-    if (targetChannel === 'email' && onUpdateEmailLeads) {
-      onUpdateEmailLeads(updatedLeads);
-    } else if (targetChannel === 'instagram' && onUpdateInstagramLeads) {
-      onUpdateInstagramLeads(updatedLeads);
-    } else if (targetChannel === 'facebook' && onUpdateFacebookLeads) {
-      onUpdateFacebookLeads(updatedLeads);
-    }
-  };
 
   const getChannelIcon = () => {
     switch (channel) {
@@ -130,12 +99,6 @@ export function ChannelWorkspace({
       label: 'Leads',
       icon: <Users className="w-4 h-4" />,
       badge: leads.length,
-    },
-    {
-      id: 'inbox',
-      label: '📥 Lead Inbox',
-      icon: <Inbox className="w-4 h-4" />,
-      badge: inboxCount > 0 ? inboxCount : undefined,
     },
     {
       id: 'dm',
@@ -252,14 +215,6 @@ export function ChannelWorkspace({
             leads={leads}
             onUpdateLeads={onUpdateLeads}
             onNavigateToChannel={onNavigateToChannel}
-          />
-        )}
-
-        {activeSubTab === 'inbox' && (
-          <LeadInboxView
-            onLeadAccepted={handleInboxLeadAccepted}
-            onNavigateToChannel={onNavigateToChannel}
-            channelLeads={allLeads}
           />
         )}
 

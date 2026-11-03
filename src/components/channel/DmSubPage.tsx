@@ -8,6 +8,10 @@ import {
   Flame,
   CheckCircle2,
   Calendar,
+  Lock,
+  Unlock,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import { getChannelLabel } from '../../utils/channelStorage';
@@ -30,25 +34,30 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const [followup7Draft, setFollowup7Draft] = useState('');
   const [activeStepTab, setActiveStepTab] = useState<'all' | 'step1' | 'step2' | 'step3'>('all');
   const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
+  const [copiedLeadId, setCopiedLeadId] = useState<string | null>(null);
 
   const todayStr = getLocalTodayStr();
   const [year, month, day] = todayStr.split('-').map(Number);
   const todayDate = new Date(year, month - 1, day);
   const todayDayOfWeek = todayDate.getDay(); // 0 = Sun, 6 = Sat
-  const tomorrowStr = addDays(todayStr, 1);
-
-  // Sunday Rule:
-  // - No warm-ups on Saturday (since Sunday is rest).
-  // - Sunday warms up for Monday (tomorrowStr).
-  // - Weekdays warm up for tomorrow (tomorrowStr).
   const isSaturday = todayDayOfWeek === 6;
   const isSunday = todayDayOfWeek === 0;
 
-  const leadsNeedingWarmupToday = isSaturday
+  // Sunday Rule:
+  // - No DMs on Sunday, no warm-ups on Sunday.
+  // - On Saturday, warm-ups are for Monday's leads (addDays(todayStr, 2)).
+  // - Mon-Fri: warm-ups are for tomorrow's leads (addDays(todayStr, 1)).
+  const warmupTargetDate = isSunday
+    ? null
+    : isSaturday
+    ? addDays(todayStr, 2)
+    : addDays(todayStr, 1);
+
+  const leadsNeedingWarmupToday = !warmupTargetDate
     ? []
     : leads.filter((l) => {
         if (l.isCompleted || l.initialSentDate) return false;
-        return l.scheduledDate === tomorrowStr;
+        return l.scheduledDate === warmupTargetDate;
       });
 
   const selectedLead = leads.find((l) => l.id === selectedLeadId);
@@ -102,13 +111,32 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
     onUpdateLeads(updated);
   };
 
-  const handleToggleWarmup = (lead: ChannelLead) => {
-    const nextVal = !lead.isWarmedUp;
+  // Aggressive Warm-Up Lock Handlers
+  const handleUnlockWarmup = (lead: ChannelLead) => {
     const nowIso = new Date().toISOString();
     const updated = leads.map((l) => {
       if (l.id === lead.id) {
         return {
           ...l,
+          warmupStatus: 'warmed' as const,
+          isWarmedUp: true,
+          warmedUpAt: nowIso,
+        };
+      }
+      return l;
+    });
+    onUpdateLeads(updated);
+  };
+
+  const handleToggleWarmup = (lead: ChannelLead) => {
+    const isCurrentlyWarmed = lead.warmupStatus === 'warmed' || Boolean(lead.isWarmedUp);
+    const nextVal = !isCurrentlyWarmed;
+    const nowIso = new Date().toISOString();
+    const updated = leads.map((l) => {
+      if (l.id === lead.id) {
+        return {
+          ...l,
+          warmupStatus: nextVal ? ('warmed' as const) : ('locked' as const),
           isWarmedUp: nextVal,
           warmedUpAt: nextVal ? nowIso : undefined,
         };
@@ -116,6 +144,16 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
       return l;
     });
     onUpdateLeads(updated);
+  };
+
+  const handleCopyDm = (lead: ChannelLead) => {
+    const dmContent =
+      lead.initialDM ||
+      lead.customPitch ||
+      `Hey ${lead.name} team, loved your restaurant! We put together a high-converting interactive web mockup for you. Would love to send over the link!`;
+    navigator.clipboard.writeText(dmContent);
+    setCopiedLeadId(lead.id);
+    setTimeout(() => setCopiedLeadId(null), 2000);
   };
 
   const insertToken = (token: string, targetStep?: '1' | '2' | '3') => {
@@ -175,14 +213,14 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                   🔥 Warm Up Today
                 </h3>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  {leadsNeedingWarmupToday.length} Due for Tomorrow
+                  {leadsNeedingWarmupToday.length} Due {isSaturday ? 'for Monday' : 'for Tomorrow'}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 mt-0.5">
-                {isSaturday
-                  ? 'Saturday Rest Mode: No warm-ups today (Sunday outreach is paused).'
-                  : isSunday
-                  ? 'Sunday Warm-Up: Warming up prospects scheduled for Monday dispatch.'
+                {isSunday
+                  ? 'Sunday Rest Mode: Outreach and warm-ups paused. Rest up for the week ahead!'
+                  : isSaturday
+                  ? 'Saturday Warm-Up: Warming up prospects scheduled for Monday dispatch (Sunday is rest).'
                   : 'Warm up these prospects today so they recognize your profile when outreach sends tomorrow.'}
               </p>
             </div>
@@ -193,57 +231,62 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
           <div className="py-4 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             <span>
-              {isSaturday
-                ? 'No warm-ups needed on Saturday. Enjoy your weekend prep!'
+              {isSunday
+                ? 'Sunday is a rest day. No warm-ups today!'
+                : isSaturday
+                ? 'All prospects scheduled for Monday are warmed up, or no leads are scheduled for Monday.'
                 : 'All prospects scheduled for tomorrow are warmed up, or no leads are scheduled for tomorrow.'}
             </span>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
-            {leadsNeedingWarmupToday.map((lead) => (
-              <div
-                key={lead.id}
-                className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-2.5 ${
-                  lead.isWarmedUp
-                    ? 'border-emerald-500/40 bg-emerald-950/20 shadow-sm'
-                    : 'border-amber-500/50 bg-amber-950/20 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500/30'
-                }`}
-              >
-                <div className="space-y-0.5 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/20">
-                      {lead.id}
-                    </span>
-                    <span className="font-medium text-xs text-slate-200 truncate block font-['Outfit']">
-                      {lead.name}
-                    </span>
-                  </div>
-                  <a
-                    href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 truncate max-w-[170px]"
-                  >
-                    <span className="truncate">{lead.link}</span>
-                    <ExternalLink className="w-2.5 h-2.5 shrink-0" />
-                  </a>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleToggleWarmup(lead)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 shrink-0 ${
-                    lead.isWarmedUp
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                      : 'bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/50 shadow-amber-950/40 animate-pulse'
+            {leadsNeedingWarmupToday.map((lead) => {
+              const isWarmed = lead.warmupStatus === 'warmed' || Boolean(lead.isWarmedUp);
+              return (
+                <div
+                  key={lead.id}
+                  className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-2.5 ${
+                    isWarmed
+                      ? 'border-emerald-500/40 bg-emerald-950/20 shadow-sm'
+                      : 'border-amber-500/50 bg-amber-950/20 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500/30'
                   }`}
-                  title={lead.isWarmedUp ? 'Profile Warmed Up (Click to untoggle)' : 'Mark profile as Warmed Up'}
                 >
-                  <span>🔥</span>
-                  <span>{lead.isWarmedUp ? 'Warmed' : 'Warm Up'}</span>
-                </button>
-              </div>
-            ))}
+                  <div className="space-y-0.5 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/20">
+                        {lead.id}
+                      </span>
+                      <span className="font-medium text-xs text-slate-200 truncate block font-['Outfit']">
+                        {lead.name}
+                      </span>
+                    </div>
+                    <a
+                      href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 truncate max-w-[170px]"
+                    >
+                      <span className="truncate">{lead.link}</span>
+                      <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                    </a>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleToggleWarmup(lead)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 shrink-0 ${
+                      isWarmed
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                        : 'bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/50 shadow-amber-950/40 animate-pulse'
+                    }`}
+                    title={isWarmed ? 'Profile Warmed Up (Click to untoggle)' : 'Mark profile as Warmed Up'}
+                  >
+                    <span>🔥</span>
+                    <span>{isWarmed ? 'Warmed' : 'Warm Up'}</span>
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -265,7 +308,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                   <th className="py-3 px-4 text-left w-28">Lead ID</th>
                   <th className="py-3 px-4 text-left w-56">Name &amp; Profile</th>
                   <th className="py-3 px-4 text-left">3-Step Sequence Status &amp; Previews</th>
-                  <th className="py-3 px-4 text-right w-56">Actions</th>
+                  <th className="py-3 px-4 text-right w-64">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
@@ -276,23 +319,17 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                   const step2Msg = lead.followup3DM;
                   const step3Msg = lead.followup7DM;
 
-                  // Warm-Up Logic & Glow Styling:
-                  // Glows when lead is in "Warm Up" status:
-                  // 1) isWarmedUp is true, OR
-                  // 2) Lead is due for warm up today (scheduled for tomorrow, not Saturday)
-                  const isDueForWarmupToday =
-                    !isSaturday &&
-                    lead.scheduledDate === tomorrowStr &&
-                    !lead.isCompleted &&
-                    !lead.initialSentDate;
-                  const isInWarmupStatus = Boolean(lead.isWarmedUp || isDueForWarmupToday);
+                  // Aggressive Warm-Up Lock:
+                  // A lead is locked unless it has been explicitly warmed up.
+                  const isWarmed = lead.warmupStatus === 'warmed' || Boolean(lead.isWarmedUp);
+                  const isLocked = !isWarmed;
 
                   return (
                     <tr
                       key={lead.id}
                       className={`transition-all duration-200 ${
-                        isInWarmupStatus
-                          ? 'border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500/30 bg-amber-950/10'
+                        isWarmed
+                          ? 'bg-emerald-950/5 hover:bg-emerald-950/10'
                           : 'hover:bg-white/[0.02]'
                       }`}
                     >
@@ -333,94 +370,145 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                         </a>
                       </td>
 
-                      {/* 3-Step Sequence Status & Snippets */}
+                      {/* 3-Step Sequence Status & Previews (Locked vs Warmed) */}
                       <td className="py-3.5 px-4 text-left">
-                        <div className="space-y-2">
-                          {/* Step Badges Row */}
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span
-                              className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
-                                stepCount === 3
-                                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                                  : stepCount > 0
-                                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                                  : 'bg-white/5 text-slate-400 border-white/10'
-                              }`}
+                        {isLocked ? (
+                          <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/70 border border-amber-500/30 text-amber-300">
+                            <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
+                              <Lock className="w-4 h-4 text-amber-400" />
+                            </div>
+                            <div className="space-y-0.5 flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-xs text-amber-200">Aggressive Warm-Up Lock</span>
+                                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                  🔒 Locked
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-400 truncate">
+                                Outreach DM script locked. Warm up this prospect to reveal message.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleUnlockWarmup(lead)}
+                              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-amber-950/40 cursor-pointer active:scale-95 shrink-0"
                             >
-                              {stepCount === 3 ? '✓ 3/3 Steps Ready' : `${stepCount}/3 Steps Set`}
-                            </span>
-
-                            <span
-                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                                initialMsg
-                                  ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                                  : 'bg-white/5 text-slate-500'
-                              }`}
-                              title={initialMsg ? `Initial DM: ${initialMsg}` : 'Initial DM not written'}
-                            >
-                              1. Initial
-                            </span>
-                            <span
-                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                                step2Msg
-                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                  : 'bg-white/5 text-slate-500'
-                              }`}
-                              title={step2Msg ? `3-Day Follow-Up: ${step2Msg}` : '3-Day Follow-Up not written'}
-                            >
-                              2. Day 3
-                            </span>
-                            <span
-                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                                step3Msg
-                                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                                  : 'bg-white/5 text-slate-500'
-                              }`}
-                              title={step3Msg ? `7-Day Breakup: ${step3Msg}` : '7-Day Breakup not written'}
-                            >
-                              3. Day 7
-                            </span>
+                              <Flame className="w-3.5 h-3.5 fill-slate-950 text-slate-950" />
+                              <span>Warm Up Now</span>
+                            </button>
                           </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {/* Step Badges Row */}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span
+                                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
+                                  stepCount === 3
+                                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                    : stepCount > 0
+                                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                    : 'bg-white/5 text-slate-400 border-white/10'
+                                }`}
+                              >
+                                {stepCount === 3 ? '✓ 3/3 Steps Ready' : `${stepCount}/3 Steps Set`}
+                              </span>
 
-                          {/* Preview snippet of the initial DM */}
-                          {initialMsg ? (
-                            <p className="text-xs text-slate-300 line-clamp-2 italic bg-slate-950/40 p-2 rounded-lg border border-white/5">
-                              "{initialMsg}"
-                            </p>
-                          ) : (
-                            <span className="text-xs text-slate-500 flex items-center gap-1.5">
-                              <FileText className="w-3.5 h-3.5 opacity-60" />
-                              <span>No sequence drafted yet (defaults will be used in Today's Schedule)</span>
-                            </span>
-                          )}
-                        </div>
+                              <span
+                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                  initialMsg
+                                    ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                                    : 'bg-white/5 text-slate-500'
+                                }`}
+                                title={initialMsg ? `Initial DM: ${initialMsg}` : 'Initial DM not written'}
+                              >
+                                1. Initial
+                              </span>
+                              <span
+                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                  step2Msg
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : 'bg-white/5 text-slate-500'
+                                }`}
+                                title={step2Msg ? `3-Day Follow-Up: ${step2Msg}` : '3-Day Follow-Up not written'}
+                              >
+                                2. Day 3
+                              </span>
+                              <span
+                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                  step3Msg
+                                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                                    : 'bg-white/5 text-slate-500'
+                                }`}
+                                title={step3Msg ? `7-Day Breakup: ${step3Msg}` : '7-Day Breakup not written'}
+                              >
+                                3. Day 7
+                              </span>
+                              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 ml-auto flex items-center gap-1">
+                                <Unlock className="w-3 h-3" />
+                                <span>Unlocked</span>
+                              </span>
+                            </div>
+
+                            {/* Preview snippet of the initial DM */}
+                            {initialMsg ? (
+                              <p className="text-xs text-slate-300 line-clamp-2 italic bg-slate-950/40 p-2 rounded-lg border border-white/5">
+                                "{initialMsg}"
+                              </p>
+                            ) : (
+                              <span className="text-xs text-slate-500 flex items-center gap-1.5">
+                                <FileText className="w-3.5 h-3.5 opacity-60" />
+                                <span>No custom sequence drafted yet (standard intro will be used)</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
 
-                      {/* Action Buttons: 🔥 Warm Up replaces Copy DM */}
+                      {/* Action Buttons: Lock shows Warm Up Now, Warmed shows Copy DM */}
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {/* 🔥 Warm Up Button */}
-                          <button
-                            type="button"
-                            onClick={() => handleToggleWarmup(lead)}
-                            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 border shadow-sm active:scale-95 ${
-                              lead.isWarmedUp
-                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-emerald-950/30'
-                                : isDueForWarmupToday
-                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 animate-pulse'
-                                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300/80 hover:text-amber-200 border-amber-500/30'
-                            }`}
-                            title={
-                              lead.isWarmedUp
-                                ? 'Profile Warmed Up (Click to toggle)'
-                                : isDueForWarmupToday
-                                ? '🔥 Prospect scheduled for tomorrow: Warm up profile today!'
-                                : 'Click to mark profile as Warmed Up'
-                            }
-                          >
-                            <span>🔥</span>
-                            <span>{lead.isWarmedUp ? 'Warmed Up' : 'Warm Up'}</span>
-                          </button>
+                          {isLocked ? (
+                            <button
+                              type="button"
+                              onClick={() => handleUnlockWarmup(lead)}
+                              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-amber-950/40 cursor-pointer active:scale-95"
+                              title="Warm Up Now to unlock DM script"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                              <span>Warm Up Now</span>
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyDm(lead)}
+                                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-indigo-600/20 active:scale-95"
+                                title="Copy Initial DM to clipboard"
+                              >
+                                {copiedLeadId === lead.id ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 text-emerald-300" />
+                                    <span>Copied!</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5" />
+                                    <span>Copy DM</span>
+                                  </>
+                                )}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleToggleWarmup(lead)}
+                                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 border bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-emerald-950/30"
+                                title="Profile Warmed Up (Click to lock)"
+                              >
+                                <span>🔥</span>
+                                <span>Warmed</span>
+                              </button>
+                            </>
+                          )}
 
                           {/* Prompt Hub */}
                           <button
@@ -444,9 +532,9 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                           <button
                             type="button"
                             onClick={() => handleOpenPitchEditor(lead)}
-                            className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-indigo-600/20"
+                            className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 border border-white/10"
                           >
-                            <Edit3 className="w-3.5 h-3.5" />
+                            <Edit3 className="w-3.5 h-3.5 text-slate-400" />
                             <span>{stepCount > 0 ? 'Edit 3-Step' : 'Write 3-Step'}</span>
                           </button>
                         </div>
