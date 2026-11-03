@@ -5,6 +5,7 @@ import { TodaysSchedulePage } from './components/TodaysSchedulePage';
 import { ExecutiveDashboard } from './components/ExecutiveDashboard';
 import { AnalyticsView } from './components/AnalyticsView';
 import { HistoryPage } from './components/HistoryPage';
+import { LeadInboxView } from './components/LeadInboxView';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import {
   ChannelLead,
@@ -15,6 +16,7 @@ import {
   loadChannelLeads,
   saveChannelLeads,
 } from './utils/channelStorage';
+import { loadInboxLeads } from './utils/inboxStorage';
 import {
   getLocalTodayStr,
   isDateToday,
@@ -27,15 +29,21 @@ import { isPipelineFrozenNow, togglePipelineFreeze } from './utils/pipelineFreez
 export default function App() {
   const [activeNavTab, setActiveNavTab] = useState<GlobalNavTab>('today');
   const [isFrozen, setIsFrozen] = useState<boolean>(() => isPipelineFrozenNow());
+  const [inboxCount, setInboxCount] = useState<number>(() => loadInboxLeads().length);
 
-  // Listen for pipeline freeze changes across components
+  // Listen for pipeline freeze & inbox changes across components
   React.useEffect(() => {
-    const handler = () => setIsFrozen(isPipelineFrozenNow());
-    window.addEventListener('pipeline_freeze_changed', handler);
-    window.addEventListener('storage', handler);
+    const handleFreeze = () => setIsFrozen(isPipelineFrozenNow());
+    const handleInbox = () => setInboxCount(loadInboxLeads().length);
+    window.addEventListener('pipeline_freeze_changed', handleFreeze);
+    window.addEventListener('inbox_leads_changed', handleInbox);
+    window.addEventListener('storage', handleFreeze);
+    window.addEventListener('storage', handleInbox);
     return () => {
-      window.removeEventListener('pipeline_freeze_changed', handler);
-      window.removeEventListener('storage', handler);
+      window.removeEventListener('pipeline_freeze_changed', handleFreeze);
+      window.removeEventListener('inbox_leads_changed', handleInbox);
+      window.removeEventListener('storage', handleFreeze);
+      window.removeEventListener('storage', handleInbox);
     };
   }, []);
 
@@ -106,13 +114,14 @@ export default function App() {
       <OfflineIndicator />
 
       <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-        {/* Global Top Navigation (Includes Today's Schedule) */}
+        {/* Global Top Navigation (Includes Today's Schedule & Lead Inbox) */}
         <Header
           activeTab={activeNavTab}
           setActiveTab={setActiveNavTab}
           emailLeadCount={emailLeads.length}
           instagramLeadCount={instagramLeads.length}
           facebookLeadCount={facebookLeads.length}
+          inboxCount={inboxCount}
           todayTaskCount={todayTaskCount}
           isFrozen={isFrozen}
           onToggleFreeze={handleToggleFreeze}
@@ -126,6 +135,10 @@ export default function App() {
               leads={emailLeads}
               onUpdateLeads={handleUpdateEmailLeads}
               onNavigateToChannel={(channel) => setActiveNavTab(channel)}
+              allLeads={{ email: emailLeads, instagram: instagramLeads, facebook: facebookLeads }}
+              onUpdateEmailLeads={handleUpdateEmailLeads}
+              onUpdateInstagramLeads={handleUpdateInstagramLeads}
+              onUpdateFacebookLeads={handleUpdateFacebookLeads}
             />
           )}
 
@@ -135,6 +148,10 @@ export default function App() {
               leads={instagramLeads}
               onUpdateLeads={handleUpdateInstagramLeads}
               onNavigateToChannel={(channel) => setActiveNavTab(channel)}
+              allLeads={{ email: emailLeads, instagram: instagramLeads, facebook: facebookLeads }}
+              onUpdateEmailLeads={handleUpdateEmailLeads}
+              onUpdateInstagramLeads={handleUpdateInstagramLeads}
+              onUpdateFacebookLeads={handleUpdateFacebookLeads}
             />
           )}
 
@@ -144,6 +161,22 @@ export default function App() {
               leads={facebookLeads}
               onUpdateLeads={handleUpdateFacebookLeads}
               onNavigateToChannel={(channel) => setActiveNavTab(channel)}
+              allLeads={{ email: emailLeads, instagram: instagramLeads, facebook: facebookLeads }}
+              onUpdateEmailLeads={handleUpdateEmailLeads}
+              onUpdateInstagramLeads={handleUpdateInstagramLeads}
+              onUpdateFacebookLeads={handleUpdateFacebookLeads}
+            />
+          )}
+
+          {activeNavTab === 'inbox' && (
+            <LeadInboxView
+              onLeadAccepted={(targetChannel, updatedLeads) => {
+                if (targetChannel === 'email') handleUpdateEmailLeads(updatedLeads);
+                else if (targetChannel === 'instagram') handleUpdateInstagramLeads(updatedLeads);
+                else if (targetChannel === 'facebook') handleUpdateFacebookLeads(updatedLeads);
+              }}
+              onNavigateToChannel={(channel) => setActiveNavTab(channel)}
+              channelLeads={{ email: emailLeads, instagram: instagramLeads, facebook: facebookLeads }}
             />
           )}
 

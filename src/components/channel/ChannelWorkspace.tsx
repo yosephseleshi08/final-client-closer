@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Mail,
   Instagram,
@@ -10,6 +10,7 @@ import {
   Image as ImageIcon,
   AlertCircle,
   Film,
+  Inbox,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType, MultiChannelSubTab } from '../../types';
 import { LeadsSubPage } from './LeadsSubPage';
@@ -18,17 +19,62 @@ import { ScheduleSubPage } from './ScheduleSubPage';
 import { FollowupScheduleSubPage } from './FollowupScheduleSubPage';
 import { ReelQueueSubPage } from './ReelQueueSubPage';
 import { MockupSubPage } from './MockupSubPage';
+import { LeadInboxView } from '../LeadInboxView';
 import { getChannelLabel } from '../../utils/channelStorage';
+import { loadInboxLeads } from '../../utils/inboxStorage';
 
 interface ChannelWorkspaceProps {
   channel: MultiChannelType;
   leads: ChannelLead[];
   onUpdateLeads: (leads: ChannelLead[]) => void;
   onNavigateToChannel?: (channel: MultiChannelType) => void;
+  allLeads?: {
+    instagram?: ChannelLead[];
+    facebook?: ChannelLead[];
+    email?: ChannelLead[];
+  };
+  onUpdateEmailLeads?: (leads: ChannelLead[]) => void;
+  onUpdateInstagramLeads?: (leads: ChannelLead[]) => void;
+  onUpdateFacebookLeads?: (leads: ChannelLead[]) => void;
 }
 
-export function ChannelWorkspace({ channel, leads, onUpdateLeads, onNavigateToChannel }: ChannelWorkspaceProps) {
+export function ChannelWorkspace({
+  channel,
+  leads,
+  onUpdateLeads,
+  onNavigateToChannel,
+  allLeads,
+  onUpdateEmailLeads,
+  onUpdateInstagramLeads,
+  onUpdateFacebookLeads,
+}: ChannelWorkspaceProps) {
   const [activeSubTab, setActiveSubTab] = useState<MultiChannelSubTab>('leads');
+  const [inboxCount, setInboxCount] = useState<number>(() => loadInboxLeads().length);
+
+  useEffect(() => {
+    const handleInboxChange = () => {
+      setInboxCount(loadInboxLeads().length);
+    };
+    window.addEventListener('inbox_leads_changed', handleInboxChange);
+    window.addEventListener('storage', handleInboxChange);
+    return () => {
+      window.removeEventListener('inbox_leads_changed', handleInboxChange);
+      window.removeEventListener('storage', handleInboxChange);
+    };
+  }, []);
+
+  const handleInboxLeadAccepted = (targetChannel: MultiChannelType, updatedLeads: ChannelLead[]) => {
+    if (targetChannel === channel) {
+      onUpdateLeads(updatedLeads);
+    }
+    if (targetChannel === 'email' && onUpdateEmailLeads) {
+      onUpdateEmailLeads(updatedLeads);
+    } else if (targetChannel === 'instagram' && onUpdateInstagramLeads) {
+      onUpdateInstagramLeads(updatedLeads);
+    } else if (targetChannel === 'facebook' && onUpdateFacebookLeads) {
+      onUpdateFacebookLeads(updatedLeads);
+    }
+  };
 
   const getChannelIcon = () => {
     switch (channel) {
@@ -89,6 +135,12 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads, onNavigateToCh
       label: 'Leads',
       icon: <Users className="w-4 h-4" />,
       badge: leads.length,
+    },
+    {
+      id: 'inbox',
+      label: '📥 Lead Inbox',
+      icon: <Inbox className="w-4 h-4" />,
+      badge: inboxCount > 0 ? inboxCount : undefined,
     },
     {
       id: 'dm',
@@ -211,6 +263,14 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads, onNavigateToCh
             leads={leads}
             onUpdateLeads={onUpdateLeads}
             onNavigateToChannel={onNavigateToChannel}
+          />
+        )}
+
+        {activeSubTab === 'inbox' && (
+          <LeadInboxView
+            onLeadAccepted={handleInboxLeadAccepted}
+            onNavigateToChannel={onNavigateToChannel}
+            channelLeads={allLeads}
           />
         )}
 

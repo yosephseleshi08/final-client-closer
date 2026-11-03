@@ -249,10 +249,9 @@ export interface WeeklyAnalysisSummary {
   coachInsights: string[];
 }
 
-// Multi-Channel Outreach Command Center Types
 export type MultiChannelType = 'email' | 'instagram' | 'facebook';
 
-export type GlobalNavTab = 'email' | 'instagram' | 'facebook' | 'today' | 'dashboard' | 'insights' | 'history';
+export type GlobalNavTab = 'email' | 'instagram' | 'facebook' | 'inbox' | 'today' | 'dashboard' | 'insights' | 'history';
 
 export type DailyHistoryStatus = 'full' | 'partial' | 'zero' | 'sunday' | 'frozen';
 
@@ -288,7 +287,18 @@ export interface HistoryStreakStats {
   reelsPostedToday?: number;
 }
 
-export type MultiChannelSubTab = 'leads' | 'dm' | 'schedule' | 'followup' | 'reel-queue' | 'mockup';
+export type MultiChannelSubTab = 'leads' | 'inbox' | 'dm' | 'schedule' | 'followup' | 'reel-queue' | 'mockup';
+
+export interface InboxLead {
+  id: string;
+  name: string;
+  platform: 'Instagram' | 'Facebook' | 'Email' | 'Other';
+  rawPlatform?: string;
+  profileLink: string;
+  prompt: string;
+  uploadedAt: string;
+  rawDetails?: Record<string, any>;
+}
 
 export type CadenceLeadStatus = 'not_sent' | 'waiting_reply' | 'seen' | 'replied' | 'completed';
 
@@ -302,9 +312,11 @@ export interface ChannelLead {
   createdAt: string;
   lastContactDate?: string;
   city?: string; // e.g. location for Day 14 social proof template
+  prompt?: string; // Lead Engine / AI Prompt
 
   // Sub-page B: DM Pitch & 3-Step Sequence
   customPitch?: string;
+  stagedDmMiniPitch?: string;
   initialDM?: string;
   followup3DM?: string;
   followup7DM?: string;

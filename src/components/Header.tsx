@@ -8,6 +8,7 @@ import {
   LineChart,
   Layers,
   History,
+  Inbox,
 } from 'lucide-react';
 import { GlobalNavTab } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -18,6 +19,7 @@ interface HeaderProps {
   emailLeadCount?: number;
   instagramLeadCount?: number;
   facebookLeadCount?: number;
+  inboxCount?: number;
   todayTaskCount?: number;
   isFrozen?: boolean;
   onToggleFreeze?: () => void;
@@ -29,6 +31,7 @@ export const Header: React.FC<HeaderProps> = ({
   emailLeadCount = 0,
   instagramLeadCount = 0,
   facebookLeadCount = 0,
+  inboxCount = 0,
   todayTaskCount = 0,
   isFrozen = false,
   onToggleFreeze,
@@ -61,6 +64,14 @@ export const Header: React.FC<HeaderProps> = ({
       icon: <Facebook className="w-4 h-4" />,
       badge: facebookLeadCount,
       colorClass: 'text-sky-400',
+    },
+    {
+      id: 'inbox',
+      label: '📥 Lead Inbox',
+      icon: <Inbox className="w-4 h-4" />,
+      badge: inboxCount > 0 ? inboxCount : undefined,
+      badgeColor: inboxCount > 0 ? 'bg-purple-500 text-white font-bold' : undefined,
+      colorClass: 'text-purple-400',
     },
     {
       id: 'today',
