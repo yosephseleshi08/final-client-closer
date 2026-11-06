@@ -17,7 +17,7 @@ import {
   Layers,
   ArrowRight,
 } from 'lucide-react';
-import { DailyHistoryRecord, DailyHistoryStatus } from '../types';
+import { DailyHistoryRecord, DailyHistoryStatus, ChannelLead } from '../types';
 import {
   loadDailyHistory,
   calculateStreaks,
@@ -25,15 +25,29 @@ import {
   resetDailyHistory,
   OUTREACH_START_DATE,
 } from '../utils/historyStorage';
-import { getLocalTodayStr } from '../utils/cadenceEngine';
+import {
+  getLocalTodayStr,
+  addDays,
+  getLeadBaseContactDate,
+  normalizeToLocalDateStr,
+} from '../utils/cadenceEngine';
+import { loadChannelLeads } from '../utils/channelStorage';
 import { getVideosVerifiedTodayCount } from '../utils/videoVerification';
 import { getStoriesPostedTodayCount } from '../utils/growthCurve';
 
 interface HistoryPageProps {
   onNavigateToToday: () => void;
+  emailLeads?: ChannelLead[];
+  instagramLeads?: ChannelLead[];
+  facebookLeads?: ChannelLead[];
 }
 
-export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) => {
+export const HistoryPage: React.FC<HistoryPageProps> = ({
+  onNavigateToToday,
+  emailLeads,
+  instagramLeads,
+  facebookLeads,
+}) => {
   const [historyRecords, setHistoryRecords] = useState<DailyHistoryRecord[]>(() =>
     loadDailyHistory()
   );
@@ -42,6 +56,61 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
   const [showResetModal, setShowResetModal] = useState<boolean>(false);
 
   const todayStr = getLocalTodayStr();
+
+  // Combine leads across channels
+  const allLeads = useMemo(() => {
+    const e = emailLeads || loadChannelLeads('email');
+    const ig = instagramLeads || loadChannelLeads('instagram');
+    const fb = facebookLeads || loadChannelLeads('facebook');
+    return [...e, ...ig, ...fb];
+  }, [emailLeads, instagramLeads, facebookLeads]);
+
+  // Map touchpoints per date: Initial (Blue), D7 (Purple), D14 (Amber), D30 (Red)
+  const touchpointsByDate = useMemo(() => {
+    const map: Record<
+      string,
+      { initial: number; d7: number; d14: number; d30: number }
+    > = {};
+
+    allLeads.forEach((l) => {
+      // 1. Initial Contact
+      const initDate =
+        l.scheduledDate ||
+        l.initialSentDate ||
+        (l.dmSent && l.dmSentAt ? normalizeToLocalDateStr(l.dmSentAt) : undefined);
+      if (initDate) {
+        if (!map[initDate]) map[initDate] = { initial: 0, d7: 0, d14: 0, d30: 0 };
+        map[initDate].initial += 1;
+      }
+
+      // Base contact date for calculating follow-up windows
+      const baseDate = getLeadBaseContactDate(l);
+      if (baseDate) {
+        // 2. Day 7 Follow-Up
+        const d7Date = l.followup1Date || addDays(baseDate, 7);
+        if (d7Date) {
+          if (!map[d7Date]) map[d7Date] = { initial: 0, d7: 0, d14: 0, d30: 0 };
+          map[d7Date].d7 += 1;
+        }
+
+        // 3. Day 14 Follow-Up
+        const d14Date = l.followup2Date || addDays(baseDate, 14);
+        if (d14Date) {
+          if (!map[d14Date]) map[d14Date] = { initial: 0, d7: 0, d14: 0, d30: 0 };
+          map[d14Date].d14 += 1;
+        }
+
+        // 4. Day 30 Follow-Up
+        const d30Date = l.followup3Date || addDays(baseDate, 30);
+        if (d30Date) {
+          if (!map[d30Date]) map[d30Date] = { initial: 0, d7: 0, d14: 0, d30: 0 };
+          map[d30Date].d30 += 1;
+        }
+      }
+    });
+
+    return map;
+  }, [allLeads]);
 
   // Streak calculations and aggregates
   const streakStats = useMemo(
@@ -290,7 +359,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
           </div>
 
           {/* Legend */}
-          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+          <div className="flex flex-wrap items-center gap-2.5 text-[11px] text-slate-400">
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
               <span>100%</span>
@@ -301,16 +370,25 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-              <span>0% Missed</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
-              <span>❄️ Frozen</span>
+              <span>0%</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
-              <span>Sunday Rest</span>
+              <span>Rest</span>
             </div>
+            <span className="text-slate-700 hidden sm:inline">|</span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
+              🔵 Initial
+            </span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+              🟣 D7
+            </span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              🟡 D14
+            </span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+              🔴 D30
+            </span>
           </div>
         </div>
 
@@ -320,6 +398,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
             const isToday = day.date === todayStr;
             const isSelected = selectedDate === day.date;
             const statusMeta = getStatusDisplay(day);
+            const tp = touchpointsByDate[day.date] || { initial: 0, d7: 0, d14: 0, d30: 0 };
 
             let borderStyle = 'border-white/5 hover:border-white/20';
             if (isSelected) {
@@ -346,7 +425,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
                     ? `${day.displayDate}: ${day.dmsSent}/${day.dmsTarget} Tasks (${day.initialDmsSent} Initial · ${day.followupsSent || 0} Follow-ups) — ${day.percentage}%`
                     : `${day.displayDate}: ${day.dmsSent}/${day.dmsTarget} Tasks (${day.percentage}%)`
                 }
-                className={`relative flex flex-col justify-between p-3 rounded-xl border transition-all text-left group ${borderStyle}`}
+                className={`relative flex flex-col justify-between p-3 rounded-xl border transition-all text-left group min-h-[92px] ${borderStyle}`}
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-300 font-mono">
@@ -355,7 +434,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
                   <span className={`w-2 h-2 rounded-full ${statusMeta.dotClass}`} />
                 </div>
 
-                <div className="mt-3">
+                <div className="mt-2">
                   <div className="flex items-baseline justify-between">
                     <span className="text-sm font-bold text-white font-mono tabular-nums">
                       {day.isSunday ? 'Rest' : `${day.percentage}%`}
@@ -363,6 +442,42 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({ onNavigateToToday }) =
                     <span className="text-[10px] text-slate-400 font-mono">
                       {day.isSunday ? '⚪' : `${day.dmsSent}/${day.dmsTarget}`}
                     </span>
+                  </div>
+
+                  {/* Standardized Follow-up Cadence Touchpoint Badges */}
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {tp.initial > 0 && (
+                      <span
+                        className="px-1 py-0.2 rounded text-[9px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40 font-mono"
+                        title={`${tp.initial} Initial Outreach`}
+                      >
+                        🔵 {tp.initial}
+                      </span>
+                    )}
+                    {tp.d7 > 0 && (
+                      <span
+                        className="px-1 py-0.2 rounded text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 font-mono"
+                        title={`${tp.d7} Day 7 Follow-Ups (+7d)`}
+                      >
+                        🟣 {tp.d7}
+                      </span>
+                    )}
+                    {tp.d14 > 0 && (
+                      <span
+                        className="px-1 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono"
+                        title={`${tp.d14} Day 14 Follow-Ups (+14d)`}
+                      >
+                        🟡 {tp.d14}
+                      </span>
+                    )}
+                    {tp.d30 > 0 && (
+                      <span
+                        className="px-1 py-0.2 rounded text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 font-mono"
+                        title={`${tp.d30} Day 30 Final Follow-Ups (+30d)`}
+                      >
+                        🔴 {tp.d30}
+                      </span>
+                    )}
                   </div>
                 </div>
 

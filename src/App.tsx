@@ -217,6 +217,9 @@ export default function App() {
           {activeNavTab === 'history' && (
             <HistoryPage
               onNavigateToToday={() => setActiveNavTab('today')}
+              emailLeads={emailLeads}
+              instagramLeads={instagramLeads}
+              facebookLeads={facebookLeads}
             />
           )}
         </main>

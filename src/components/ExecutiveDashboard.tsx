@@ -42,16 +42,35 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
     ...facebookLeads.map((l) => ({ ...l, channelName: 'Facebook' as const })),
   ];
 
-  // DMs Sent Today
-  const dmsSentTodayCount = allLeads.filter(
+  // Calculate DMs / Touchpoints Sent Today per channel
+  const igSentToday = instagramLeads.filter(
     (l) =>
       (l.dmSent && normalizeToLocalDateStr(l.dmSentAt) === todayStr) ||
       normalizeToLocalDateStr(l.initialSentDate) === todayStr
   ).length;
+
+  const emailSentToday = emailLeads.filter(
+    (l) =>
+      (l.dmSent && normalizeToLocalDateStr(l.dmSentAt) === todayStr) ||
+      normalizeToLocalDateStr(l.initialSentDate) === todayStr
+  ).length;
+
+  const fbSentToday = facebookLeads.filter(
+    (l) =>
+      (l.dmSent && normalizeToLocalDateStr(l.dmSentAt) === todayStr) ||
+      normalizeToLocalDateStr(l.initialSentDate) === todayStr
+  ).length;
+
+  const dmsSentTodayCount = igSentToday + emailSentToday + fbSentToday;
   const historyDmsSent = historyRecords.find((r) => r.date === todayStr)?.initialDmsSent || 0;
   const effectiveDmsSentToday = Math.max(dmsSentTodayCount, historyDmsSent);
-  const dmQuotaTarget = 6;
-  const dmProgressPercent = Math.min(100, Math.round((effectiveDmsSentToday / dmQuotaTarget) * 100));
+  
+  // Unified Cross-Channel Quota: Global cap of 10 Combined Touchpoints/Day (IG target: 6, Others: 4)
+  const unifiedDailyQuotaTarget = 10;
+  const dmProgressPercent = Math.min(100, Math.round((effectiveDmsSentToday / unifiedDailyQuotaTarget) * 100));
+
+  // Count FB restricted leads needing email routing
+  const fbRestrictedCount = facebookLeads.filter((l) => l.fb_message_restricted).length;
 
   // Streak Calculation (Sunday Rest Mode preserved)
   const streakStats = calculateStreaks(historyRecords, {
@@ -128,7 +147,11 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
             Outreach Engine Pro
           </h1>
           <p className="text-xs text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
-            <span>Quota: 6 DMs/Day</span>
+            <span className="text-indigo-300 font-semibold">Unified Quota: 10 Combined Touchpoints/Day</span>
+            <span>·</span>
+            <span className="text-pink-400">IG Target: 6</span>
+            <span>+</span>
+            <span className="text-indigo-300">Email & FB: 4</span>
             <span>·</span>
             <span className="text-emerald-400 font-medium">Sunday Rest Mode Active</span>
             <span>·</span>
@@ -172,38 +195,64 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
         </div>
       </div>
 
+      {/* FB Message Restriction Smart Routing Banner if any restricted leads detected */}
+      {fbRestrictedCount > 0 && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3.5 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-amber-200">
+            <span className="text-base">🚫</span>
+            <span>
+              <strong>{fbRestrictedCount} Facebook {fbRestrictedCount === 1 ? 'Lead has' : 'Leads have'}</strong> the message button restricted or hidden. Smart routing automatically prioritizes Email fallback.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigateToChannel('facebook')}
+            className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-semibold cursor-pointer shrink-0"
+          >
+            Review FB Leads
+          </button>
+        </div>
+      )}
+
       {/* Top 3 Executive Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* 1. DMs Sent Today (Progress Bar X / 6) */}
+        {/* 1. Unified Touchpoints Dispatched Today (Progress Bar X / 10) */}
         <div className="rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-950/30 via-slate-900/80 to-slate-900 p-5 shadow-xl space-y-2.5">
           <div className="flex items-center justify-between text-xs font-bold text-sky-400 uppercase tracking-wider">
-            <span>DMs Sent Today</span>
+            <span>Touchpoints Today</span>
             <Send className="w-4 h-4 text-sky-400" />
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-black text-white font-mono tabular-nums">
               {effectiveDmsSentToday}
             </span>
-            <span className="text-sm font-bold text-slate-400 font-mono">/ 6</span>
-            {effectiveDmsSentToday >= 6 && (
-              <span className="ml-auto text-[10px] font-bold text-sky-300 bg-sky-500/20 px-2 py-0.5 rounded border border-sky-500/30 font-mono">
-                Quota Hit!
+            <span className="text-sm font-bold text-slate-400 font-mono">/ 10</span>
+            {effectiveDmsSentToday >= 10 && (
+              <span className="ml-auto text-[10px] font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30 font-mono">
+                Daily Quota Met!
               </span>
             )}
           </div>
           {/* Progress Bar */}
           <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-white/10">
             <div
-              className="h-full bg-gradient-to-r from-sky-500 to-indigo-500 transition-all duration-300"
+              className="h-full bg-gradient-to-r from-pink-500 via-sky-500 to-indigo-500 transition-all duration-300"
               style={{ width: `${dmProgressPercent}%` }}
             />
+          </div>
+          {/* Channel Allocation Breakdown */}
+          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-0.5">
+            <span className="text-pink-400" title="Instagram Sent Today">IG: {igSentToday}/6</span>
+            <span className="text-indigo-400" title="Email Sent Today">Email: {emailSentToday}</span>
+            <span className="text-sky-400" title="Facebook Sent Today">FB: {fbSentToday}</span>
+            <span className="text-slate-300 font-bold">{effectiveDmsSentToday}/10 total</span>
           </div>
           <div className="text-[11px] text-slate-400 font-mono">
             {isFrozen
               ? '⏸️ Week Frozen (0 tasks due)'
-              : effectiveDmsSentToday >= 6
-              ? '🎯 Daily DM quota complete (6/6)'
-              : `${6 - effectiveDmsSentToday} more to hit daily goal`}
+              : effectiveDmsSentToday >= 10
+              ? '🎯 Unified daily quota complete (10/10)'
+              : `${10 - effectiveDmsSentToday} more touchpoints to hit daily goal`}
           </div>
         </div>
 

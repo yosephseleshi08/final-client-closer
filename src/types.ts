@@ -379,6 +379,10 @@ export interface ChannelLead {
   mockupHtmlName?: string;
   mockupHtmlContent?: string;
   mockupUrl?: string;
+
+  // Cross-Channel Routing & FB Restriction Flag
+  fb_message_restricted?: boolean; // When true on FB lead, routes fallback outreach to Email
+  notes?: string;
 }
 
 

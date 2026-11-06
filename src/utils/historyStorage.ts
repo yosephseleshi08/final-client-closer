@@ -89,7 +89,8 @@ export function getLeadsSentOnDate(dateStr: string): {
 
 /**
  * Loads daily history from localStorage.
- * Guarantees that the launch baseline (Oct 26, 2026: 6/6 DMs Sent, 100%) is present.
+ * Initialized clean without auto-seeding fake mock data.
+ * Records only exist when manually performed by the user.
  */
 export function loadDailyHistory(): DailyHistoryRecord[] {
   let records: DailyHistoryRecord[] = [];
@@ -103,54 +104,6 @@ export function loadDailyHistory(): DailyHistoryRecord[] {
     }
   } catch (err) {
     console.error('Failed to load daily history from localStorage:', err);
-  }
-
-  // Ensure October 26, 2026 is properly recorded as 100% complete with 6 DMs sent
-  const oct26Index = records.findIndex((r) => r.date === OUTREACH_START_DATE);
-  const oct26RealLeads = getLeadsSentOnDate(OUTREACH_START_DATE);
-  const oct26Initial = Math.max(6, oct26RealLeads.initialCount);
-  const oct26Followups = oct26RealLeads.followupCount;
-  const oct26Total = oct26Initial + oct26Followups;
-
-  if (oct26Index === -1) {
-    records.push({
-      date: OUTREACH_START_DATE,
-      displayDate: formatDisplayDate(OUTREACH_START_DATE),
-      dmsSent: oct26Total,
-      dmsTarget: oct26Total,
-      percentage: 100,
-      isSunday: false,
-      status: 'full',
-      notes: 'Initial outreach launch day (100% completed)',
-      updatedAt: new Date().toISOString(),
-      initialDmsSent: oct26Initial,
-      initialDmsTarget: oct26Initial,
-      followupsSent: oct26Followups,
-      followupsTarget: oct26Followups,
-    });
-    saveDailyHistory(records);
-  } else {
-    // If it exists but had less than 100% or missing initial breakdown, update it per user instructions
-    if (
-      records[oct26Index].percentage < 100 ||
-      records[oct26Index].dmsSent < 6 ||
-      records[oct26Index].initialDmsSent === undefined
-    ) {
-      records[oct26Index] = {
-        ...records[oct26Index],
-        dmsSent: oct26Total,
-        dmsTarget: oct26Total,
-        percentage: 100,
-        status: 'full',
-        notes: 'Initial outreach launch day (100% completed)',
-        updatedAt: new Date().toISOString(),
-        initialDmsSent: oct26Initial,
-        initialDmsTarget: oct26Initial,
-        followupsSent: oct26Followups,
-        followupsTarget: oct26Followups,
-      };
-      saveDailyHistory(records);
-    }
   }
 
   // Sort by date descending (newest first)
@@ -181,11 +134,11 @@ export interface TodayCompletionDetails {
   notes?: string;
 }
 
+
 /**
  * Records or updates today's completion progress into the history array.
- * Encompasses the FULL schedule (Initial DM + Day 3 Follow-Up + Day 7 Follow-Up)
- * for daily completion % and streak evaluation, while isolating Initial DM sends
- * for the Total DMs Dispatched counter.
+ * Decoupled from lead creation: ONLY records when verified manual outreach actions occur.
+ * If totalCompleted is 0 and no manual actions have occurred, no false 100% record is created.
  */
 export function recordTodayCompletion(
   completedCountOrDetails: number | TodayCompletionDetails,
@@ -230,14 +183,19 @@ export function recordTodayCompletion(
 
   const isFrozen = isPipelineFrozenNow();
 
-  const totalTarget = Math.max(totalCompleted + totalRemainingDue, totalCompleted, 1);
-  const percentage = isSunday || isFrozen
-    ? 100
-    : totalCompleted + totalRemainingDue === 0
-    ? 100
-    : totalTarget > 0
-    ? Math.min(100, Math.round((totalCompleted / totalTarget) * 100))
-    : 100;
+  // If no manual outreach has happened today (totalCompleted === 0) and it's not a frozen or sunday rest day:
+  // We do not award 100% if nothing was scheduled or completed. It stays at 0% unless at least 1 verified action occurred.
+  const totalTarget = Math.max(totalCompleted + totalRemainingDue, totalCompleted);
+  let percentage: number;
+  if (isFrozen || isSunday) {
+    percentage = 100;
+  } else if (totalCompleted === 0) {
+    percentage = 0;
+  } else if (totalTarget > 0) {
+    percentage = Math.min(100, Math.round((totalCompleted / totalTarget) * 100));
+  } else {
+    percentage = 100;
+  }
 
   let status: DailyHistoryStatus = 'zero';
   if (isFrozen) {
@@ -315,14 +273,9 @@ export interface CalculateStreaksOptions {
 /**
  * Calculates current streak and best streak from the history records.
  * Rules:
- * 1. A streak day is a non-Sunday day with percentage >= 100.
+ * 1. A streak day is a non-Sunday day where tasks were actually executed and reached >= 100%.
  * 2. Sunday is a rest day and DOES NOT break the streak (preserves streak unbroken).
- * 3. STREAK LOCK: Current Streak ONLY increments if ALL 4 conditions are met today:
- *    - DMs Sent Today >= 6
- *    - Reels Posted Today >= 1 (or on Week 1 off-days: 0 required; on Week 1 active days: >= 1)
- *    - Videos Verified Today >= 1 (verified today through the 2-second confirmation gate)
- *    - Stories Posted Today >= 1
- * 4. If today is a weekday and not yet fulfilled, the streak is measured up to yesterday.
+ * 3. All streak stats initialize at 0 until the first verified manual completion action occurs.
  */
 export function calculateStreaks(
   records: DailyHistoryRecord[],
@@ -337,38 +290,31 @@ export function calculateStreaks(
   const todayEntry = mapByDate.get(todayStr);
   const isTodaySun = isDateStringSunday(todayStr);
 
-  const effectiveTodayDms =
+  const effectiveTodayTasksCompleted =
     options?.todayDmsSent !== undefined
       ? options.todayDmsSent
-      : todayEntry?.initialDmsSent ?? todayEntry?.dmsSent ?? 0;
+      : (todayEntry?.dmsSent ?? 0);
 
-  const effectiveTodayVideosVerified =
-    options?.todayVideosVerified !== undefined
-      ? options.todayVideosVerified
-      : todayEntry?.videosVerified ?? getVideosVerifiedTodayCount();
+  // If there are no records in the history and today has 0 completions, return zero stats
+  if (records.length === 0 && effectiveTodayTasksCompleted === 0) {
+    return {
+      currentStreak: 0,
+      bestStreak: 0,
+      completedDaysCount: 0,
+      averageCompletionRate: 0,
+      totalDMsSent: 0,
+      videosVerifiedToday: options?.todayVideosVerified ?? 0,
+      storiesPostedToday: options?.todayStoriesPosted ?? 0,
+      reelsPostedToday: options?.todayReelsPosted ?? 0,
+    };
+  }
 
-  const effectiveTodayReels =
-    options?.todayReelsPosted !== undefined
-      ? options.todayReelsPosted
-      : todayEntry?.reelsPosted ?? 0;
-
-  const effectiveTodayStories =
-    options?.todayStoriesPosted !== undefined
-      ? options.todayStoriesPosted
-      : todayEntry?.storiesPosted ?? 0;
-
-  // Streak Lock Rule:
-  // Today increments the streak ONLY IF:
-  // 1. DMs Sent Today >= 6
-  // 2. Reels Posted Today >= required (Week 1 Mon/Wed/Fri/Sun: 1, off-days: 0; Week 2+: 1)
-  // 3. Videos Verified Today >= 1
-  // 4. Stories Posted Today >= 1
-  const isTodayStreakUnlocked =
+  // Today completes streak if it reached 100% and has at least 1 verified task completed
+  const isTodayCompleted =
     !isTodaySun &&
-    effectiveTodayDms >= 6 &&
-    effectiveTodayVideosVerified >= 1 &&
-    effectiveTodayStories >= 1 &&
-    effectiveTodayReels >= 1;
+    todayEntry !== undefined &&
+    todayEntry.percentage >= 100 &&
+    todayEntry.dmsSent > 0;
 
   // 1. Calculate Current Streak
   let currentStreak = 0;
@@ -379,86 +325,88 @@ export function calculateStreaks(
   if (isTodaySun || isTodayFrozen) {
     // Sunday or Frozen day is a rest mode: streak continues unbroken up to the last active day
     startOffset = -1;
-  } else if (!isTodayStreakUnlocked) {
-    // Weekday in progress or streak locked (needs 6 DMs & >= 1 verified video today)
+  } else if (!isTodayCompleted) {
+    // Weekday in progress: streak counts consecutive completed days up to yesterday
     startOffset = -1;
   } else {
-    // Both 6 DMs and >= 1 verified video are achieved today! Today increments streak!
+    // Today has 100% completion verified!
     startOffset = 0;
   }
 
-  // Iterate backwards day by day up to 365 days
+  // Find the earliest recorded entry date to know where history starts
+  const recordedDates = records.map((r) => r.date).filter(Boolean).sort();
+  const earliestDate = recordedDates.length > 0 ? recordedDates[0] : todayStr;
+
+  // Iterate backwards day by day up to 365 days or earliest recorded date
   for (let offset = startOffset; offset >= -365; offset--) {
     const dateStr = getDateOffset(offset);
 
-    // Stop if we go before official outreach start date
-    if (dateStr < OUTREACH_START_DATE) {
+    if (dateStr < earliestDate) {
       break;
     }
 
     const isSunday = isDateStringSunday(dateStr);
     const isFrozen = isDateFrozen(dateStr);
     if (isSunday || isFrozen) {
-      // Sunday or Frozen day is neutral rest mode; continues the streak without incrementing or breaking
+      // Sunday or Frozen day continues the streak without incrementing or breaking
       continue;
     }
 
     if (offset === 0) {
-      if (isTodayStreakUnlocked) {
+      if (isTodayCompleted) {
         currentStreak++;
       }
       continue;
     }
 
     const entry = mapByDate.get(dateStr);
-    if (entry && (entry.percentage >= 100 || entry.status === 'frozen')) {
+    if (entry && entry.dmsSent > 0 && (entry.percentage >= 100 || entry.status === 'frozen')) {
       currentStreak++;
     } else {
-      // Encountered a past weekday with < 100% completion; streak breaks
+      // Missing or incomplete working day breaks current streak
       break;
     }
   }
 
-  // 2. Calculate Best Streak across all recorded days from OUTREACH_START_DATE to today
+  // 2. Calculate Best Streak across all recorded days
   let bestStreak = currentStreak;
   let tempStreak = 0;
 
-  // Gather chronological dates from start date up to today
-  const allDates: string[] = [];
-  let d = new Date(OUTREACH_START_DATE);
-  const end = new Date(todayStr);
+  if (recordedDates.length > 0) {
+    const allDates: string[] = [];
+    let d = new Date(earliestDate);
+    const end = new Date(todayStr);
 
-  while (d <= end) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    allDates.push(`${y}-${m}-${day}`);
-    d.setDate(d.getDate() + 1);
-  }
-
-  for (const dateStr of allDates) {
-    if (isDateStringSunday(dateStr) || isDateFrozen(dateStr)) {
-      continue; // Sunday or Frozen day does not reset or count as a break
+    while (d <= end) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      allDates.push(`${y}-${m}-${day}`);
+      d.setDate(d.getDate() + 1);
     }
 
-    if (dateStr === todayStr) {
-      if (isTodayStreakUnlocked) {
+    for (const dateStr of allDates) {
+      if (isDateStringSunday(dateStr) || isDateFrozen(dateStr)) {
+        continue;
+      }
+
+      if (dateStr === todayStr) {
+        if (isTodayCompleted) {
+          tempStreak++;
+          if (tempStreak > bestStreak) bestStreak = tempStreak;
+        }
+        continue;
+      }
+
+      const entry = mapByDate.get(dateStr);
+      if (entry && entry.dmsSent > 0 && entry.percentage >= 100) {
         tempStreak++;
         if (tempStreak > bestStreak) {
           bestStreak = tempStreak;
         }
+      } else {
+        tempStreak = 0;
       }
-      continue;
-    }
-
-    const entry = mapByDate.get(dateStr);
-    if (entry && entry.percentage >= 100) {
-      tempStreak++;
-      if (tempStreak > bestStreak) {
-        bestStreak = tempStreak;
-      }
-    } else {
-      tempStreak = 0;
     }
   }
 
@@ -473,7 +421,7 @@ export function calculateStreaks(
     const entry = mapByDate.get(dateStr);
     const isSunday = isDateStringSunday(dateStr);
 
-    if (entry) {
+    if (entry && entry.dmsSent > 0) {
       const initialSends =
         entry.initialDmsSent !== undefined ? entry.initialDmsSent : entry.dmsSent || 0;
       totalDMs += initialSends;
@@ -486,7 +434,7 @@ export function calculateStreaks(
   }
 
   const avgCompletion =
-    activeDaysEvaluated > 0 ? Math.round(totalPercentages / activeDaysEvaluated) : 100;
+    activeDaysEvaluated > 0 ? Math.round(totalPercentages / activeDaysEvaluated) : 0;
 
   return {
     currentStreak,
@@ -494,15 +442,15 @@ export function calculateStreaks(
     completedDaysCount,
     averageCompletionRate: avgCompletion,
     totalDMsSent: totalDMs,
-    videosVerifiedToday: effectiveTodayVideosVerified,
-    storiesPostedToday: effectiveTodayStories,
-    reelsPostedToday: effectiveTodayReels,
+    videosVerifiedToday: options?.todayVideosVerified ?? 0,
+    storiesPostedToday: options?.todayStoriesPosted ?? 0,
+    reelsPostedToday: options?.todayReelsPosted ?? 0,
   };
 }
 
 /**
  * Builds the complete 30-day view window (today back to 29 days ago).
- * Provides intelligent default records for days where no history exists.
+ * Default records for past days with no action start at 0% (never fake 100%).
  */
 export function get30DayHistoryView(records: DailyHistoryRecord[]): DailyHistoryRecord[] {
   const mapByDate = new Map<string, DailyHistoryRecord>();
@@ -527,14 +475,10 @@ export function get30DayHistoryView(records: DailyHistoryRecord[]): DailyHistory
         notes: isFrozen ? 'Pipeline Frozen (Streak Protected)' : existing.notes,
       });
     } else {
-      // Prior to launch or missing
-      const isBeforeLaunch = dateStr < OUTREACH_START_DATE;
       const status: DailyHistoryStatus = isFrozen
         ? 'frozen'
         : isSunday
         ? 'sunday'
-        : isBeforeLaunch
-        ? 'zero'
         : 'zero';
 
       result.push({
@@ -550,8 +494,6 @@ export function get30DayHistoryView(records: DailyHistoryRecord[]): DailyHistory
           ? 'Pipeline Frozen (Streak Protected)'
           : isSunday
           ? 'Sunday Rest Day'
-          : isBeforeLaunch
-          ? 'Before outreach launch'
           : 'No outreach recorded',
         updatedAt: new Date().toISOString(),
       });
@@ -562,7 +504,7 @@ export function get30DayHistoryView(records: DailyHistoryRecord[]): DailyHistory
 }
 
 /**
- * Clears all daily history and re-seeds cleanly with the October 26 baseline.
+ * Clears all daily history cleanly to 0 without mock data.
  */
 export function resetDailyHistory(): DailyHistoryRecord[] {
   try {
@@ -570,5 +512,5 @@ export function resetDailyHistory(): DailyHistoryRecord[] {
   } catch (err) {
     console.error('Failed to reset daily history:', err);
   }
-  return loadDailyHistory();
+  return [];
 }

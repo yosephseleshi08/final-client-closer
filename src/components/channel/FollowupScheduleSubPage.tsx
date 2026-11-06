@@ -62,6 +62,7 @@ export function FollowupScheduleSubPage({
   const [activeCadenceTab, setActiveCadenceTab] = useState<FollowupCadenceTab>('due_today');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [noteModalLead, setNoteModalLead] = useState<ChannelLead | null>(null);
+  const [adminOverrideEnabled, setAdminOverrideEnabled] = useState(false);
 
   const todayStr = getLocalTodayStr();
 
@@ -270,12 +271,28 @@ export function FollowupScheduleSubPage({
           </p>
         </div>
 
-        {dueTodayLeads.length > 0 && (
-          <span className="text-xs font-bold text-rose-300 bg-rose-500/20 px-3 py-1 rounded-xl border border-rose-500/30 flex items-center gap-1.5 self-start sm:self-auto animate-pulse">
-            <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
-            <span>{dueTodayLeads.length} Actionable Today</span>
-          </span>
-        )}
+        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setAdminOverrideEnabled(!adminOverrideEnabled)}
+            className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+              adminOverrideEnabled
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm shadow-amber-500/20'
+                : 'bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 border-white/10'
+            }`}
+            title="Toggle Admin Override to force-send follow-ups outside designated +7/+14/+30 windows"
+          >
+            <Zap className={`w-3.5 h-3.5 ${adminOverrideEnabled ? 'text-amber-400 animate-pulse' : 'text-slate-400'}`} />
+            <span>{adminOverrideEnabled ? '⚡ Override Active' : '🛡️ Strict Cadence'}</span>
+          </button>
+
+          {dueTodayLeads.length > 0 && (
+            <span className="text-xs font-bold text-rose-300 bg-rose-500/20 px-3 py-1 rounded-xl border border-rose-500/30 flex items-center gap-1.5 animate-pulse">
+              <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+              <span>{dueTodayLeads.length} Actionable Today</span>
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Internal Sub-Tabs Navigation */}
@@ -706,6 +723,28 @@ export function FollowupScheduleSubPage({
                       <span className="text-xs text-slate-500 font-mono">Target: {target}</span>
                     </div>
                     <p className="text-xs text-slate-400 italic truncate">"{templates.day7Message}"</p>
+
+                    {adminOverrideEnabled && (
+                      <div className="pt-2 border-t border-amber-500/20 flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[11px] font-bold text-amber-400">⚡ Admin Override Active</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(`${lead.id}-day7-override`, templates.day7Message)}
+                            className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-300 font-semibold cursor-pointer"
+                          >
+                            {copiedKey === `${lead.id}-day7-override` ? 'Copied!' : 'Copy Msg'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateLeadItem(markFollowupSent(lead, 1))}
+                            className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow transition cursor-pointer"
+                          >
+                            ⚡ Force Send Day 7
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -882,6 +921,28 @@ export function FollowupScheduleSubPage({
                       <span className="text-xs text-slate-500 font-mono">Target: {target}</span>
                     </div>
                     <p className="text-xs text-slate-400 italic truncate">"{templates.day14Message}"</p>
+
+                    {adminOverrideEnabled && (
+                      <div className="pt-2 border-t border-purple-500/20 flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[11px] font-bold text-purple-400">⚡ Admin Override Active</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(`${lead.id}-day14-override`, templates.day14Message)}
+                            className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-300 font-semibold cursor-pointer"
+                          >
+                            {copiedKey === `${lead.id}-day14-override` ? 'Copied!' : 'Copy Msg'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateLeadItem(markFollowupSent(lead, 2))}
+                            className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow transition cursor-pointer"
+                          >
+                            ⚡ Force Send Day 14
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1058,6 +1119,28 @@ export function FollowupScheduleSubPage({
                       <span className="text-xs text-slate-500 font-mono">Target: {target}</span>
                     </div>
                     <p className="text-xs text-slate-400 italic truncate">"{templates.day30Message}"</p>
+
+                    {adminOverrideEnabled && (
+                      <div className="pt-2 border-t border-rose-500/20 flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[11px] font-bold text-rose-400">⚡ Admin Override Active</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(`${lead.id}-day30-override`, templates.day30Message)}
+                            className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-300 font-semibold cursor-pointer"
+                          >
+                            {copiedKey === `${lead.id}-day30-override` ? 'Copied!' : 'Copy Msg'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateLeadItem(markFollowupSent(lead, 3))}
+                            className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow transition cursor-pointer"
+                          >
+                            ⚡ Force Send Day 30
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

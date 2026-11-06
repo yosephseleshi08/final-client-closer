@@ -42,16 +42,14 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
   };
 
   /**
-   * Auto-Schedule Algorithm:
-   * Takes all unscheduled leads and assigns them dates based on:
-   * - Start Date: Starts TOMORROW (not today), so today can be used to warm up tomorrow's leads.
-   * - Days 1-3: 3 leads per day
-   * - Days 4-6: 4 leads per day
-   * - Days 7-9: 5 leads per day
-   * - Day 10+: 6 leads per day
-   * - Sunday Rule: If assigned date falls on Sunday, skip Sunday and assign to Monday.
-   * - Facebook Logic: Facebook always ramps at 3 leads/day from day one (flat 3/day, skipping Sundays).
-   * - Existing Data: Do not break existing scheduled leads. Only fill in the gaps for unscheduled leads.
+   * Auto-Schedule Algorithm: Flat Capacity Model
+   * Replaced ramp-up growth curve with immediate flat target volumes:
+   * - Instagram: 6 leads/day from Day 1
+   * - Email & Facebook (Combined Others): 4 leads/day from Day 1
+   * - Total Combined Outreach Quota: 10 leads/day
+   * - Start Date: Starts TOMORROW (protects today for warming up)
+   * - Sunday Rule: If assigned date falls on Sunday, skip to Monday (Sunday Rest Day).
+   * - Existing Data: Preserves existing scheduled leads, only fills gaps up to capacity.
    * - Warm-Up Lock: Newly scheduled leads default to warmupStatus: 'locked'.
    */
   const handleAutoSchedule = () => {
@@ -74,31 +72,17 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
     const [year, month, day] = todayStr.split('-').map(Number);
     const cursor = new Date(year, month - 1, day + 1);
 
-    let outreachDayIndex = 1;
     let unscheduledIndex = 0;
     const assignments: Record<string, string> = {};
+
+    // Flat capacity: Instagram = 6/day, Email/Facebook = 4/day
+    const dailyQuota = channel === 'instagram' ? 6 : 4;
 
     while (unscheduledIndex < unscheduledLeads.length) {
       // Sunday Rule: 0 = Sunday. Sunday is rest, skip to Monday.
       if (cursor.getDay() === 0) {
         cursor.setDate(cursor.getDate() + 1);
         continue;
-      }
-
-      // Calculate quota for this outreach day
-      let dailyQuota: number;
-      if (channel === 'facebook') {
-        dailyQuota = 3; // Flat 3/day from day one
-      } else {
-        if (outreachDayIndex <= 3) {
-          dailyQuota = 3;
-        } else if (outreachDayIndex <= 6) {
-          dailyQuota = 4;
-        } else if (outreachDayIndex <= 9) {
-          dailyQuota = 5;
-        } else {
-          dailyQuota = 6;
-        }
       }
 
       const y = cursor.getFullYear();
@@ -118,7 +102,6 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
 
       // Advance to next calendar day
       cursor.setDate(cursor.getDate() + 1);
-      outreachDayIndex++;
     }
 
     const updated = leads.map((l) => {
@@ -135,7 +118,7 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
 
     onUpdateLeads(updated);
     setScheduledBannerMsg(
-      `🚀 Auto-scheduled ${unscheduledLeads.length} leads across the ramp curve (Sundays protected)!`
+      `🚀 Auto-scheduled ${unscheduledLeads.length} leads using Flat Capacity Model (${dailyQuota}/day, Sundays protected)!`
     );
     setTimeout(() => setScheduledBannerMsg(null), 4500);
   };
@@ -152,9 +135,7 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
             <span>{getChannelLabel(channel)} Dispatch Planner</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            {channel === 'facebook'
-              ? 'Facebook Ramp: Flat 3 leads/day from day one (Sundays skipped).'
-              : 'Growth Curve: Days 1-3 (3/day) · Days 4-6 (4/day) · Days 7-9 (5/day) · Day 10+ (6/day) · Sundays rest.'}
+            Flat Capacity Model: {channel === 'instagram' ? 'Target 6 leads/day' : 'Target 4 leads/day'} from Day 1 · Global Quota: 10 Combined Touchpoints/Day (Sundays rest).
           </p>
         </div>
 

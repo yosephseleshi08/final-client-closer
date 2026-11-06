@@ -40,6 +40,8 @@ import {
   formatAddedDate,
   validateChannelLink,
   resequenceLeadIds,
+  loadChannelLeads,
+  saveChannelLeads,
 } from '../../utils/channelStorage';
 import {
   getScheduleDayStyle,
@@ -56,13 +58,19 @@ interface LeadsSubPageProps {
 
 interface SortableLeadRowProps {
   lead: ChannelLead;
+  channel: MultiChannelType;
   onDelete: (id: string) => void;
+  onToggleFbRestricted?: (id: string) => void;
+  onRouteToEmail?: (lead: ChannelLead) => void;
   isJustAdded?: boolean;
 }
 
 function SortableLeadRow({
   lead,
+  channel,
   onDelete,
+  onToggleFbRestricted,
+  onRouteToEmail,
   isJustAdded,
 }: SortableLeadRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -140,6 +148,51 @@ function SortableLeadRow({
               <span>{dayStyle.dayShort}</span>
               <span className="opacity-75">· {lead.scheduledDate.split('-').slice(1).join('/')}</span>
             </span>
+          )}
+
+          {/* Facebook Restriction Status & Smart Fallback Routing */}
+          {channel === 'facebook' && (
+            <div className="flex items-center gap-1.5 ml-1">
+              {lead.fb_message_restricted ? (
+                <>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                    🚫 Message Restricted
+                  </span>
+                  {onRouteToEmail && (
+                    <button
+                      type="button"
+                      onClick={() => onRouteToEmail(lead)}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 transition cursor-pointer"
+                      title="Route lead to Email outreach pipeline"
+                    >
+                      <span>Route to Email</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  )}
+                  {onToggleFbRestricted && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleFbRestricted(lead.id)}
+                      className="text-[10px] text-slate-500 hover:text-slate-300 underline cursor-pointer ml-1"
+                      title="Clear restriction flag"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </>
+              ) : (
+                onToggleFbRestricted && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleFbRestricted(lead.id)}
+                    className="text-[10px] text-slate-500 hover:text-amber-400 px-1.5 py-0.5 rounded border border-transparent hover:border-slate-700 transition cursor-pointer"
+                    title="Flag if Facebook Message button is restricted/hidden on prospect profile"
+                  >
+                    Flag Restricted
+                  </button>
+                )
+              )}
+            </div>
           )}
         </div>
       </td>
@@ -347,6 +400,45 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     setModalNameInput('');
   };
 
+  const handleToggleFbRestricted = (id: string) => {
+    const updated = leads.map((l) =>
+      l.id === id ? { ...l, fb_message_restricted: !l.fb_message_restricted } : l
+    );
+    onUpdateLeads(updated);
+  };
+
+  const handleRouteToEmail = (lead: ChannelLead) => {
+    try {
+      const emailLeads = loadChannelLeads('email');
+      const nextIdData = getNextLeadId('email', emailLeads);
+      const newEmailLead: ChannelLead = {
+        ...lead,
+        id: nextIdData.id,
+        numericId: nextIdData.numericId,
+        channel: 'email',
+        notes: `${lead.notes ? lead.notes + ' | ' : ''}Auto-routed from FB (message button restricted)`,
+        fb_message_restricted: true,
+        scheduledDate: undefined,
+      };
+      saveChannelLeads('email', [...emailLeads, newEmailLead]);
+
+      const updated = leads.map((l) =>
+        l.id === lead.id
+          ? { ...l, fb_message_restricted: true, notes: 'Routed to Email pipeline' }
+          : l
+      );
+      onUpdateLeads(updated);
+
+      setDuplicateAlert({
+        message: `✅ Routed "${lead.name}" to Email Outreach Pipeline (${newEmailLead.id})!`,
+        timestamp: Date.now(),
+        detectedChannel: 'email',
+      });
+    } catch (err) {
+      console.error('Failed to route lead to email:', err);
+    }
+  };
+
   const handleDeleteLead = (id: string) => {
     const filtered = leads.filter((l) => l.id !== id);
     const resequenced = resequenceLeadIds(filtered, channel);
@@ -547,7 +639,10 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                       <SortableLeadRow
                         key={lead.id}
                         lead={lead}
+                        channel={channel}
                         onDelete={handleDeleteLead}
+                        onToggleFbRestricted={channel === 'facebook' ? handleToggleFbRestricted : undefined}
+                        onRouteToEmail={channel === 'facebook' ? handleRouteToEmail : undefined}
                         isJustAdded={lead.id === justAddedLeadId}
                       />
                     ))}
