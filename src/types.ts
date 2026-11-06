@@ -249,9 +249,9 @@ export interface WeeklyAnalysisSummary {
   coachInsights: string[];
 }
 
-export type MultiChannelType = 'email' | 'instagram' | 'facebook';
+export type MultiChannelType = 'combined' | 'instagram' | 'email' | 'facebook';
 
-export type GlobalNavTab = 'email' | 'instagram' | 'facebook' | 'inbox' | 'today' | 'dashboard' | 'insights' | 'history';
+export type GlobalNavTab = 'combined' | 'instagram' | 'inbox' | 'today' | 'dashboard' | 'insights' | 'history';
 
 export type DailyHistoryStatus = 'full' | 'partial' | 'zero' | 'sunday' | 'frozen';
 

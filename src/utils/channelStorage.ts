@@ -4,6 +4,8 @@ const STORAGE_PREFIX = 'outreach_channel_leads_';
 
 export function getChannelPrefix(channel: MultiChannelType): string {
   switch (channel) {
+    case 'combined':
+      return 'CM';
     case 'email':
       return 'EM';
     case 'instagram':
@@ -15,6 +17,8 @@ export function getChannelPrefix(channel: MultiChannelType): string {
 
 export function getChannelLabel(channel: MultiChannelType): string {
   switch (channel) {
+    case 'combined':
+      return 'Combined Outreach';
     case 'email':
       return 'Email';
     case 'instagram':
@@ -26,10 +30,38 @@ export function getChannelLabel(channel: MultiChannelType): string {
 
 /**
  * Loads leads for a specific channel from localStorage with full isolation.
+ * For 'combined', automatically merges existing email and facebook stores if combined store is empty.
  */
 export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
   try {
-    const raw = localStorage.getItem(`${STORAGE_PREFIX}${channel}`);
+    const storageKey = `${STORAGE_PREFIX}${channel}`;
+    const raw = localStorage.getItem(storageKey);
+
+    // Merge existing Facebook and Email data into outreach_channel_leads_combined if not initialized
+    if (channel === 'combined' && (!raw || raw === '[]')) {
+      const rawEmail = localStorage.getItem(`${STORAGE_PREFIX}email`);
+      const rawFb = localStorage.getItem(`${STORAGE_PREFIX}facebook`);
+      const emailList: ChannelLead[] = rawEmail ? JSON.parse(rawEmail) : [];
+      const fbList: ChannelLead[] = rawFb ? JSON.parse(rawFb) : [];
+
+      if (emailList.length > 0 || fbList.length > 0) {
+        const merged: ChannelLead[] = [
+          ...fbList.map((l, i) => ({
+            ...l,
+            channel: 'combined' as MultiChannelType,
+            sortOrder: i,
+          })),
+          ...emailList.map((l, i) => ({
+            ...l,
+            channel: 'combined' as MultiChannelType,
+            sortOrder: fbList.length + i,
+          })),
+        ];
+        localStorage.setItem(storageKey, JSON.stringify(merged));
+        return merged.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      }
+    }
+
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
@@ -353,6 +385,17 @@ export function validateChannelLink(
   }
 
   const detected = detectLinkChannel(trimmed);
+
+  if (channel === 'combined') {
+    if (detected === 'instagram') {
+      return {
+        isValid: false,
+        detectedChannel: 'instagram',
+        errorMessage: 'Error: This is an Instagram link. Please switch to the Instagram workspace.',
+      };
+    }
+    return { isValid: true };
+  }
 
   if (channel === 'email') {
     if (detected === 'instagram') {

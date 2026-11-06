@@ -9,6 +9,7 @@ import {
   Download,
   ArrowRight,
   TrendingUp,
+  Layers,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../types';
 import { exportChannelData, getChannelLabel } from '../utils/channelStorage';
@@ -16,9 +17,10 @@ import { loadDailyHistory, calculateStreaks, isDateStringSunday } from '../utils
 import { getLocalTodayStr, normalizeToLocalDateStr } from '../utils/cadenceEngine';
 
 interface ExecutiveDashboardProps {
-  emailLeads: ChannelLead[];
+  combinedLeads?: ChannelLead[];
+  emailLeads?: ChannelLead[];
   instagramLeads: ChannelLead[];
-  facebookLeads: ChannelLead[];
+  facebookLeads?: ChannelLead[];
   onNavigateToChannel: (channel: MultiChannelType) => void;
   onNavigateToToday?: () => void;
   isFrozen?: boolean;
@@ -26,9 +28,10 @@ interface ExecutiveDashboardProps {
 }
 
 export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
-  emailLeads,
+  combinedLeads,
+  emailLeads = [],
   instagramLeads,
-  facebookLeads,
+  facebookLeads = [],
   onNavigateToChannel,
   isFrozen = false,
   onToggleFreeze,
@@ -36,10 +39,11 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   const todayStr = getLocalTodayStr();
   const historyRecords = loadDailyHistory();
 
+  const effectiveCombinedLeads = combinedLeads ?? [...emailLeads, ...facebookLeads];
+
   const allLeads = [
-    ...emailLeads.map((l) => ({ ...l, channelName: 'Email' as const })),
+    ...effectiveCombinedLeads.map((l) => ({ ...l, channelName: 'Combined Outreach' as const })),
     ...instagramLeads.map((l) => ({ ...l, channelName: 'Instagram' as const })),
-    ...facebookLeads.map((l) => ({ ...l, channelName: 'Facebook' as const })),
   ];
 
   // Calculate DMs / Touchpoints Sent Today per channel
@@ -49,19 +53,13 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
       normalizeToLocalDateStr(l.initialSentDate) === todayStr
   ).length;
 
-  const emailSentToday = emailLeads.filter(
+  const combinedSentToday = effectiveCombinedLeads.filter(
     (l) =>
       (l.dmSent && normalizeToLocalDateStr(l.dmSentAt) === todayStr) ||
       normalizeToLocalDateStr(l.initialSentDate) === todayStr
   ).length;
 
-  const fbSentToday = facebookLeads.filter(
-    (l) =>
-      (l.dmSent && normalizeToLocalDateStr(l.dmSentAt) === todayStr) ||
-      normalizeToLocalDateStr(l.initialSentDate) === todayStr
-  ).length;
-
-  const dmsSentTodayCount = igSentToday + emailSentToday + fbSentToday;
+  const dmsSentTodayCount = igSentToday + combinedSentToday;
   const historyDmsSent = historyRecords.find((r) => r.date === todayStr)?.initialDmsSent || 0;
   const effectiveDmsSentToday = Math.max(dmsSentTodayCount, historyDmsSent);
   
@@ -70,7 +68,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   const dmProgressPercent = Math.min(100, Math.round((effectiveDmsSentToday / unifiedDailyQuotaTarget) * 100));
 
   // Count FB restricted leads needing email routing
-  const fbRestrictedCount = facebookLeads.filter((l) => l.fb_message_restricted).length;
+  const fbRestrictedCount = effectiveCombinedLeads.filter((l) => l.fb_message_restricted).length;
 
   // Streak Calculation (Sunday Rest Mode preserved)
   const streakStats = calculateStreaks(historyRecords, {
@@ -79,9 +77,13 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   const isTodaySunday = isDateStringSunday(todayStr);
 
   const handleExportAllChannels = () => {
-    exportChannelData('email', 'csv', emailLeads);
-    setTimeout(() => exportChannelData('instagram', 'csv', instagramLeads), 300);
-    setTimeout(() => exportChannelData('facebook', 'csv', facebookLeads), 600);
+    if (combinedLeads) {
+      exportChannelData('combined', 'csv', effectiveCombinedLeads);
+    } else {
+      exportChannelData('email', 'csv', emailLeads);
+      setTimeout(() => exportChannelData('facebook', 'csv', facebookLeads), 300);
+    }
+    setTimeout(() => exportChannelData('instagram', 'csv', instagramLeads), 600);
   };
 
   // Pipeline Comparison Data per Channel
@@ -95,13 +97,13 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
     leads: ChannelLead[];
   }[] = [
     {
-      channel: 'email',
-      label: 'Email',
-      icon: <Mail className="w-4 h-4 text-indigo-400" />,
+      channel: 'combined',
+      label: 'Combined Outreach',
+      icon: <Layers className="w-4 h-4 text-indigo-400" />,
       color: 'text-indigo-400',
       border: 'border-indigo-500/30',
       badgeClass: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20',
-      leads: emailLeads,
+      leads: effectiveCombinedLeads,
     },
     {
       channel: 'instagram',
@@ -111,15 +113,6 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
       border: 'border-pink-500/30',
       badgeClass: 'bg-pink-500/10 text-pink-300 border-pink-500/20',
       leads: instagramLeads,
-    },
-    {
-      channel: 'facebook',
-      label: 'Facebook',
-      icon: <Facebook className="w-4 h-4 text-sky-400" />,
-      color: 'text-sky-400',
-      border: 'border-sky-500/30',
-      badgeClass: 'bg-sky-500/10 text-sky-300 border-sky-500/20',
-      leads: facebookLeads,
     },
   ];
 
@@ -243,8 +236,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
           {/* Channel Allocation Breakdown */}
           <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-0.5">
             <span className="text-pink-400" title="Instagram Sent Today">IG: {igSentToday}/6</span>
-            <span className="text-indigo-400" title="Email Sent Today">Email: {emailSentToday}</span>
-            <span className="text-sky-400" title="Facebook Sent Today">FB: {fbSentToday}</span>
+            <span className="text-indigo-400" title="Combined Outreach (Email & FB) Sent Today">Combined: {combinedSentToday}/4</span>
             <span className="text-slate-300 font-bold">{effectiveDmsSentToday}/10 total</span>
           </div>
           <div className="text-[11px] text-slate-400 font-mono">

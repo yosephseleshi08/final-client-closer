@@ -1,8 +1,6 @@
 import React from 'react';
 import {
-  Mail,
   Instagram,
-  Facebook,
   CalendarDays,
   LayoutDashboard,
   LineChart,
@@ -16,9 +14,8 @@ import { PWAInstallButton } from './PWAInstallButton';
 interface HeaderProps {
   activeTab: GlobalNavTab;
   setActiveTab: (tab: GlobalNavTab) => void;
-  emailLeadCount?: number;
+  combinedLeadCount?: number;
   instagramLeadCount?: number;
-  facebookLeadCount?: number;
   inboxCount?: number;
   todayTaskCount?: number;
   isFrozen?: boolean;
@@ -28,9 +25,8 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
-  emailLeadCount = 0,
+  combinedLeadCount = 0,
   instagramLeadCount = 0,
-  facebookLeadCount = 0,
   inboxCount = 0,
   todayTaskCount = 0,
   isFrozen = false,
@@ -45,10 +41,10 @@ export const Header: React.FC<HeaderProps> = ({
     colorClass: string;
   }[] = [
     {
-      id: 'email',
-      label: 'Email',
-      icon: <Mail className="w-4 h-4" />,
-      badge: emailLeadCount,
+      id: 'combined',
+      label: 'Combined Outreach',
+      icon: <Layers className="w-4 h-4" />,
+      badge: combinedLeadCount,
       colorClass: 'text-indigo-400',
     },
     {
@@ -57,13 +53,6 @@ export const Header: React.FC<HeaderProps> = ({
       icon: <Instagram className="w-4 h-4" />,
       badge: instagramLeadCount,
       colorClass: 'text-pink-400',
-    },
-    {
-      id: 'facebook',
-      label: 'Facebook',
-      icon: <Facebook className="w-4 h-4" />,
-      badge: facebookLeadCount,
-      colorClass: 'text-sky-400',
     },
     {
       id: 'inbox',
@@ -150,7 +139,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Global Top Navigation */}
-        <nav className="flex items-center gap-1.5 overflow-x-auto no-scrollbar p-1 bg-slate-950/60 rounded-xl border border-white/5">
+        <nav className="flex items-center gap-1.5 overflow-x-auto no-scrollbar [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden p-1 bg-slate-950/60 rounded-xl border border-white/5">
           {navButtons.map((btn) => {
             const isActive = activeTab === btn.id;
             return (

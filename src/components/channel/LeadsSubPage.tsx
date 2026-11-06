@@ -151,24 +151,13 @@ function SortableLeadRow({
           )}
 
           {/* Facebook Restriction Status & Smart Fallback Routing */}
-          {channel === 'facebook' && (
+          {(channel === 'facebook' || channel === 'combined') && (
             <div className="flex items-center gap-1.5 ml-1">
               {lead.fb_message_restricted ? (
                 <>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
-                    🚫 Message Restricted
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    🚫 FB Restricted · Defaults to Email Dispatch
                   </span>
-                  {onRouteToEmail && (
-                    <button
-                      type="button"
-                      onClick={() => onRouteToEmail(lead)}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 transition cursor-pointer"
-                      title="Route lead to Email outreach pipeline"
-                    >
-                      <span>Route to Email</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </button>
-                  )}
                   {onToggleFbRestricted && (
                     <button
                       type="button"
@@ -186,9 +175,9 @@ function SortableLeadRow({
                     type="button"
                     onClick={() => onToggleFbRestricted(lead.id)}
                     className="text-[10px] text-slate-500 hover:text-amber-400 px-1.5 py-0.5 rounded border border-transparent hover:border-slate-700 transition cursor-pointer"
-                    title="Flag if Facebook Message button is restricted/hidden on prospect profile"
+                    title="Flag if Facebook Message button is restricted — will default to Email dispatch"
                   >
-                    Flag Restricted
+                    Flag FB Restricted
                   </button>
                 )
               )}
@@ -197,17 +186,24 @@ function SortableLeadRow({
         </div>
       </td>
 
-      {/* Link */}
+      {/* Link & Smart Route Dispatch */}
       <td className="py-3.5 px-4 text-left text-xs text-slate-400">
-        <a
-          href={formattedUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 transition-colors max-w-sm truncate group/link"
-        >
-          <span className="truncate">{lead.link}</span>
-          <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-70 group-hover/link:opacity-100" />
-        </a>
+        <div className="flex items-center gap-2 flex-wrap">
+          <a
+            href={lead.fb_message_restricted && !lead.link.includes('@') ? `mailto:?subject=${encodeURIComponent(`Outreach: ${lead.name}`)}` : formattedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 transition-colors max-w-sm truncate group/link"
+          >
+            <span className="truncate">{lead.link}</span>
+            <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-70 group-hover/link:opacity-100" />
+          </a>
+          {lead.fb_message_restricted && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
+              ✉️ Email Default
+            </span>
+          )}
+        </div>
       </td>
 
       {/* Action: ONLY Delete Button (🗑️) */}
@@ -519,7 +515,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
               type="text"
               value={linkInput}
               onChange={(e) => setLinkInput(e.target.value)}
-              placeholder={`Paste ${getChannelLabel(channel)} profile link or handle, then press Enter...`}
+              placeholder={channel === 'combined' ? 'Paste Facebook link, profile URL, or email address, then press Enter...' : `Paste ${getChannelLabel(channel)} profile link or handle, then press Enter...`}
               className="w-full pl-10 pr-4 py-2.5 bg-slate-950/80 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
             />
           </div>

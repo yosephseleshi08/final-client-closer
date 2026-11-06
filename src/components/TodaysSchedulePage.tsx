@@ -25,6 +25,7 @@ import {
   Snowflake,
   Play,
   Flame,
+  Layers,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../types';
 import { QuickNoteModal } from './QuickNoteModal';
@@ -55,21 +56,25 @@ import {
 } from '../utils/cadenceEngine';
 
 interface TodaysSchedulePageProps {
-  emailLeads: ChannelLead[];
+  combinedLeads?: ChannelLead[];
+  emailLeads?: ChannelLead[];
   instagramLeads: ChannelLead[];
-  facebookLeads: ChannelLead[];
-  onUpdateEmailLeads: (leads: ChannelLead[]) => void;
+  facebookLeads?: ChannelLead[];
+  onUpdateCombinedLeads?: (leads: ChannelLead[]) => void;
+  onUpdateEmailLeads?: (leads: ChannelLead[]) => void;
   onUpdateInstagramLeads: (leads: ChannelLead[]) => void;
-  onUpdateFacebookLeads: (leads: ChannelLead[]) => void;
+  onUpdateFacebookLeads?: (leads: ChannelLead[]) => void;
   onNavigateToChannel: (channel: MultiChannelType) => void;
   isFrozen?: boolean;
   onToggleFreeze?: () => void;
 }
 
 export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
-  emailLeads,
+  combinedLeads,
+  emailLeads = [],
   instagramLeads,
-  facebookLeads,
+  facebookLeads = [],
+  onUpdateCombinedLeads,
   onUpdateEmailLeads,
   onUpdateInstagramLeads,
   onUpdateFacebookLeads,
@@ -102,17 +107,38 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     }
   };
 
+  const effectiveCombinedLeads = combinedLeads ?? [...emailLeads, ...facebookLeads];
+
   // Helper to update a lead in its respective channel store
   const handleUpdateLead = (updated: ChannelLead) => {
+    if (updated.channel === 'combined' || (combinedLeads && onUpdateCombinedLeads)) {
+      if (onUpdateCombinedLeads) {
+        onUpdateCombinedLeads(effectiveCombinedLeads.map((l) => (l.id === updated.id ? updated : l)));
+        return;
+      }
+    }
     switch (updated.channel) {
+      case 'combined':
+        if (onUpdateCombinedLeads) {
+          onUpdateCombinedLeads(effectiveCombinedLeads.map((l) => (l.id === updated.id ? updated : l)));
+        }
+        break;
       case 'email':
-        onUpdateEmailLeads(emailLeads.map((l) => (l.id === updated.id ? updated : l)));
+        if (onUpdateEmailLeads && emailLeads.length > 0) {
+          onUpdateEmailLeads(emailLeads.map((l) => (l.id === updated.id ? updated : l)));
+        } else if (onUpdateCombinedLeads) {
+          onUpdateCombinedLeads(effectiveCombinedLeads.map((l) => (l.id === updated.id ? updated : l)));
+        }
         break;
       case 'instagram':
         onUpdateInstagramLeads(instagramLeads.map((l) => (l.id === updated.id ? updated : l)));
         break;
       case 'facebook':
-        onUpdateFacebookLeads(facebookLeads.map((l) => (l.id === updated.id ? updated : l)));
+        if (onUpdateFacebookLeads && facebookLeads.length > 0) {
+          onUpdateFacebookLeads(facebookLeads.map((l) => (l.id === updated.id ? updated : l)));
+        } else if (onUpdateCombinedLeads) {
+          onUpdateCombinedLeads(effectiveCombinedLeads.map((l) => (l.id === updated.id ? updated : l)));
+        }
         break;
     }
   };
@@ -158,9 +184,8 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   };
 
   const allLeads: (ChannelLead & { channelLabel: string })[] = [
-    ...emailLeads.map((l) => ({ ...l, channelLabel: 'Email' })),
+    ...effectiveCombinedLeads.map((l) => ({ ...l, channelLabel: 'Combined Outreach' })),
     ...instagramLeads.map((l) => ({ ...l, channelLabel: 'Instagram' })),
-    ...facebookLeads.map((l) => ({ ...l, channelLabel: 'Facebook' })),
   ];
 
   const filteredAllLeads = allLeads.filter((l) => {
@@ -332,8 +357,22 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   };
 
   const igStats = getChannelStats('instagram');
-  const fbStats = getChannelStats('facebook');
-  const emailStats = getChannelStats('email');
+  const combinedStats = {
+    initialDue: effectiveCombinedLeads.filter((l) => {
+      if (l.isCompleted || l.initialSentDate) return false;
+      if (isLeadDismissedToday(l)) return false;
+      return isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate);
+    }).length,
+    followupsDue: effectiveCombinedLeads.filter((l) => {
+      if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+      if (isLeadDismissedToday(l)) return false;
+      if (!l.initialSentDate) return false;
+      if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date) || isDay7FollowupDue(l, todayStr))) return true;
+      if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date) || isDay14FollowupDue(l, todayStr))) return true;
+      if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDateOverdue(l.followup3Date) || isDay30FollowupDue(l, todayStr))) return true;
+      return false;
+    }).length,
+  };
 
   // Automatically sync today's full schedule progress (Initial DM + Day 3 FU + Day 7 FU)
   // into persistent daily history, while isolating Initial DM sends for Total DMs Dispatches
@@ -947,7 +986,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       {/* ========================================================================= */}
       {/* SECTION: NUMBERS DASHBOARD (Clean Quotas & Direct Workspace Links)        */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Instagram */}
         <div className="rounded-2xl border border-pink-500/30 bg-gradient-to-br from-pink-950/25 via-slate-900/90 to-slate-900 p-5 backdrop-blur-xl shadow-xl flex flex-col justify-between gap-4">
           <div className="space-y-3">
@@ -958,7 +997,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                 </div>
                 <div>
                   <h3 className="font-bold text-white text-base font-['Outfit']">Instagram</h3>
-                  <span className="text-[10px] font-mono text-pink-300/80 uppercase">Workspace Quotas</span>
+                  <span className="text-[10px] font-mono text-pink-300/80 uppercase">Quota: 6 DMs/Day</span>
                 </div>
               </div>
             </div>
@@ -979,64 +1018,33 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
           </button>
         </div>
 
-        {/* Facebook */}
-        <div className="rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-950/25 via-slate-900/90 to-slate-900 p-5 backdrop-blur-xl shadow-xl flex flex-col justify-between gap-4">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center shadow-sm">
-                  <Facebook className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-white text-base font-['Outfit']">Facebook</h3>
-                  <span className="text-[10px] font-mono text-sky-300/80 uppercase">Workspace Quotas</span>
-                </div>
-              </div>
-            </div>
-            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/5">
-              <div className="text-sm sm:text-base font-bold text-white font-mono tracking-tight">
-                <span className="text-sky-300 font-black text-lg">{fbStats.initialDue}</span> Initial DMs ·{' '}
-                <span className="text-sky-300 font-black text-lg">{fbStats.followupsDue}</span> Follow-Ups
-              </div>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => onNavigateToChannel('facebook')}
-            className="w-full py-2.5 px-3 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 hover:text-white border border-sky-500/30 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm group active:scale-98"
-          >
-            <span>View FB Leads</span>
-            <span className="transition-transform group-hover:translate-x-1">→</span>
-          </button>
-        </div>
-
-        {/* Email */}
+        {/* Combined Outreach (Email & Facebook) */}
         <div className="rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-indigo-950/25 via-slate-900/90 to-slate-900 p-5 backdrop-blur-xl shadow-xl flex flex-col justify-between gap-4">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <div className="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center shadow-sm">
-                  <Mail className="w-5 h-5" />
+                  <Layers className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-white text-base font-['Outfit']">Email</h3>
-                  <span className="text-[10px] font-mono text-indigo-300/80 uppercase">Workspace Quotas</span>
+                  <h3 className="font-bold text-white text-base font-['Outfit']">Combined Outreach</h3>
+                  <span className="text-[10px] font-mono text-indigo-300/80 uppercase">Quota: 4 Messages/Day (Email + FB)</span>
                 </div>
               </div>
             </div>
             <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/5">
               <div className="text-sm sm:text-base font-bold text-white font-mono tracking-tight">
-                <span className="text-indigo-300 font-black text-lg">{emailStats.initialDue}</span> Initial DMs ·{' '}
-                <span className="text-indigo-300 font-black text-lg">{emailStats.followupsDue}</span> Follow-Ups
+                <span className="text-indigo-300 font-black text-lg">{combinedStats.initialDue}</span> Initial DMs ·{' '}
+                <span className="text-indigo-300 font-black text-lg">{combinedStats.followupsDue}</span> Follow-Ups
               </div>
             </div>
           </div>
           <button
             type="button"
-            onClick={() => onNavigateToChannel('email')}
+            onClick={() => onNavigateToChannel('combined')}
             className="w-full py-2.5 px-3 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border border-indigo-500/30 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm group active:scale-98"
           >
-            <span>View Email Leads</span>
+            <span>View Combined Leads</span>
             <span className="transition-transform group-hover:translate-x-1">→</span>
           </button>
         </div>

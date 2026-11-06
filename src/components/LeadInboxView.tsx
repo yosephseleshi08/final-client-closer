@@ -31,6 +31,7 @@ interface LeadInboxViewProps {
   onNavigateToChannel?: (channel: MultiChannelType) => void;
   // Optional preloaded channel leads
   channelLeads?: {
+    combined?: ChannelLead[];
     instagram?: ChannelLead[];
     facebook?: ChannelLead[];
     email?: ChannelLead[];

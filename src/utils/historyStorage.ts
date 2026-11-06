@@ -46,11 +46,11 @@ export function getLeadsSentOnDate(dateStr: string): {
   followupCount: number;
   channelBreakdown: Record<string, number>;
 } {
-  const channels: MultiChannelType[] = ['email', 'instagram', 'facebook'];
+  const channels: MultiChannelType[] = ['combined', 'instagram'];
   let count = 0;
   let initialCount = 0;
   let followupCount = 0;
-  const channelBreakdown: Record<string, number> = { email: 0, instagram: 0, facebook: 0 };
+  const channelBreakdown: Record<string, number> = { combined: 0, instagram: 0 };
 
   for (const ch of channels) {
     const leads = loadChannelLeads(ch);
@@ -58,19 +58,20 @@ export function getLeadsSentOnDate(dateStr: string): {
       const initDate = normalizeToLocalDateStr(lead.initialSentDate);
       const f1Date = normalizeToLocalDateStr(lead.followup1SentDate);
       const f2Date = normalizeToLocalDateStr(lead.followup2SentDate);
+      const f3Date = normalizeToLocalDateStr(lead.followup3SentDate);
 
       let channelHit = false;
       if (initDate === dateStr) {
         count++;
         initialCount++;
-        channelBreakdown[ch]++;
+        channelBreakdown[ch] = (channelBreakdown[ch] || 0) + 1;
         channelHit = true;
       }
       if (f1Date === dateStr) {
         count++;
         followupCount++;
         if (!channelHit) {
-          channelBreakdown[ch]++;
+          channelBreakdown[ch] = (channelBreakdown[ch] || 0) + 1;
           channelHit = true;
         }
       }
@@ -78,7 +79,15 @@ export function getLeadsSentOnDate(dateStr: string): {
         count++;
         followupCount++;
         if (!channelHit) {
-          channelBreakdown[ch]++;
+          channelBreakdown[ch] = (channelBreakdown[ch] || 0) + 1;
+          channelHit = true;
+        }
+      }
+      if (f3Date === dateStr) {
+        count++;
+        followupCount++;
+        if (!channelHit) {
+          channelBreakdown[ch] = (channelBreakdown[ch] || 0) + 1;
         }
       }
     }

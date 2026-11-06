@@ -163,6 +163,7 @@ export function parseQualifiedLeadsJson(jsonText: string): InboxLead[] {
 export function acceptInboxLeadIntoCrm(
   lead: InboxLead,
   existingChannelLeads?: {
+    combined?: ChannelLead[];
     instagram?: ChannelLead[];
     facebook?: ChannelLead[];
     email?: ChannelLead[];
@@ -173,10 +174,8 @@ export function acceptInboxLeadIntoCrm(
   updatedLeads: ChannelLead[];
 } {
   let targetChannel: MultiChannelType = 'instagram';
-  if (lead.platform === 'Facebook') {
-    targetChannel = 'facebook';
-  } else if (lead.platform === 'Email') {
-    targetChannel = 'email';
+  if (lead.platform === 'Facebook' || lead.platform === 'Email') {
+    targetChannel = 'combined';
   } else {
     targetChannel = 'instagram';
   }
@@ -188,10 +187,11 @@ export function acceptInboxLeadIntoCrm(
   const formattedLink = lead.profileLink || (
     targetChannel === 'instagram'
       ? `@${lead.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`
-      : `https://${targetChannel}.com/${lead.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`
+      : `https://${lead.platform.toLowerCase()}.com/${lead.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`
   );
 
   const nowIso = new Date().toISOString();
+  const isFbRestricted = Boolean(lead.rawDetails?.fb_message_restricted || lead.rawDetails?.restricted);
 
   const newChannelLead: ChannelLead = {
     id,
@@ -202,6 +202,7 @@ export function acceptInboxLeadIntoCrm(
     sortOrder: 0,
     createdAt: nowIso,
     scheduledDate: getLocalTodayStr(),
+    fb_message_restricted: isFbRestricted || undefined,
     // Save prompt to lead data as requested
     prompt: lead.prompt || undefined,
     customPitch: lead.prompt || undefined,

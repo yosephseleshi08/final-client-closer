@@ -358,16 +358,23 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                               <span>{lead.scheduledDate}</span>
                             </span>
                           )}
+                          {lead.fb_message_restricted && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">
+                              ✉️ Email Dispatch Default (FB Restricted)
+                            </span>
+                          )}
                         </div>
-                        <a
-                          href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-400 transition-colors mt-0.5 truncate max-w-xs"
-                        >
-                          <span className="truncate">{lead.link}</span>
-                          <ExternalLink className="w-3 h-3 shrink-0" />
-                        </a>
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                          <a
+                            href={lead.fb_message_restricted && !lead.link.includes('@') ? `mailto:?subject=${encodeURIComponent(`Outreach: ${lead.name}`)}` : (lead.link.startsWith('http') ? lead.link : `https://${lead.link}`)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-400 transition-colors truncate max-w-xs"
+                          >
+                            <span className="truncate">{lead.link}</span>
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                          </a>
+                        </div>
                       </td>
 
                       {/* 3-Step Sequence Status & Previews (Locked vs Warmed) */}

@@ -52,22 +52,18 @@ export default function App() {
     setIsFrozen(updated.isFrozen);
   };
 
-  // Channel Leads State (Completely Isolated per Channel)
-  const [emailLeads, setEmailLeads] = useState<ChannelLead[]>(() =>
-    loadChannelLeads('email')
+  // Channel Leads State (Instagram & Unified Combined Outreach)
+  const [combinedLeads, setCombinedLeads] = useState<ChannelLead[]>(() =>
+    loadChannelLeads('combined')
   );
 
   const [instagramLeads, setInstagramLeads] = useState<ChannelLead[]>(() =>
     loadChannelLeads('instagram')
   );
 
-  const [facebookLeads, setFacebookLeads] = useState<ChannelLead[]>(() =>
-    loadChannelLeads('facebook')
-  );
-
-  const handleUpdateEmailLeads = (updated: ChannelLead[]) => {
-    setEmailLeads(updated);
-    saveChannelLeads('email', updated);
+  const handleUpdateCombinedLeads = (updated: ChannelLead[]) => {
+    setCombinedLeads(updated);
+    saveChannelLeads('combined', updated);
   };
 
   const handleUpdateInstagramLeads = (updated: ChannelLead[]) => {
@@ -75,17 +71,12 @@ export default function App() {
     saveChannelLeads('instagram', updated);
   };
 
-  const handleUpdateFacebookLeads = (updated: ChannelLead[]) => {
-    setFacebookLeads(updated);
-    saveChannelLeads('facebook', updated);
-  };
-
   const todayStr = getLocalTodayStr();
 
   // Calculate live daily tasks due across all channels
   const todayTaskCount = useMemo(() => {
     if (isTodaySunday() || isFrozen) return 0; // Paused on Sunday Rest Mode or Pipeline Freeze Mode
-    const all = [...emailLeads, ...instagramLeads, ...facebookLeads];
+    const all = [...combinedLeads, ...instagramLeads];
     return all.filter((l) => {
       if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
       if (isLeadDismissedToday(l)) return false;
@@ -107,20 +98,19 @@ export default function App() {
 
       return false;
     }).length;
-  }, [emailLeads, instagramLeads, facebookLeads, todayStr, isFrozen]);
+  }, [combinedLeads, instagramLeads, todayStr, isFrozen]);
 
   return (
     <div className="min-h-screen bg-[#080c14] text-slate-100 flex flex-col selection:bg-indigo-500/30 selection:text-indigo-200">
       <OfflineIndicator />
 
       <div className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-        {/* Global Top Navigation (Includes Today's Schedule & Lead Inbox) */}
+        {/* Global Top Navigation (Combined Outreach, Instagram, Inbox, Today, Dashboard, Insights, History) */}
         <Header
           activeTab={activeNavTab}
           setActiveTab={setActiveNavTab}
-          emailLeadCount={emailLeads.length}
+          combinedLeadCount={combinedLeads.length}
           instagramLeadCount={instagramLeads.length}
-          facebookLeadCount={facebookLeads.length}
           inboxCount={inboxCount}
           todayTaskCount={todayTaskCount}
           isFrozen={isFrozen}
@@ -129,16 +119,14 @@ export default function App() {
 
         {/* Workspace or Overview Views */}
         <main className="transition-all duration-150">
-          {activeNavTab === 'email' && (
+          {activeNavTab === 'combined' && (
             <ChannelWorkspace
-              channel="email"
-              leads={emailLeads}
-              onUpdateLeads={handleUpdateEmailLeads}
-              onNavigateToChannel={(channel) => setActiveNavTab(channel)}
-              allLeads={{ email: emailLeads, instagram: instagramLeads, facebook: facebookLeads }}
-              onUpdateEmailLeads={handleUpdateEmailLeads}
+              channel="combined"
+              leads={combinedLeads}
+              onUpdateLeads={handleUpdateCombinedLeads}
+              onNavigateToChannel={(channel) => setActiveNavTab(channel as GlobalNavTab)}
+              allLeads={{ combined: combinedLeads, instagram: instagramLeads }}
               onUpdateInstagramLeads={handleUpdateInstagramLeads}
-              onUpdateFacebookLeads={handleUpdateFacebookLeads}
             />
           )}
 
@@ -147,48 +135,45 @@ export default function App() {
               channel="instagram"
               leads={instagramLeads}
               onUpdateLeads={handleUpdateInstagramLeads}
-              onNavigateToChannel={(channel) => setActiveNavTab(channel)}
-              allLeads={{ email: emailLeads, instagram: instagramLeads, facebook: facebookLeads }}
-              onUpdateEmailLeads={handleUpdateEmailLeads}
+              onNavigateToChannel={(channel) => setActiveNavTab(channel as GlobalNavTab)}
+              allLeads={{ combined: combinedLeads, instagram: instagramLeads }}
               onUpdateInstagramLeads={handleUpdateInstagramLeads}
-              onUpdateFacebookLeads={handleUpdateFacebookLeads}
-            />
-          )}
-
-          {activeNavTab === 'facebook' && (
-            <ChannelWorkspace
-              channel="facebook"
-              leads={facebookLeads}
-              onUpdateLeads={handleUpdateFacebookLeads}
-              onNavigateToChannel={(channel) => setActiveNavTab(channel)}
-              allLeads={{ email: emailLeads, instagram: instagramLeads, facebook: facebookLeads }}
-              onUpdateEmailLeads={handleUpdateEmailLeads}
-              onUpdateInstagramLeads={handleUpdateInstagramLeads}
-              onUpdateFacebookLeads={handleUpdateFacebookLeads}
             />
           )}
 
           {activeNavTab === 'inbox' && (
             <LeadInboxView
               onLeadAccepted={(targetChannel, updatedLeads) => {
-                if (targetChannel === 'email') handleUpdateEmailLeads(updatedLeads);
-                else if (targetChannel === 'instagram') handleUpdateInstagramLeads(updatedLeads);
-                else if (targetChannel === 'facebook') handleUpdateFacebookLeads(updatedLeads);
+                if (targetChannel === 'combined' || targetChannel === 'email' || targetChannel === 'facebook') {
+                  handleUpdateCombinedLeads(updatedLeads);
+                } else if (targetChannel === 'instagram') {
+                  handleUpdateInstagramLeads(updatedLeads);
+                }
               }}
-              onNavigateToChannel={(channel) => setActiveNavTab(channel)}
-              channelLeads={{ email: emailLeads, instagram: instagramLeads, facebook: facebookLeads }}
+              onNavigateToChannel={(channel) => {
+                if (channel === 'email' || channel === 'facebook') {
+                  setActiveNavTab('combined');
+                } else {
+                  setActiveNavTab(channel as GlobalNavTab);
+                }
+              }}
+              channelLeads={{ combined: combinedLeads, instagram: instagramLeads }}
             />
           )}
 
           {activeNavTab === 'today' && (
             <TodaysSchedulePage
-              emailLeads={emailLeads}
+              combinedLeads={combinedLeads}
               instagramLeads={instagramLeads}
-              facebookLeads={facebookLeads}
-              onUpdateEmailLeads={handleUpdateEmailLeads}
+              onUpdateCombinedLeads={handleUpdateCombinedLeads}
               onUpdateInstagramLeads={handleUpdateInstagramLeads}
-              onUpdateFacebookLeads={handleUpdateFacebookLeads}
-              onNavigateToChannel={(channel: MultiChannelType) => setActiveNavTab(channel)}
+              onNavigateToChannel={(channel: MultiChannelType) => {
+                if (channel === 'email' || channel === 'facebook') {
+                  setActiveNavTab('combined');
+                } else {
+                  setActiveNavTab(channel as GlobalNavTab);
+                }
+              }}
               isFrozen={isFrozen}
               onToggleFreeze={handleToggleFreeze}
             />
@@ -196,10 +181,15 @@ export default function App() {
 
           {activeNavTab === 'dashboard' && (
             <ExecutiveDashboard
-              emailLeads={emailLeads}
+              combinedLeads={combinedLeads}
               instagramLeads={instagramLeads}
-              facebookLeads={facebookLeads}
-              onNavigateToChannel={(channel: MultiChannelType) => setActiveNavTab(channel)}
+              onNavigateToChannel={(channel: MultiChannelType) => {
+                if (channel === 'email' || channel === 'facebook') {
+                  setActiveNavTab('combined');
+                } else {
+                  setActiveNavTab(channel as GlobalNavTab);
+                }
+              }}
               onNavigateToToday={() => setActiveNavTab('today')}
               isFrozen={isFrozen}
               onToggleFreeze={handleToggleFreeze}
@@ -208,18 +198,16 @@ export default function App() {
 
           {activeNavTab === 'insights' && (
             <AnalyticsView
-              emailLeads={emailLeads}
+              combinedLeads={combinedLeads}
               instagramLeads={instagramLeads}
-              facebookLeads={facebookLeads}
             />
           )}
 
           {activeNavTab === 'history' && (
             <HistoryPage
               onNavigateToToday={() => setActiveNavTab('today')}
-              emailLeads={emailLeads}
+              combinedLeads={combinedLeads}
               instagramLeads={instagramLeads}
-              facebookLeads={facebookLeads}
             />
           )}
         </main>
@@ -230,10 +218,10 @@ export default function App() {
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span>Cadence Engine &amp; Multi-Channel Storage Active</span>
+            <span>Cadence Engine &amp; Unified Multi-Channel Storage Active</span>
           </div>
           <span className="font-mono text-[11px] text-slate-400">
-            Email ({emailLeads.length}) · Instagram ({instagramLeads.length}) · Facebook ({facebookLeads.length}) · Today's Queue ({todayTaskCount})
+            Combined Outreach ({combinedLeads.length}) · Instagram ({instagramLeads.length}) · Today's Queue ({todayTaskCount})
           </span>
         </div>
       </footer>

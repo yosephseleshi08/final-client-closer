@@ -28,9 +28,10 @@ import {
 } from '../utils/cadenceEngine';
 
 interface SundayPrepViewProps {
-  emailLeads: ChannelLead[];
+  combinedLeads?: ChannelLead[];
+  emailLeads?: ChannelLead[];
   instagramLeads: ChannelLead[];
-  facebookLeads: ChannelLead[];
+  facebookLeads?: ChannelLead[];
   onNavigateToChannel: (channel: MultiChannelType) => void;
   isPreviewMode?: boolean;
   onExitPreview?: () => void;
@@ -96,9 +97,10 @@ const SUNDAY_QUOTES: MotivationalQuote[] = [
 ];
 
 export const SundayPrepView: React.FC<SundayPrepViewProps> = ({
-  emailLeads,
+  combinedLeads,
+  emailLeads = [],
   instagramLeads,
-  facebookLeads,
+  facebookLeads = [],
   onNavigateToChannel,
   isPreviewMode = false,
   onExitPreview,
@@ -111,11 +113,12 @@ export const SundayPrepView: React.FC<SundayPrepViewProps> = ({
   const todayStr = getLocalTodayStr();
   const nextMondayStr = getMondayDateStr(todayStr);
 
+  const effectiveCombinedLeads = combinedLeads ?? [...emailLeads, ...facebookLeads];
+
   const allLeads: (ChannelLead & { channelLabel: string })[] = useMemo(() => [
     ...instagramLeads.map((l) => ({ ...l, channelLabel: 'Instagram' })),
-    ...facebookLeads.map((l) => ({ ...l, channelLabel: 'Facebook' })),
-    ...emailLeads.map((l) => ({ ...l, channelLabel: 'Email' })),
-  ], [emailLeads, instagramLeads, facebookLeads]);
+    ...effectiveCombinedLeads.map((l) => ({ ...l, channelLabel: 'Combined Outreach' })),
+  ], [instagramLeads, effectiveCombinedLeads]);
 
   // Compute live performance metrics from user's leads
   const weeklyStats = useMemo(() => {

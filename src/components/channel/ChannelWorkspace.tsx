@@ -8,6 +8,7 @@ import {
   Calendar,
   Clock,
   Image as ImageIcon,
+  Layers,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType, MultiChannelSubTab } from '../../types';
 import { LeadsSubPage } from './LeadsSubPage';
@@ -23,6 +24,7 @@ interface ChannelWorkspaceProps {
   onUpdateLeads: (leads: ChannelLead[]) => void;
   onNavigateToChannel?: (channel: MultiChannelType) => void;
   allLeads?: {
+    combined?: ChannelLead[];
     instagram?: ChannelLead[];
     facebook?: ChannelLead[];
     email?: ChannelLead[];
@@ -46,6 +48,8 @@ export function ChannelWorkspace({
 
   const getChannelIcon = () => {
     switch (channel) {
+      case 'combined':
+        return <Layers className="w-5 h-5 text-indigo-400" />;
       case 'email':
         return <Mail className="w-5 h-5 text-indigo-400" />;
       case 'instagram':
@@ -57,6 +61,13 @@ export function ChannelWorkspace({
 
   const getChannelTheme = () => {
     switch (channel) {
+      case 'combined':
+        return {
+          gradient: 'from-indigo-500/20 via-sky-500/10 to-transparent',
+          border: 'border-indigo-500/30',
+          badge: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20',
+          activeTab: 'bg-gradient-to-r from-indigo-600 to-sky-600 text-white shadow-indigo-600/30',
+        };
       case 'email':
         return {
           gradient: 'from-indigo-500/20 via-indigo-500/5 to-transparent',
@@ -142,11 +153,13 @@ export function ChannelWorkspace({
                 {getChannelLabel(channel)} Workspace
               </h1>
               <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${theme.badge}`}>
-                Independent Store
+                {channel === 'combined' ? 'Unified Pipeline · 4 Daily Quota' : 'Independent Store'}
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Strictly isolated data pipeline for {getChannelLabel(channel)} outreach and client acquisition.
+              {channel === 'combined'
+                ? 'Unified outreach pipeline for Email & Facebook prospects. Daily Quota: 4 touchpoints.'
+                : `Strictly isolated data pipeline for ${getChannelLabel(channel)} outreach and client acquisition.`}
             </p>
           </div>
         </div>

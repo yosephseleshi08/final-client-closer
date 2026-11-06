@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Flame,
   Trophy,
@@ -23,7 +23,6 @@ import {
   calculateStreaks,
   get30DayHistoryView,
   resetDailyHistory,
-  OUTREACH_START_DATE,
 } from '../utils/historyStorage';
 import {
   getLocalTodayStr,
@@ -37,6 +36,7 @@ import { getStoriesPostedTodayCount } from '../utils/growthCurve';
 
 interface HistoryPageProps {
   onNavigateToToday: () => void;
+  combinedLeads?: ChannelLead[];
   emailLeads?: ChannelLead[];
   instagramLeads?: ChannelLead[];
   facebookLeads?: ChannelLead[];
@@ -44,6 +44,7 @@ interface HistoryPageProps {
 
 export const HistoryPage: React.FC<HistoryPageProps> = ({
   onNavigateToToday,
+  combinedLeads,
   emailLeads,
   instagramLeads,
   facebookLeads,
@@ -59,13 +60,37 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
 
   // Combine leads across channels
   const allLeads = useMemo(() => {
-    const e = emailLeads || loadChannelLeads('email');
+    const combined = combinedLeads || loadChannelLeads('combined');
     const ig = instagramLeads || loadChannelLeads('instagram');
-    const fb = facebookLeads || loadChannelLeads('facebook');
-    return [...e, ...ig, ...fb];
-  }, [emailLeads, instagramLeads, facebookLeads]);
+    const e = emailLeads || [];
+    const fb = facebookLeads || [];
+    return [...combined, ...ig, ...e, ...fb];
+  }, [combinedLeads, instagramLeads, emailLeads, facebookLeads]);
+
+  // Wipe any stale legacy mock data from LocalStorage: must start at 0 until verified outreach occurs
+  useEffect(() => {
+    const verifiedSendsCount = allLeads.filter((l) => Boolean(l.initialSentDate)).length;
+    if (verifiedSendsCount === 0) {
+      try {
+        const raw = localStorage.getItem('outreach_daily_history');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.some((r) => (r.dmsSent ?? 0) > 0 || (r.initialDmsSent ?? 0) > 0)) {
+            localStorage.removeItem('outreach_daily_history');
+            setHistoryRecords([]);
+          }
+        }
+      } catch {}
+    }
+  }, [allLeads]);
+
+  // Actual verified Initial DM dispatches
+  const totalInitialDMsDispatched = useMemo(() => {
+    return allLeads.filter((l) => Boolean(l.initialSentDate)).length;
+  }, [allLeads]);
 
   // Map touchpoints per date: Initial (Blue), D7 (Purple), D14 (Amber), D30 (Red)
+  // CRITICAL: Only count when outreach was ACTUALLY MARKED AS SENT. Never count unsent scheduled dates!
   const touchpointsByDate = useMemo(() => {
     const map: Record<
       string,
@@ -73,35 +98,36 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
     > = {};
 
     allLeads.forEach((l) => {
-      // 1. Initial Contact
-      const initDate =
-        l.scheduledDate ||
-        l.initialSentDate ||
-        (l.dmSent && l.dmSentAt ? normalizeToLocalDateStr(l.dmSentAt) : undefined);
-      if (initDate) {
-        if (!map[initDate]) map[initDate] = { initial: 0, d7: 0, d14: 0, d30: 0 };
-        map[initDate].initial += 1;
+      // 1. Initial Contact — ONLY if actually marked as sent!
+      if (l.initialSentDate) {
+        const initDate = normalizeToLocalDateStr(l.initialSentDate);
+        if (initDate) {
+          if (!map[initDate]) map[initDate] = { initial: 0, d7: 0, d14: 0, d30: 0 };
+          map[initDate].initial += 1;
+        }
       }
 
-      // Base contact date for calculating follow-up windows
-      const baseDate = getLeadBaseContactDate(l);
-      if (baseDate) {
-        // 2. Day 7 Follow-Up
-        const d7Date = l.followup1Date || addDays(baseDate, 7);
+      // 2. Day 7 Follow-Up — ONLY if actually marked as sent!
+      if (l.followup1SentDate) {
+        const d7Date = normalizeToLocalDateStr(l.followup1SentDate);
         if (d7Date) {
           if (!map[d7Date]) map[d7Date] = { initial: 0, d7: 0, d14: 0, d30: 0 };
           map[d7Date].d7 += 1;
         }
+      }
 
-        // 3. Day 14 Follow-Up
-        const d14Date = l.followup2Date || addDays(baseDate, 14);
+      // 3. Day 14 Follow-Up — ONLY if actually marked as sent!
+      if (l.followup2SentDate) {
+        const d14Date = normalizeToLocalDateStr(l.followup2SentDate);
         if (d14Date) {
           if (!map[d14Date]) map[d14Date] = { initial: 0, d7: 0, d14: 0, d30: 0 };
           map[d14Date].d14 += 1;
         }
+      }
 
-        // 4. Day 30 Follow-Up
-        const d30Date = l.followup3Date || addDays(baseDate, 30);
+      // 4. Day 30 Follow-Up — ONLY if actually marked as sent!
+      if (l.followup3SentDate) {
+        const d30Date = normalizeToLocalDateStr(l.followup3SentDate);
         if (d30Date) {
           if (!map[d30Date]) map[d30Date] = { initial: 0, d7: 0, d14: 0, d30: 0 };
           map[d30Date].d30 += 1;
@@ -116,10 +142,11 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
   const streakStats = useMemo(
     () =>
       calculateStreaks(historyRecords, {
+        todayDmsSent: totalInitialDMsDispatched,
         todayVideosVerified: getVideosVerifiedTodayCount(),
         todayStoriesPosted: getStoriesPostedTodayCount(),
       }),
-    [historyRecords]
+    [historyRecords, totalInitialDMsDispatched]
   );
 
   // 30-day window
@@ -197,15 +224,6 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
       };
     }
     // zero / missed
-    if (record.date < OUTREACH_START_DATE) {
-      return {
-        dotClass: 'bg-slate-600',
-        badgeBg: 'bg-slate-900/40 text-slate-500 border-white/5',
-        label: 'Pre-Launch',
-        icon: <Info className="w-3.5 h-3.5 text-slate-500" />,
-        desc: 'Before official outreach kickoff on Oct 26',
-      };
-    }
     return {
       dotClass: 'bg-rose-500',
       badgeBg: 'bg-rose-950/60 text-rose-300 border-rose-500/30',
@@ -337,7 +355,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-3xl font-black text-white font-mono tabular-nums">
-              {streakStats.totalDMsSent}
+              {totalInitialDMsDispatched}
             </span>
             <span className="text-xs text-indigo-300 font-medium">Initial DMs</span>
           </div>
@@ -605,11 +623,6 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                             Today
                           </span>
                         )}
-                        {record.date === OUTREACH_START_DATE && (
-                          <span className="text-[10px] font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded">
-                            Official Kickoff
-                          </span>
-                        )}
                       </div>
                       <div className="mt-0.5 text-xs text-slate-400">
                         {statusMeta.desc}
@@ -650,7 +663,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Are you sure you want to reset your history ledger? Your historical records will be cleared and reset to your clean <strong>October 26, 2026</strong> launch day (6/6 DMs Sent, 100%). Your actual leads and notes in Instagram, Facebook, and Email will not be touched.
+              Are you sure you want to reset your history ledger? Your historical records will be cleared and reset to 0. Your actual leads and notes in Instagram and Combined Outreach will not be touched.
             </p>
 
             <div className="flex items-center justify-end gap-3 pt-2">
