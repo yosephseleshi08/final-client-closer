@@ -222,3 +222,4 @@ This application is optimized for zero-server static deployment on Cloudflare Pa
 2. **LocalStorage Decoupling**: Never mutate storage keys directly. Use provided utility functions in `src/utils/channelStorage.ts` and `src/utils/historyStorage.ts`.
 3. **Time Zone Determinism**: Always format and compare calendar dates using local time strings (`YYYY-MM-DD`) via `getLocalTodayStr()` to avoid UTC date boundary misalignments.
 4. **Tailwind Styling**: Adhere to the established dark neon design token palette (`bg-slate-950`, `bg-slate-900/80`, `border-white/10`, with emerald, sky, purple, and amber accents).
+5. 5. **History Integrity**: Never auto-seed `DailyHistoryRecord` entries upon lead import or app initialization. All history increments occur ONLY via explicit manual task completion actions in the Today's Schedule module. This preserves data authenticity and prevents phantom streak inflation.
