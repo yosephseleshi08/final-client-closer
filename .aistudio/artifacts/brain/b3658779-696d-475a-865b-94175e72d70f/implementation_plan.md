@@ -1,24 +1,32 @@
-# History & Streaks Command Center
+# Fresh History Initialization & Pre-Launch Protocol
 
-A permanent daily tracking system that logs outreach completion rates across 30-day cycles, visualizes historical consistency through an interactive calendar grid and chronological audit list, and calculates unbroken daily streaks with Sunday rest-day immunity. Seeded with the user's verified October 26, 2026 outreach data (6/6 DMs Sent, 100%) as the official origin day.
+Establish a clean, fresh baseline for the 30-Day History Matrix and Streak Engine by eliminating false red "0% Missed" indicators prior to outreach kickoff, introducing neutral "Pre-Launch" calendar states, and activating streak tracking dynamically on the operator's first initial outreach dispatch.
+
+---
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The following decisions were confirmed during Phase 1 interactive clarification:
-> - **Visual Layout**: Interactive 30-day calendar matrix paired with an expandable chronological day-by-day detail log.
-> - **Completion Logic (Full Schedule)**: Daily completion percentage and streaks track **all** scheduled tasks for the day: Initial DMs + Day 3 Follow-ups + Day 7 Follow-ups (`(initialSent + followupsSent) / (totalInitialScheduled + totalFollowupsScheduled)`).
-> - **Total DMs Dispatches Isolation**: The "Total DMs Dispatched" metric counts **strictly initial DM sends** only, keeping the pipeline velocity metric clean while daily discipline tracks complete schedule execution.
-> - **October 26 Baseline & Real Data Preservation**: Rather than populating mock data, the system inspects existing leads sent on October 26, 2026 and writes an authentic 100% completion entry (`6/6 DMs Sent, 100%`) for Oct 26, 2026, establishing an immediate active streak without fabricated history.
-> - **Sunday Immunity**: Sundays are designated as "⚪ Rest Day". Sundays never reset or break a streak; Monday seamlessly carries forward Saturday's streak.
+> The following design and behavioral choices were confirmed during the interactive interview and govern this update:
+
+- **Confirmed Decision 1 (Calendar Presentation)**: Dates prior to the operator's first initial outreach day will display as **Neutral slate dots with "Pre-Launch" status** rather than red "0% Missed" failure markers.
+- **Confirmed Decision 2 (Streak & Stats Baseline)**: The Streak Counter and 30-Day Completion Rate will initialize at **0 with a prominent "Ready to Launch" badge**, activating dynamically once the first verified initial DM dispatch is recorded.
+- **Confirmed Decision 3 (Ledger Reset & Purge)**: The "Reset History" action will purge legacy records and re-index the outreach kickoff date dynamically based on verified lead dispatches.
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Provides long-term accountability and visual momentum by recording daily outreach completion percentages across all schedule queues (Initial DMs, 3-Day Follow-ups, and 7-Day Follow-ups), tracking Initial DM dispatches cleanly, calculating active/best streaks, and rendering color-coded day states over rolling 30-day windows.
-- **Target Audience**: Outbound agency operators and solopreneurs executing consistent multi-channel outreach who need permanent historical proof of work and streak gamification.
-- **Key Value**: Replaces transient "today-only" memory with an unshakeable, persistent ledger that rewards discipline while respecting restful Sundays.
+### What It Does
+- **Dynamic Launch Detection**: Automatically inspects lead stores (`instagram` and `combined`) for the earliest `initialSentDate`. If no initial DMs have been dispatched yet, the entire workspace enters a clean **Pre-Launch** state.
+- **Pre-Launch Matrix Differentiation**:
+  - Days preceding the launch date display muted slate indicators (`⚪ Pre-Launch`) with 0% penalty and neutral borders.
+  - Missed day penalties (red 🔴) only activate for business days *after* outreach kickoff where scheduled tasks were skipped.
+  - Sunday Rest protocol (`🌿 Rest Day`) continues to provide 100% streak immunity.
+- **One-Click Ledger Cleanse**: Empowers the operator to reset all historical logs with a single click, instantly cleaning up stale mock data or previous test runs.
+
+### Target Persona & Context
+Outbound deal closers and agency operators setting up their CRM pipelines on a Friday or weekend who want a pristine, unblemished 30-day matrix awaiting their first live dispatch on Monday morning.
 
 ---
 
@@ -26,117 +34,123 @@ A permanent daily tracking system that logs outreach completion rates across 30-
 
 ### Key User Flows
 
-1. **Top Navigation Access**:
-   - The user clicks the new **"📊 History"** tab in the main header (positioned next to "Insights & Analysis").
-2. **Streak Counter Dashboard**:
-   - At the top of the History page, two high-impact metric cards display:
-     - **🔥 Current Streak**: Active consecutive days hitting 100% (skipping Sundays). If today (Oct 27) has tasks pending, the streak reflects consecutive days completed up to yesterday (or increments to next level once today hits 100%).
-     - **🏆 Best Streak**: All-time record streak count preserved across cycles.
-     - **30-Day Completion Rate**: Aggregate average percentage across active working days.
-3. **Interactive 30-Day Calendar Grid**:
-   - A 5-week / 30-day calendar grid showing day numbers, completion badges, and status colors:
-     - 🟢 **100%**: Emerald background ring/dot (`6/6 DMs Sent`).
-     - 🟡 **1–99%**: Amber indicator (`Partial outreach`).
-     - 🔴 **0%**: Crimson indicator (`Missed day`).
-     - ⚪ **Sunday**: Slate/dimmed ring marked `Rest Day` (does not break streaks).
-   - Clicking any calendar cell scrolls to or highlights that day's entry in the detailed list below.
-4. **Chronological Detail Log**:
-   - Clean, scannable day cards listed in reverse-chronological order (from today down to 30 days ago).
-   - Each entry shows:
-     - Formatted Date (e.g. `Oct 26, 2026` or `Today, Oct 27, 2026`).
-     - Status dot (🟢, 🟡, 🔴, ⚪).
-     - Breakdown: `100% · 6/6 DMs Sent` or `⚪ Rest Day · Sunday Protocol`.
-     - Timestamp of last sync.
-5. **Automatic Logging from Today's Schedule**:
-   - Every time the user opens Today's Schedule or marks an outreach task as initial sent or follow-up sent, the engine recalculates today's percentage (`completed / totalDue`) and upserts today's entry in `localStorage['outreach_daily_history']`.
-6. **Data Reset Modal**:
-   - A "Reset History" button opens a confirmation modal requiring explicit confirmation ("Reset All History") before clearing the array.
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       ZERO-STATE / PRE-LAUNCH WORKFLOW                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+  1. Open History Tab
+     │
+     ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ Executive Stats Banner:                                                 │
+  │ • Current Streak: 0 Days [🚀 Ready to Launch]                           │
+  │ • Best Streak: 0 Days Record                                            │
+  │ • Average Completion Rate: 0% [Awaiting First Dispatch]                 │
+  │ • Total Initial DMs Dispatched: 0 Initial DMs                           │
+  └─────────────────────────────────────────────────────────────────────────┘
+     │
+     ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ 30-Day Calendar Matrix:                                                 │
+  │ • Past days displayed in calm slate (⚪ Pre-Launch)                      │
+  │ • Sundays displayed in subtle rest styling (⚪ Rest Day)                │
+  │ • Zero red '0% Missed' markers visible                                  │
+  └─────────────────────────────────────────────────────────────────────────┘
+     │
+     ▼
+  2. Mark First Initial DM as Sent in "Today's Schedule"
+     │
+     ▼
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ Dynamic Activation:                                                     │
+  │ • Launch date locked to today                                           │
+  │ • Today marked as Active / Complete                                     │
+  │ • Streak increments to 1 Day Active [🔥 Streak On]                      │
+  │ • Subsequent calendar days now actively audited                         │
+  └─────────────────────────────────────────────────────────────────────────┘
+```
 
-### Visual Identity & Theme
-
-- **Palette**: Dark slate canvas (`#080c14`), container borders (`border-white/10`), flame orange accents (`text-orange-400`, `bg-orange-500/10`), emerald highlights (`text-emerald-400`, `bg-emerald-500/10`), amber warning states (`text-amber-400`).
-- **Typography**: Header titles in `Outfit`, metrics and dates in tabular monospace figures (`font-mono tabular-nums`), clean unboxed metadata with `·` separators (zero-pill discipline).
-- **Accessibility**: Status dots paired with explicit text labels (`100% Complete`, `Rest Day`, `Partial`).
+### Visual Identity & Theme Tokens
+- **Pre-Launch Cells**:
+  - Border: `border-white/5 hover:border-white/10`
+  - Background: `bg-slate-900/30 hover:bg-slate-900/50`
+  - Indicator: `bg-slate-600` (muted, anti-alarmist)
+  - Text: `text-slate-400 font-mono` with label `"Pre-Launch"`
+- **Streak Status Badges**:
+  - Pre-Launch: `bg-indigo-500/10 text-indigo-300 border-indigo-500/20` (`🚀 Ready to Launch`)
+  - Active: `bg-orange-500/15 text-orange-400 border-orange-500/30` (`🔥 Day Active`)
+- **Matrix Legend Rebalancing**:
+  - `🟢 100% Complete`
+  - `🟡 1–99% Partial`
+  - `🔴 Missed (Active Outreach Days Only)`
+  - `⚪ Sunday Rest Day`
+  - `⚫ Pre-Launch (Unstarted)`
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
+## 3. Key Technical Decisions & Trade-Offs
 
-- **Decision 1: Real-Data Baseline Initialization (Oct 26, 2026)**:
-  - *Chosen Approach*: On first run of the history engine, automatically verify and insert October 26, 2026 as completed (`6/6 DMs Sent, 100%`) alongside any sent items from localStorage.
-  - *Why*: Directly honors the user's specific instruction: October 26 was their official launch day with 6 sent DMs, providing an authentic 1-day starter streak.
-- **Decision 2: Sunday Rest-Day Streak Immunity**:
-  - *Chosen Approach*: The streak calculator iterates backwards day by day. When encountering a Sunday, it skips the day without breaking the chain and without requiring outreach.
-  - *Why*: Supports sustainable work habits and aligns with the app's "Sunday Prep Mode" philosophy.
-- **Decision 3: Today's Dynamic Status vs. Finished Days**:
-  - *Chosen Approach*: If today is in progress (e.g., today is Tuesday Oct 27 and some DMs remain due), today's entry reflects live progress (e.g., `50% - 3/6 Sent`). The current streak counter counts completed days through yesterday, and automatically advances by +1 as soon as today hits 100%.
+| Decision | Selected Approach | Rationale | Alternatives Considered |
+|---|---|---|---|
+| **Launch Day Detection** | Dynamic scan of `earliestInitialSentDate` across all leads | Automatically adapts when the user sends their first real DM without requiring manual date configuration. | Hardcoded kickoff date (brittle, breaks when starting on a new date). |
+| **Pre-Launch Status Type** | Add `'pre_launch'` to `DailyHistoryStatus` union type | Gives explicit, strongly typed semantics to days before kickoff so renderers and streak calculators do not mistake them for missed days. | Overloading `'zero'` with custom boolean flags (prone to edge-case bugs). |
+| **Streak Calculation Guard** | Only audit days $\ge$ `earliestInitialSentDate` | Prevents days before the user ever used the system from penalizing the streak counter. | Calculating from arbitrary 30-day lookback (causes 0-streak lock). |
 
 ---
 
-## 4. Technical Architecture & Data Strategy
+## 4. Technical Architecture & Component Mapping
+
+### Architectural Flow
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        Global Header Navigation                        │
-│   Today's Schedule  │  Instagram  │  Facebook  │  Insights  │  History │
-└──────────────────────────────────────┬─────────────────────────────────┘
-                                       │ (activeNavTab === 'history')
-                        ┌──────────────▼──────────────┐
-                        │        HistoryPage          │
-                        │ ┌─────────────────────────┐ │
-                        │ │ Streak & Metric Bar     │ │
-                        │ │ [🔥 Streak] [🏆 Best]   │ │
-                        │ └─────────────────────────┘ │
-                        │ ┌─────────────────────────┐ │
-                        │ │ 30-Day Calendar Matrix  │ │
-                        │ └─────────────────────────┘ │
-                        │ ┌─────────────────────────┐ │
-                        │ │ Chronological Log List  │ │
-                        │ └─────────────────────────┘ │
-                        └──────────────┬──────────────┘
-                                       │
-                        ┌──────────────▼──────────────┐
-                        │   historyStorage Engine     │
-                        │ - loadDailyHistory()        │
-                        │ - recordTodayCompletion()   │
-                        │ - calculateStreaks()        │
-                        │ - initOctober26Baseline()   │
-                        │ - resetHistory()            │
-                        └──────────────┬──────────────┘
-                                       │
-                      localStorage['outreach_daily_history']
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                            STATE & LOGIC LIFECYCLE                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                
+  Channel Lead Stores (Instagram & Combined)
+       │
+       ▼
+  findEarliestInitialSentDate(leads) ──► Is Launch Triggered?
+       │                                     │
+       ├─► NO (No DMs sent yet)              ├─► YES (DMs sent starting D_0)
+       │   • All calendar dates < today      │   • Dates < D_0: 'pre_launch'
+       │     evaluated as 'pre_launch'       │   • Dates >= D_0: audited
+       │   • Streaks = 0 [Ready to Launch]   │   • Streaks calculated from D_0
+       │   • Red missed dots suppressed      │   • Red missed dots only for
+       │                                     │     skipped active business days
+       ▼                                     ▼
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │                   HistoryPage (30-Day Matrix & Audit Log)                  │
+  │  • Matrix cells render 'pre_launch' in calm slate                         │
+  │  • Streak cards display verified metrics                                  │
+  │  • Reset Ledger purges history & refreshes view                           │
+  └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Components & Modules
-
+### Module Modifications
 1. **`src/types.ts`**:
-   - Extend `GlobalNavTab` to include `'history'`.
-   - Define `DailyHistoryRecord`:
-     ```typescript
-     export interface DailyHistoryRecord {
-       date: string; // 'YYYY-MM-DD'
-       displayDate: string; // 'Oct 26, 2026'
-       dmsSent: number;
-       dmsTarget: number;
-       percentage: number; // 0 to 100
-       isSunday: boolean;
-       status: 'full' | 'partial' | 'zero' | 'sunday';
-       updatedAt: string;
-     }
-     ```
+   - Extend `DailyHistoryStatus` union: `'full' | 'partial' | 'zero' | 'sunday' | 'frozen' | 'pre_launch'`.
 2. **`src/utils/historyStorage.ts`**:
-   - `loadDailyHistory()`: Reads records, sorted descending by date.
-   - `saveDailyHistory(records)`: Saves array to `outreach_daily_history`.
-   - `initOctober26Baseline()`: Seeds Oct 26, 2026 record (`dmsSent: 6, dmsTarget: 6, percentage: 100`) if not yet present.
-   - `calculateStreaks(records)`: Computes current streak and best streak respecting Sunday skips.
-   - `recordTodayCompletion(sentCount, targetCount)`: Upserts today's entry with live calculations.
+   - Implement `getEarliestOutreachDate(leads)` to identify dynamic launch threshold.
+   - Update `get30DayHistoryView(records, leads)` to assign `status: 'pre_launch'` for any date prior to launch.
+   - Refactor `calculateStreaks(records, options)` so pre-launch days do not break streaks or lower completion rate.
+   - Update `resetDailyHistory()` to wipe `outreach_daily_history` and return an empty array.
 3. **`src/components/HistoryPage.tsx`**:
-   - Top banner with streak cards: Current Streak (`🔥 X Days`), Best Streak (`🏆 Y Days`), and 30-day Completion Rate.
-   - 30-day interactive calendar grid displaying week day headers (Sun to Sat) with colored indicators and percentage tooltips.
-   - Chronological audit list showing full breakdown for each day.
-   - Reset History modal with two-step confirmation.
-4. **`src/components/Header.tsx`**:
-   - Add `"📊 History"` nav tab with `History` icon.
-5. **`src/App.tsx` & `src/components/TodaysSchedulePage.tsx`**:
-   - Wire route rendering for `'history'`.
-   - Attach automatic `recordTodayCompletion` hook on mount and task completions.
+   - Style `'pre_launch'` calendar matrix cards and audit log entries with calm slate tokens.
+   - Update Top Executive Cards to display `"🚀 Ready to Launch"` when `totalInitialDMsDispatched === 0`.
+   - Update Legend to display Pre-Launch state.
+
+---
+
+## 5. Verification & Testing Plan
+
+1. **Clean Zero-State Verification**:
+   - Click "Reset History" in the History Tab.
+   - Confirm all non-Sunday past days render with muted slate dots and "Pre-Launch" label.
+   - Verify that NO red "0% Missed" dots appear in the matrix.
+   - Confirm Current Streak is 0 with `"🚀 Ready to Launch"` badge.
+2. **Dynamic Outreach Kickoff**:
+   - Navigate to "Today's Schedule" and mark 1 initial outreach task as sent.
+   - Return to "History" tab: verify that today's date transitions from Pre-Launch to Active, streak activates to 1, and prior days remain cleanly marked as Pre-Launch.
+3. **Compilation & Lint Verification**:
+   - Execute `compile_applet` and `lint_applet` to guarantee zero syntax or typing errors.

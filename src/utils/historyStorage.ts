@@ -1,11 +1,31 @@
-import { DailyHistoryRecord, DailyHistoryStatus, HistoryStreakStats, MultiChannelType } from '../types';
+import { DailyHistoryRecord, DailyHistoryStatus, HistoryStreakStats, MultiChannelType, ChannelLead } from '../types';
 import { getLocalTodayStr, normalizeToLocalDateStr } from './cadenceEngine';
 import { loadChannelLeads } from './channelStorage';
 import { getVideosVerifiedTodayCount, getVideosVerifiedOnDate } from './videoVerification';
 import { isPipelineFrozenNow, isDateFrozen } from './pipelineFreeze';
 
 export const HISTORY_STORAGE_KEY = 'outreach_daily_history';
-export const OUTREACH_START_DATE = '2026-10-26'; // User's verified launch day
+export const OUTREACH_START_DATE = '2026-10-26';
+
+/**
+ * Finds the earliest verified initial DM dispatch date across leads.
+ * Returns null if no outreach dispatches have been executed yet.
+ */
+export function getEarliestOutreachDate(providedLeads?: ChannelLead[]): string | null {
+  try {
+    const allLeads = providedLeads ?? [
+      ...loadChannelLeads('combined'),
+      ...loadChannelLeads('instagram'),
+    ];
+    const dates = allLeads
+      .map((l) => (l.initialSentDate ? normalizeToLocalDateStr(l.initialSentDate) : null))
+      .filter((d): d is string => Boolean(d))
+      .sort();
+    return dates.length > 0 ? dates[0] : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Formats YYYY-MM-DD into a human-readable string like "Oct 26, 2026"
@@ -304,8 +324,10 @@ export function calculateStreaks(
       ? options.todayDmsSent
       : (todayEntry?.dmsSent ?? 0);
 
-  // If there are no records in the history and today has 0 completions, return zero stats
-  if (records.length === 0 && effectiveTodayTasksCompleted === 0) {
+  const earliestLeadOutreachDate = getEarliestOutreachDate();
+
+  // If no outreach has begun (no initial DMs sent) and today has 0 completions, return clean zero stats
+  if (!earliestLeadOutreachDate && effectiveTodayTasksCompleted === 0) {
     return {
       currentStreak: 0,
       bestStreak: 0,
@@ -342,9 +364,9 @@ export function calculateStreaks(
     startOffset = 0;
   }
 
-  // Find the earliest recorded entry date to know where history starts
-  const recordedDates = records.map((r) => r.date).filter(Boolean).sort();
-  const earliestDate = recordedDates.length > 0 ? recordedDates[0] : todayStr;
+  // Find the earliest active outreach date
+  const recordedDates = records.filter((r) => (r.dmsSent ?? 0) > 0).map((r) => r.date).filter(Boolean).sort();
+  const earliestDate = earliestLeadOutreachDate || (recordedDates.length > 0 ? recordedDates[0] : todayStr);
 
   // Iterate backwards day by day up to 365 days or earliest recorded date
   for (let offset = startOffset; offset >= -365; offset--) {
@@ -459,14 +481,20 @@ export function calculateStreaks(
 
 /**
  * Builds the complete 30-day view window (today back to 29 days ago).
- * Default records for past days with no action start at 0% (never fake 100%).
+ * Days prior to the first verified initial outreach day are marked as 'pre_launch'
+ * with neutral styling and zero failure penalties.
  */
-export function get30DayHistoryView(records: DailyHistoryRecord[]): DailyHistoryRecord[] {
+export function get30DayHistoryView(
+  records: DailyHistoryRecord[],
+  leads?: ChannelLead[]
+): DailyHistoryRecord[] {
   const mapByDate = new Map<string, DailyHistoryRecord>();
   for (const r of records) {
     mapByDate.set(r.date, r);
   }
 
+  const earliestDate = getEarliestOutreachDate(leads);
+  const todayStr = getLocalTodayStr();
   const result: DailyHistoryRecord[] = [];
 
   for (let i = 0; i < 30; i++) {
@@ -475,7 +503,7 @@ export function get30DayHistoryView(records: DailyHistoryRecord[]): DailyHistory
     const isFrozen = isDateFrozen(dateStr);
     const existing = mapByDate.get(dateStr);
 
-    if (existing) {
+    if (existing && existing.dmsSent > 0) {
       result.push({
         ...existing,
         isFrozen: isFrozen || existing.status === 'frozen',
@@ -484,26 +512,40 @@ export function get30DayHistoryView(records: DailyHistoryRecord[]): DailyHistory
         notes: isFrozen ? 'Pipeline Frozen (Streak Protected)' : existing.notes,
       });
     } else {
-      const status: DailyHistoryStatus = isFrozen
-        ? 'frozen'
-        : isSunday
-        ? 'sunday'
-        : 'zero';
+      const isPreLaunch = !earliestDate || dateStr < earliestDate;
+
+      let status: DailyHistoryStatus;
+      let notes: string;
+      let percentage = 0;
+
+      if (isFrozen) {
+        status = 'frozen';
+        percentage = 100;
+        notes = 'Pipeline Frozen (Streak Protected)';
+      } else if (isSunday) {
+        status = 'sunday';
+        percentage = 100;
+        notes = 'Sunday Rest Day';
+      } else if (isPreLaunch) {
+        status = 'pre_launch';
+        percentage = 0;
+        notes = !earliestDate ? 'Pre-Launch (Outreach Not Started)' : 'Pre-Launch (Prior to Kickoff)';
+      } else {
+        status = dateStr === todayStr ? 'partial' : 'zero';
+        percentage = 0;
+        notes = dateStr === todayStr ? 'Pending today dispatches' : 'Missed scheduled outreach';
+      }
 
       result.push({
         date: dateStr,
         displayDate: formatDisplayDate(dateStr),
-        dmsSent: 0,
-        dmsTarget: 0,
-        percentage: isSunday || isFrozen ? 100 : 0,
+        dmsSent: existing?.dmsSent ?? 0,
+        dmsTarget: existing?.dmsTarget ?? 0,
+        percentage,
         isSunday,
         isFrozen,
         status,
-        notes: isFrozen
-          ? 'Pipeline Frozen (Streak Protected)'
-          : isSunday
-          ? 'Sunday Rest Day'
-          : 'No outreach recorded',
+        notes,
         updatedAt: new Date().toISOString(),
       });
     }
@@ -518,6 +560,8 @@ export function get30DayHistoryView(records: DailyHistoryRecord[]): DailyHistory
 export function resetDailyHistory(): DailyHistoryRecord[] {
   try {
     localStorage.removeItem(HISTORY_STORAGE_KEY);
+    localStorage.removeItem('crm_daily_history');
+    localStorage.removeItem('outreach_daily_history');
   } catch (err) {
     console.error('Failed to reset daily history:', err);
   }

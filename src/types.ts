@@ -253,7 +253,7 @@ export type MultiChannelType = 'combined' | 'instagram' | 'email' | 'facebook';
 
 export type GlobalNavTab = 'combined' | 'instagram' | 'inbox' | 'today' | 'dashboard' | 'insights' | 'history';
 
-export type DailyHistoryStatus = 'full' | 'partial' | 'zero' | 'sunday' | 'frozen';
+export type DailyHistoryStatus = 'full' | 'partial' | 'zero' | 'sunday' | 'frozen' | 'pre_launch';
 
 export interface DailyHistoryRecord {
   date: string; // 'YYYY-MM-DD'

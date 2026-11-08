@@ -151,8 +151,8 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
 
   // 30-day window
   const thirtyDayWindow = useMemo(
-    () => get30DayHistoryView(historyRecords),
-    [historyRecords]
+    () => get30DayHistoryView(historyRecords, allLeads),
+    [historyRecords, allLeads]
   );
 
   // Filtered chronological entries
@@ -197,6 +197,15 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
         desc: 'Sunday rest protocol · Streak protected',
       };
     }
+    if (record.status === 'pre_launch') {
+      return {
+        dotClass: 'bg-slate-600',
+        badgeBg: 'bg-slate-900/60 text-slate-400 border-white/10',
+        label: 'Pre-Launch',
+        icon: <Clock className="w-3.5 h-3.5 text-slate-500" />,
+        desc: 'Prior to initial outreach dispatch · Zero failure penalty',
+      };
+    }
     if (record.status === 'full') {
       const breakdownText =
         record.initialDmsSent !== undefined
@@ -229,7 +238,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
       badgeBg: 'bg-rose-950/60 text-rose-300 border-rose-500/30',
       label: '0% Missed',
       icon: <AlertCircle className="w-3.5 h-3.5 text-rose-400" />,
-      desc: 'No outreach logged for this working day',
+      desc: 'Missed scheduled outreach for this active working day',
     };
   };
 
@@ -285,12 +294,20 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
             <span className="text-3xl font-black text-white font-mono tabular-nums">
               {streakStats.currentStreak}
             </span>
-            <span className="text-xs text-orange-300 font-medium">
-              {streakStats.currentStreak === 1 ? 'Day Active' : 'Days Active'}
-            </span>
+            {totalInitialDMsDispatched === 0 ? (
+              <span className="text-xs text-indigo-300 font-bold bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
+                🚀 Ready to Launch
+              </span>
+            ) : (
+              <span className="text-xs text-orange-300 font-medium">
+                {streakStats.currentStreak === 1 ? 'Day Active' : 'Days Active'}
+              </span>
+            )}
           </div>
           <p className="mt-2 text-[11px] text-slate-400 leading-relaxed">
-            Consecutive 100% days logged. Sundays are rest days and never break your streak.
+            {totalInitialDMsDispatched === 0
+              ? 'Streak tracking begins dynamically on the day you send your first initial outreach.'
+              : 'Consecutive 100% days logged. Sundays are rest days and never break your streak.'}
           </p>
         </div>
 
@@ -332,7 +349,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
               {streakStats.averageCompletionRate}%
             </span>
             <span className="text-xs text-emerald-300 font-medium">
-              {streakStats.completedDaysCount} Days 100%
+              {totalInitialDMsDispatched === 0 ? 'Awaiting First Dispatch' : `${streakStats.completedDaysCount} Days 100%`}
             </span>
           </div>
           <div className="mt-3 w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
@@ -388,11 +405,15 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-              <span>0%</span>
+              <span>Missed</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
               <span>Rest</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-slate-600" />
+              <span>Pre-Launch</span>
             </div>
             <span className="text-slate-700 hidden sm:inline">|</span>
             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">
@@ -429,6 +450,10 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
               borderStyle = 'border-slate-700/40 bg-slate-800/30 hover:border-slate-600';
             } else if (day.status === 'partial') {
               borderStyle = 'border-amber-500/30 bg-amber-950/20 hover:border-amber-400/50';
+            } else if (day.status === 'pre_launch') {
+              borderStyle = 'border-white/5 bg-slate-900/30 hover:border-white/10 opacity-70 hover:opacity-100';
+            } else if (day.status === 'zero') {
+              borderStyle = 'border-rose-500/30 bg-rose-950/20 hover:border-rose-400/50';
             }
 
             return (
@@ -439,6 +464,8 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                 title={
                   day.isSunday
                     ? 'Sunday Rest Day'
+                    : day.status === 'pre_launch'
+                    ? `${day.displayDate}: Pre-Launch (Outreach Not Started)`
                     : day.initialDmsSent !== undefined
                     ? `${day.displayDate}: ${day.dmsSent}/${day.dmsTarget} Tasks (${day.initialDmsSent} Initial · ${day.followupsSent || 0} Follow-ups) — ${day.percentage}%`
                     : `${day.displayDate}: ${day.dmsSent}/${day.dmsTarget} Tasks (${day.percentage}%)`
@@ -455,10 +482,14 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                 <div className="mt-2">
                   <div className="flex items-baseline justify-between">
                     <span className="text-sm font-bold text-white font-mono tabular-nums">
-                      {day.isSunday ? 'Rest' : `${day.percentage}%`}
+                      {day.isSunday
+                        ? 'Rest'
+                        : day.status === 'pre_launch'
+                        ? 'Pre-Launch'
+                        : `${day.percentage}%`}
                     </span>
                     <span className="text-[10px] text-slate-400 font-mono">
-                      {day.isSunday ? '⚪' : `${day.dmsSent}/${day.dmsTarget}`}
+                      {day.isSunday ? '⚪' : day.status === 'pre_launch' ? '—' : `${day.dmsSent}/${day.dmsTarget}`}
                     </span>
                   </div>
 
