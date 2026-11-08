@@ -1,4 +1,4 @@
-import { ChannelLead } from '../types';
+import { ChannelLead, MultiChannelType } from '../types';
 
 /**
  * Returns today's date formatted as YYYY-MM-DD strictly in user's local timezone
@@ -646,5 +646,121 @@ export function shouldShowWarmupAlert(lead: ChannelLead): boolean {
   // Normal weekdays: show alert if lead is due today or overdue
   return isDateToday(lead.scheduledDate) || isDateOverdue(lead.scheduledDate);
 }
+
+/**
+ * Auto-Schedule Engine: Flat Capacity Model
+ * 1. Strictly enforces the daily quota:
+ *    - Instagram: 6 leads / day
+ *    - Combined Outreach (Email/Facebook): 4 leads / day
+ * 2. SKIPS Sundays entirely:
+ *    - If today is Sunday, the first scheduled date MUST be Monday.
+ *    - Any subsequent Sunday is also completely skipped.
+ * 3. Evenly distributes unsent leads across Mon, Tue, Wed, Thu, Fri, Sat, (skip Sun), Mon...
+ *    until all leads are assigned.
+ */
+export function autoScheduleLeads(
+  leads: ChannelLead[],
+  channel: MultiChannelType,
+  startDateStr?: string
+): ChannelLead[] {
+  // Quota definition: Instagram = 6/day, Combined Outreach = 4/day
+  const dailyQuota = channel === 'instagram' ? 6 : 4;
+
+  const baseToday = startDateStr || getLocalTodayStr();
+  const [year, month, day] = baseToday.split('-').map(Number);
+  const cursor = new Date(year, month - 1, day);
+
+  // Rule 3: Skip Sundays entirely. If today is Sunday, first scheduled date MUST be Monday.
+  if (cursor.getDay() === 0) {
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  // Preserve leads where initial outreach was already sent in real life
+  const unsentLeads = leads.filter((l) => !l.initialSentDate);
+  const assignments: Record<string, string> = {};
+
+  let currentSlotCount = 0;
+
+  for (const lead of unsentLeads) {
+    // Skip any Sundays
+    while (cursor.getDay() === 0) {
+      cursor.setDate(cursor.getDate() + 1);
+      currentSlotCount = 0;
+    }
+
+    const y = cursor.getFullYear();
+    const m = String(cursor.getMonth() + 1).padStart(2, '0');
+    const d = String(cursor.getDate()).padStart(2, '0');
+    const dateStr = `${y}-${m}-${d}`;
+
+    assignments[lead.id] = dateStr;
+    currentSlotCount++;
+
+    if (currentSlotCount >= dailyQuota) {
+      cursor.setDate(cursor.getDate() + 1);
+      currentSlotCount = 0;
+      // Skip next Sunday if we landed on it
+      while (cursor.getDay() === 0) {
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+  }
+
+  return leads.map((lead) => {
+    if (assignments[lead.id]) {
+      return {
+        ...lead,
+        scheduledDate: assignments[lead.id],
+        warmupStatus: lead.warmupStatus || (lead.isWarmedUp ? 'warmed' : 'locked'),
+        dismissedDate: undefined,
+      };
+    }
+    return lead;
+  });
+}
+
+/**
+ * Calculates the next available schedule date for a new lead based on current channel leads,
+ * respecting the daily quota (Instagram: 6/day, Combined: 4/day) and skipping Sundays.
+ */
+export function getNextAvailableScheduleDate(
+  currentLeads: ChannelLead[],
+  channel: MultiChannelType,
+  startDateStr?: string
+): string {
+  const dailyQuota = channel === 'instagram' ? 6 : 4;
+  const baseToday = startDateStr || getLocalTodayStr();
+  const [year, month, day] = baseToday.split('-').map(Number);
+  const cursor = new Date(year, month - 1, day);
+
+  if (cursor.getDay() === 0) {
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  // Count scheduled unsent leads by date
+  const countsByDate: Record<string, number> = {};
+  currentLeads.forEach((l) => {
+    if (l.scheduledDate && !l.initialSentDate) {
+      countsByDate[l.scheduledDate] = (countsByDate[l.scheduledDate] || 0) + 1;
+    }
+  });
+
+  while (true) {
+    while (cursor.getDay() === 0) {
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    const y = cursor.getFullYear();
+    const m = String(cursor.getMonth() + 1).padStart(2, '0');
+    const d = String(cursor.getDate()).padStart(2, '0');
+    const dateStr = `${y}-${m}-${d}`;
+
+    const count = countsByDate[dateStr] || 0;
+    if (count < dailyQuota) {
+      return dateStr;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+}
+
 
 

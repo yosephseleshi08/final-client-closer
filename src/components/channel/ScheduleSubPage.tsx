@@ -13,7 +13,10 @@ import {
   getLocalTodayStr,
   normalizeToLocalDateStr,
   isDateToday,
+  autoScheduleLeads,
+  getScheduleDayStyle,
 } from '../../utils/cadenceEngine';
+import { formatDisplayDate } from '../../utils/historyStorage';
 
 interface ScheduleSubPageProps {
   channel: MultiChannelType;
@@ -43,82 +46,26 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
 
   /**
    * Auto-Schedule Algorithm: Flat Capacity Model
-   * Replaced ramp-up growth curve with immediate flat target volumes:
-   * - Instagram: 6 leads/day from Day 1
-   * - Email & Facebook (Combined Others): 4 leads/day from Day 1
-   * - Total Combined Outreach Quota: 10 leads/day
-   * - Start Date: Starts TOMORROW (protects today for warming up)
-   * - Sunday Rule: If assigned date falls on Sunday, skip to Monday (Sunday Rest Day).
-   * - Existing Data: Preserves existing scheduled leads, only fills gaps up to capacity.
-   * - Warm-Up Lock: Newly scheduled leads default to warmupStatus: 'locked'.
+   * Strictly enforces daily quotas and protects Sunday rest:
+   * - Instagram: 6 leads / day
+   * - Combined Outreach (Email/Facebook): 4 leads / day
+   * - Sunday Rule: SKIPS Sundays entirely. If today is Sunday, first scheduled date is Monday!
+   * - Staggers all 27+ leads across Mon, Tue, Wed, Thu, Fri, Sat, (skip Sun), Mon...
    */
   const handleAutoSchedule = () => {
-    const unscheduledLeads = leads.filter((l) => !l.scheduledDate);
-    if (unscheduledLeads.length === 0) {
-      setScheduledBannerMsg('All leads are already scheduled! No unscheduled leads to assign.');
+    if (leads.length === 0) {
+      setScheduledBannerMsg('No leads available in this workspace.');
       setTimeout(() => setScheduledBannerMsg(null), 3500);
       return;
     }
 
-    // Map existing assignments to avoid breaking or exceeding day caps
-    const countsByDate: Record<string, number> = {};
-    leads.forEach((l) => {
-      if (l.scheduledDate) {
-        countsByDate[l.scheduledDate] = (countsByDate[l.scheduledDate] || 0) + 1;
-      }
-    });
-
-    // Start from TOMORROW in local time (protects today for warming up)
-    const [year, month, day] = todayStr.split('-').map(Number);
-    const cursor = new Date(year, month - 1, day + 1);
-
-    let unscheduledIndex = 0;
-    const assignments: Record<string, string> = {};
-
-    // Flat capacity: Instagram = 6/day, Email/Facebook = 4/day
     const dailyQuota = channel === 'instagram' ? 6 : 4;
-
-    while (unscheduledIndex < unscheduledLeads.length) {
-      // Sunday Rule: 0 = Sunday. Sunday is rest, skip to Monday.
-      if (cursor.getDay() === 0) {
-        cursor.setDate(cursor.getDate() + 1);
-        continue;
-      }
-
-      const y = cursor.getFullYear();
-      const m = String(cursor.getMonth() + 1).padStart(2, '0');
-      const d = String(cursor.getDate()).padStart(2, '0');
-      const dateStr = `${y}-${m}-${d}`;
-
-      const existingCount = countsByDate[dateStr] || 0;
-      const availableCapacity = Math.max(0, dailyQuota - existingCount);
-
-      for (let i = 0; i < availableCapacity && unscheduledIndex < unscheduledLeads.length; i++) {
-        const lead = unscheduledLeads[unscheduledIndex];
-        assignments[lead.id] = dateStr;
-        countsByDate[dateStr] = (countsByDate[dateStr] || 0) + 1;
-        unscheduledIndex++;
-      }
-
-      // Advance to next calendar day
-      cursor.setDate(cursor.getDate() + 1);
-    }
-
-    const updated = leads.map((l) => {
-      if (assignments[l.id]) {
-        return {
-          ...l,
-          scheduledDate: assignments[l.id],
-          warmupStatus: l.warmupStatus || (l.isWarmedUp ? 'warmed' : 'locked'),
-          dismissedDate: undefined,
-        };
-      }
-      return l;
-    });
-
+    const updated = autoScheduleLeads(leads, channel);
     onUpdateLeads(updated);
+
+    const unsentCount = updated.filter((l) => !l.initialSentDate && l.scheduledDate).length;
     setScheduledBannerMsg(
-      `🚀 Auto-scheduled ${unscheduledLeads.length} leads using Flat Capacity Model (${dailyQuota}/day, Sundays protected)!`
+      `🚀 Auto-scheduled ${unsentCount} leads: strictly ${dailyQuota}/day, Sundays skipped (staggered across weekdays starting Monday)!`
     );
     setTimeout(() => setScheduledBannerMsg(null), 4500);
   };
@@ -222,9 +169,18 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
                         </a>
                       </td>
 
-                      {/* Date Picker Input (Quick Presets removed) */}
+                      {/* Date Picker Input & Staggered Day Badge */}
                       <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-2.5">
+                          {hasDate && (
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold font-mono border ${getScheduleDayStyle(lead.scheduledDate).badgeClass}`}
+                              title={`Scheduled for ${getScheduleDayStyle(lead.scheduledDate).dayName} (${lead.scheduledDate})`}
+                            >
+                              <span>{getScheduleDayStyle(lead.scheduledDate).dayShort}</span>
+                              <span className="opacity-75">· {formatDisplayDate(lead.scheduledDate!)}</span>
+                            </span>
+                          )}
                           <input
                             type="date"
                             value={lead.scheduledDate || ''}

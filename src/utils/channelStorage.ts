@@ -298,6 +298,38 @@ export function normalizeUrlForDuplicateCheck(
 }
 
 /**
+ * Checks whether two link inputs represent the exact same lead / profile,
+ * ignoring differences in protocol (http/https), www., subdomains, trailing slashes, or query params.
+ */
+export function areLinksEquivalent(linkA: string, linkB: string): boolean {
+  if (!linkA || !linkB) return false;
+  const normA = normalizeUrlForDuplicateCheck(linkA);
+  const normB = normalizeUrlForDuplicateCheck(linkB);
+  if (!normA || !normB) return false;
+  if (normA === normB) return true;
+
+  // Handle case where one link has full domain and other has just handle or username
+  const cleanA = normA.replace(/^(?:facebook\.com|instagram\.com)\//, '').replace(/^@/, '');
+  const cleanB = normB.replace(/^(?:facebook\.com|instagram\.com)\//, '').replace(/^@/, '');
+  if (cleanA && cleanB && cleanA === cleanB) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Searches an array of leads to find any that match the given link.
+ */
+export function findDuplicateLead(
+  newLink: string,
+  existingLeads: ChannelLead[]
+): ChannelLead | undefined {
+  if (!newLink || !Array.isArray(existingLeads)) return undefined;
+  return existingLeads.find((l) => areLinksEquivalent(newLink, l.link));
+}
+
+/**
  * Formats a lead's createdAt or added timestamp into a clean date string.
  * Uses local calendar parsing to avoid timezone day-shift bugs.
  */

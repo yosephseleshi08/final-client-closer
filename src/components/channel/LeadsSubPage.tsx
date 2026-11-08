@@ -29,6 +29,7 @@ import {
   AlertCircle,
   X,
   ArrowRight,
+  Upload,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import {
@@ -42,10 +43,13 @@ import {
   resequenceLeadIds,
   loadChannelLeads,
   saveChannelLeads,
+  findDuplicateLead,
 } from '../../utils/channelStorage';
 import {
   getScheduleDayStyle,
   isDateToday,
+  autoScheduleLeads,
+  getNextAvailableScheduleDate,
 } from '../../utils/cadenceEngine';
 import { playWarningChime } from '../../utils/soundEffects';
 
@@ -244,6 +248,11 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   const [modalError, setModalError] = useState<string | null>(null);
   const [justAddedLeadId, setJustAddedLeadId] = useState<string | null>(null);
 
+  // Batch Import Modal State
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+  const [batchInputText, setBatchInputText] = useState('');
+  const [batchError, setBatchError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!duplicateAlert) return;
     const timer = setTimeout(() => {
@@ -263,10 +272,78 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     })
   );
 
+  const handleBatchImportText = (rawText: string) => {
+    const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      setBatchError('Please paste at least one lead link or line.');
+      return;
+    }
+
+    let currentList = [...leads];
+    let addedCount = 0;
+    let duplicateCount = 0;
+
+    for (const line of lines) {
+      const parts = line.split(',').map((p) => p.trim());
+      const rawUrl = parts[0];
+      const customName = parts[1];
+      if (!rawUrl) continue;
+
+      // Strict duplicate check with full URL normalization
+      const duplicate = findDuplicateLead(rawUrl, currentList);
+      if (duplicate) {
+        duplicateCount++;
+        continue;
+      }
+
+      const nextIdData = getNextLeadId(channel, currentList);
+      const businessName = customName || extractSuggestedName(rawUrl);
+
+      const newLead: ChannelLead = {
+        id: nextIdData.id,
+        numericId: nextIdData.numericId,
+        name: businessName,
+        link: rawUrl,
+        channel,
+        sortOrder: currentList.length,
+        createdAt: new Date().toISOString(),
+      };
+
+      currentList.push(newLead);
+      addedCount++;
+    }
+
+    if (duplicateCount > 0) {
+      playWarningChime();
+      setDuplicateAlert({
+        message: 'Lead already exists in the pipeline.',
+        timestamp: Date.now(),
+      });
+    }
+
+    if (addedCount > 0) {
+      // Auto-schedule leads using Flat Capacity Model (4/day for Combined, 6/day for IG, skipping Sundays)
+      const scheduled = autoScheduleLeads(currentList, channel);
+      onUpdateLeads(scheduled);
+      setBatchInputText('');
+      setBatchError(null);
+      setIsBatchModalOpen(false);
+    } else if (duplicateCount > 0) {
+      setBatchError('All pasted leads already exist in the pipeline.');
+    }
+  };
+
   const handleLinkInputSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = linkInput.trim();
     if (!trimmed) return;
+
+    // Check if user pasted multi-line leads
+    if (trimmed.includes('\n')) {
+      handleBatchImportText(trimmed);
+      setLinkInput('');
+      return;
+    }
 
     const validation = validateChannelLink(trimmed, channel);
     if (!validation.isValid) {
@@ -279,17 +356,12 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       return;
     }
 
-    const normalizedInput = normalizeUrlForDuplicateCheck(trimmed, channel);
-    const existingLead = leads.find((l) => {
-      const lNorm = normalizeUrlForDuplicateCheck(l.link, channel);
-      return lNorm && lNorm === normalizedInput;
-    });
-
+    // BUG 2 FIX: Strict duplicate check with normalization (https://, www., trailing slashes)
+    const existingLead = findDuplicateLead(trimmed, leads);
     if (existingLead) {
       playWarningChime();
-      const dateFormatted = formatAddedDate(existingLead.createdAt);
       setDuplicateAlert({
-        message: `Warning: This link has already been added. ${existingLead.name} was added on ${dateFormatted}.`,
+        message: 'Lead already exists in the pipeline.',
         timestamp: Date.now(),
       });
       return;
@@ -319,8 +391,23 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       return;
     }
 
+    // BUG 2 FIX: Double check duplicate before saving
+    const existingLead = findDuplicateLead(pendingLink, leads);
+    if (existingLead) {
+      playWarningChime();
+      setDuplicateAlert({
+        message: 'Lead already exists in the pipeline.',
+        timestamp: Date.now(),
+      });
+      setShowNameModal(false);
+      setPendingLink('');
+      setPendingName('');
+      return;
+    }
+
     const nextIdData = getNextLeadId(channel, leads);
     const businessName = pendingName.trim() || extractSuggestedName(pendingLink);
+    const assignedDate = getNextAvailableScheduleDate(leads, channel);
 
     const newLead: ChannelLead = {
       id: nextIdData.id,
@@ -330,6 +417,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       channel,
       sortOrder: leads.length,
       createdAt: new Date().toISOString(),
+      scheduledDate: assignedDate,
     };
 
     const nextLeads = [...leads, newLead];
@@ -361,20 +449,21 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       return;
     }
 
-    const normalizedInput = normalizeUrlForDuplicateCheck(trimmedLink, channel);
-    const existing = leads.find((l) => {
-      const lNorm = normalizeUrlForDuplicateCheck(l.link, channel);
-      return lNorm && lNorm === normalizedInput;
-    });
-
+    // BUG 2 FIX: Strict duplicate check with normalization
+    const existing = findDuplicateLead(trimmedLink, leads);
     if (existing) {
       playWarningChime();
-      setModalError(`Duplicate: ${existing.name} is already registered (${existing.id}).`);
+      setDuplicateAlert({
+        message: 'Lead already exists in the pipeline.',
+        timestamp: Date.now(),
+      });
+      setModalError('Lead already exists in the pipeline.');
       return;
     }
 
     const nextIdData = getNextLeadId(channel, leads);
     const businessName = modalNameInput.trim() || extractSuggestedName(trimmedLink);
+    const assignedDate = getNextAvailableScheduleDate(leads, channel);
 
     const newLead: ChannelLead = {
       id: nextIdData.id,
@@ -384,6 +473,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       channel,
       sortOrder: leads.length,
       createdAt: new Date().toISOString(),
+      scheduledDate: assignedDate,
     };
 
     onUpdateLeads([...leads, newLead]);
@@ -519,14 +609,29 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
               className="w-full pl-10 pr-4 py-2.5 bg-slate-950/80 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
             />
           </div>
-          <button
-            type="submit"
-            disabled={!linkInput.trim()}
-            className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-semibold transition cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30 shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Lead</span>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="submit"
+              disabled={!linkInput.trim()}
+              className="px-4 sm:px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs sm:text-sm font-semibold transition cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/30"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add Lead</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setBatchInputText('');
+                setBatchError(null);
+                setIsBatchModalOpen(true);
+              }}
+              className="px-3.5 sm:px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs sm:text-sm font-semibold transition cursor-pointer flex items-center justify-center gap-2 border border-white/10"
+              title="Batch import multiple leads"
+            >
+              <Upload className="w-4 h-4 text-indigo-400" />
+              <span>Batch Import</span>
+            </button>
+          </div>
         </form>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1 border-t border-white/[0.04]">
@@ -796,6 +901,85 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Import Modal */}
+      {isBatchModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="w-full max-w-lg rounded-3xl bg-slate-900 border border-white/10 p-6 sm:p-7 shadow-2xl space-y-5 text-slate-100">
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 font-mono">
+                  Batch Pipeline Intake
+                </span>
+                <h3 className="text-xl font-black text-white font-['Outfit'] mt-0.5">
+                  Import {getChannelLabel(channel)} Leads
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Paste links line-by-line (format: <code className="text-indigo-300">URL</code> or <code className="text-indigo-300">URL, Business Name</code>).
+                  Duplicates are strictly blocked, and new leads are auto-scheduled skipping Sundays.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsBatchModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {batchError && (
+              <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-200 text-xs font-medium flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{batchError}</span>
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <textarea
+                rows={8}
+                value={batchInputText}
+                onChange={(e) => {
+                  setBatchInputText(e.target.value);
+                  setBatchError(null);
+                }}
+                placeholder={
+                  channel === 'instagram'
+                    ? "https://instagram.com/restaurant_one, Restaurant One\n@restaurant_two\nhttps://instagram.com/restaurant_three"
+                    : "https://facebook.com/bistro_one, Bistro One\ncontact@grillhouse.com, Grill House\nhttps://facebook.com/cafe_three"
+                }
+                className="w-full p-3.5 bg-slate-950 border border-white/10 rounded-xl text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 leading-relaxed"
+              />
+
+              <div className="p-3 rounded-xl bg-slate-950/60 border border-white/5 text-[11px] text-slate-400 space-y-1">
+                <p className="font-semibold text-slate-300">⚡ Auto-Scheduler Rules Enforced:</p>
+                <p>• {channel === 'instagram' ? 'Daily quota: 6 leads / day' : 'Daily quota: 4 leads / day'}</p>
+                <p>• Sundays skipped completely (first date starts Monday if today is Sunday)</p>
+                <p>• Strict duplicate check prevents duplicate imports</p>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBatchModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBatchImportText(batchInputText)}
+                  disabled={!batchInputText.trim()}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/30 active:scale-95"
+                >
+                  <Upload className="w-4 h-4" />
+                  <span>Import & Auto-Schedule</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

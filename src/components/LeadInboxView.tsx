@@ -157,6 +157,11 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
   const handleAccept = (lead: InboxLead) => {
     try {
       const result = acceptInboxLeadIntoCrm(lead, channelLeads);
+
+      if (result.isDuplicate) {
+        showToast('Lead already exists in the pipeline.', 'error');
+        return;
+      }
       
       // Update local state
       const remaining = inboxLeads.filter((l) => l.id !== lead.id);
@@ -167,7 +172,6 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
         onLeadAccepted(result.targetChannel, result.updatedLeads);
       }
 
-      // Mandatory Toast Rule: "✅ Lead [Name] added to CRM!"
       showToast(`✅ Lead ${lead.name} added to CRM!`, 'accept');
     } catch (err) {
       console.error('Failed to accept lead:', err);
@@ -188,15 +192,32 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
   // Batch Accept All
   const handleAcceptAll = () => {
     if (inboxLeads.length === 0) return;
-    const count = inboxLeads.length;
+    let acceptedCount = 0;
+    let duplicateCount = 0;
+
+    const remaining: InboxLead[] = [];
+
     [...inboxLeads].forEach((lead) => {
       const result = acceptInboxLeadIntoCrm(lead, channelLeads);
-      if (onLeadAccepted) {
-        onLeadAccepted(result.targetChannel, result.updatedLeads);
+      if (result.isDuplicate) {
+        duplicateCount++;
+        remaining.push(lead);
+      } else {
+        acceptedCount++;
+        if (onLeadAccepted) {
+          onLeadAccepted(result.targetChannel, result.updatedLeads);
+        }
       }
     });
-    setInboxLeads([]);
-    showToast(`✅ Accepted all ${count} leads into CRM!`, 'accept');
+
+    setInboxLeads(remaining);
+
+    if (duplicateCount > 0) {
+      showToast('Lead already exists in the pipeline.', 'error');
+    }
+    if (acceptedCount > 0) {
+      showToast(`✅ Accepted ${acceptedCount} leads into CRM!`, 'accept');
+    }
   };
 
   // Batch Clear

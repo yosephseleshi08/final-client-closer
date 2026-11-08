@@ -1,6 +1,6 @@
 import { InboxLead, MultiChannelType, ChannelLead } from '../types';
-import { getNextLeadId, saveChannelLeads, loadChannelLeads } from './channelStorage';
-import { getLocalTodayStr } from './cadenceEngine';
+import { getNextLeadId, saveChannelLeads, loadChannelLeads, findDuplicateLead } from './channelStorage';
+import { getNextAvailableScheduleDate } from './cadenceEngine';
 
 export const INBOX_STORAGE_KEY = 'outreach_engine_lead_inbox_v1';
 
@@ -172,6 +172,7 @@ export function acceptInboxLeadIntoCrm(
   targetChannel: MultiChannelType;
   newLead: ChannelLead;
   updatedLeads: ChannelLead[];
+  isDuplicate?: boolean;
 } {
   let targetChannel: MultiChannelType = 'instagram';
   if (lead.platform === 'Facebook' || lead.platform === 'Email') {
@@ -182,7 +183,6 @@ export function acceptInboxLeadIntoCrm(
 
   // Load existing leads for this channel if not provided
   const currentLeads = existingChannelLeads?.[targetChannel] ?? loadChannelLeads(targetChannel);
-  const { id, numericId } = getNextLeadId(targetChannel, currentLeads);
 
   const formattedLink = lead.profileLink || (
     targetChannel === 'instagram'
@@ -190,8 +190,23 @@ export function acceptInboxLeadIntoCrm(
       : `https://${lead.platform.toLowerCase()}.com/${lead.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`
   );
 
+  // BUG 2 FIX: Strict duplicate check before adding
+  const duplicate = findDuplicateLead(formattedLink, currentLeads);
+  if (duplicate) {
+    return {
+      targetChannel,
+      newLead: duplicate,
+      updatedLeads: currentLeads,
+      isDuplicate: true,
+    };
+  }
+
+  const { id, numericId } = getNextLeadId(targetChannel, currentLeads);
   const nowIso = new Date().toISOString();
   const isFbRestricted = Boolean(lead.rawDetails?.fb_message_restricted || lead.rawDetails?.restricted);
+
+  // BUG 1 FIX: Strictly enforce daily quota (IG: 6, Combined: 4) & skip Sunday
+  const assignedScheduleDate = getNextAvailableScheduleDate(currentLeads, targetChannel);
 
   const newChannelLead: ChannelLead = {
     id,
@@ -201,7 +216,7 @@ export function acceptInboxLeadIntoCrm(
     channel: targetChannel,
     sortOrder: 0,
     createdAt: nowIso,
-    scheduledDate: getLocalTodayStr(),
+    scheduledDate: assignedScheduleDate,
     fb_message_restricted: isFbRestricted || undefined,
     // Save prompt to lead data as requested
     prompt: lead.prompt || undefined,
@@ -228,5 +243,6 @@ export function acceptInboxLeadIntoCrm(
     targetChannel,
     newLead: newChannelLead,
     updatedLeads,
+    isDuplicate: false,
   };
 }
