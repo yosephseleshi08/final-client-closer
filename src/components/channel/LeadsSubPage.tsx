@@ -307,6 +307,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         channel,
         sortOrder: currentList.length,
         createdAt: new Date().toISOString(),
+        warmupStatus: 'locked',
+        isWarmedUp: false,
       };
 
       currentList.push(newLead);
@@ -418,6 +420,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       sortOrder: leads.length,
       createdAt: new Date().toISOString(),
       scheduledDate: assignedDate,
+      warmupStatus: 'locked',
+      isWarmedUp: false,
     };
 
     const nextLeads = [...leads, newLead];
@@ -474,6 +478,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       sortOrder: leads.length,
       createdAt: new Date().toISOString(),
       scheduledDate: assignedDate,
+      warmupStatus: 'locked',
+      isWarmedUp: false,
     };
 
     onUpdateLeads([...leads, newLead]);

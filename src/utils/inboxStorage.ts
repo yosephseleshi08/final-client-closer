@@ -217,6 +217,8 @@ export function acceptInboxLeadIntoCrm(
     sortOrder: 0,
     createdAt: nowIso,
     scheduledDate: assignedScheduleDate,
+    warmupStatus: 'locked',
+    isWarmedUp: false,
     fb_message_restricted: isFbRestricted || undefined,
     // Save prompt to lead data as requested
     prompt: lead.prompt || undefined,

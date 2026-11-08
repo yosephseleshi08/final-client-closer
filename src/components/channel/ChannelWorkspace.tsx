@@ -9,6 +9,7 @@ import {
   Clock,
   Image as ImageIcon,
   Layers,
+  Flame,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType, MultiChannelSubTab } from '../../types';
 import { LeadsSubPage } from './LeadsSubPage';
@@ -17,6 +18,7 @@ import { ScheduleSubPage } from './ScheduleSubPage';
 import { FollowupScheduleSubPage } from './FollowupScheduleSubPage';
 import { MockupSubPage } from './MockupSubPage';
 import { getChannelLabel } from '../../utils/channelStorage';
+import { getLocalTodayStr, getTomorrowWarmupTargetDate } from '../../utils/cadenceEngine';
 
 interface ChannelWorkspaceProps {
   channel: MultiChannelType;
@@ -93,9 +95,18 @@ export function ChannelWorkspace({
   };
 
   const theme = getChannelTheme();
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalTodayStr();
+  const warmupTargetDate = getTomorrowWarmupTargetDate(todayStr);
 
-  // Calculate actionable items in this channel for badge (Initial due + Day 3 + Day 7)
+  // Leads scheduled for tomorrow that are not yet sent
+  const tomorrowLeadsNeedingWarmup = leads.filter(
+    (l) => !l.isCompleted && !l.initialSentDate && l.scheduledDate === warmupTargetDate
+  );
+  const tomorrowLockedCount = tomorrowLeadsNeedingWarmup.filter(
+    (l) => l.warmupStatus !== 'warmed' && !l.isWarmedUp
+  ).length;
+
+  // Calculate actionable items in this channel for badge (Initial due + Day 7 + Day 14 + Day 30)
   const urgentCount = leads.filter((l) => {
     if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
     if (!l.initialSentDate && l.scheduledDate && l.scheduledDate <= todayStr) return true;
@@ -113,9 +124,9 @@ export function ChannelWorkspace({
     },
     {
       id: 'dm',
-      label: 'DM',
-      icon: <MessageSquare className="w-4 h-4" />,
-      badge: leads.filter((l) => !!l.customPitch).length,
+      label: '🔥 Warm-Up Today',
+      icon: <Flame className="w-4 h-4 text-amber-400" />,
+      badge: tomorrowLockedCount > 0 ? tomorrowLockedCount : tomorrowLeadsNeedingWarmup.length > 0 ? tomorrowLeadsNeedingWarmup.length : undefined,
     },
     {
       id: 'schedule',

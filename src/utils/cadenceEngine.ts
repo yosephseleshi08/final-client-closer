@@ -611,6 +611,38 @@ export function getScheduleDayStyle(dateStr?: string | null): ScheduleDayStyle {
 }
 
 /**
+ * Resolves tomorrow's warmup target date string (YYYY-MM-DD).
+ * - Mon-Fri: tomorrow is next calendar day (+1).
+ * - Saturday: Sunday is rest day, so tomorrow's dispatch target is Monday (+2).
+ * - Sunday: tomorrow is Monday (+1).
+ */
+export function getTomorrowWarmupTargetDate(referenceDateStr = getLocalTodayStr()): string {
+  const norm = normalizeToLocalDateStr(referenceDateStr) || getLocalTodayStr();
+  const [y, m, d] = norm.split('-').map(Number);
+  const currentDay = new Date(y, m - 1, d).getDay(); // 0 = Sun, 6 = Sat
+
+  if (currentDay === 6) {
+    // Saturday -> next dispatch is Monday (+2 days)
+    return addDays(norm, 2);
+  }
+  return addDays(norm, 1);
+}
+
+/**
+ * Checks if a lead has been marked as warmed up.
+ */
+export function isLeadWarmed(lead: ChannelLead): boolean {
+  return lead.warmupStatus === 'warmed' || Boolean(lead.isWarmedUp);
+}
+
+/**
+ * Checks if a lead's dispatch is locked (warm-up required).
+ */
+export function isLeadDispatchLocked(lead: ChannelLead): boolean {
+  return !isLeadWarmed(lead);
+}
+
+/**
  * Smart Warm-Up Alert Logic:
  * - If already warmed up: false
  * - If Saturday: do NOT show warm-up alerts for Sunday (rest day)
@@ -618,7 +650,7 @@ export function getScheduleDayStyle(dateStr?: string | null): ScheduleDayStyle {
  * - On normal weekdays: show warm-up alert for leads scheduled for today or overdue
  */
 export function shouldShowWarmupAlert(lead: ChannelLead): boolean {
-  if (lead.isWarmedUp || lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') {
+  if (lead.isWarmedUp || lead.warmupStatus === 'warmed' || lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') {
     return false;
   }
 

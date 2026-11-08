@@ -41,6 +41,7 @@ import {
   isDay14FollowupDue,
   isDay30FollowupDue,
   getLeadBaseContactDate,
+  isLeadWarmed,
 } from '../../utils/cadenceEngine';
 import { getChannelLabel } from '../../utils/channelStorage';
 
@@ -368,6 +369,8 @@ export function FollowupScheduleSubPage({
             dueTodayLeads.map((lead) => {
               const templates = getCadenceMessageTemplates(lead);
               const isInitial = !lead.initialSentDate && !lead.dmSent;
+              const isWarmed = isLeadWarmed(lead);
+              const isDispatchLocked = isInitial && !isWarmed;
               const isDay7 = (lead.initialSentDate || lead.dmSent) && (lead.followupCount === 0 || lead.followupCount === undefined);
               const isDay14 = lead.followupCount === 1;
               const isDay30 = lead.followupCount === 2;
@@ -395,10 +398,12 @@ export function FollowupScheduleSubPage({
                 <div
                   key={lead.id}
                   className={`rounded-2xl border p-4 space-y-3 shadow-lg transition ${
-                    isOverdue
+                    isDispatchLocked
+                      ? 'border-amber-500/50 bg-amber-950/20 ring-1 ring-amber-500/20'
+                      : isOverdue
                       ? 'border-rose-500/50 bg-rose-950/20'
                       : isToday
-                      ? 'border-amber-500/40 bg-amber-950/20'
+                      ? 'border-indigo-500/40 bg-indigo-950/20'
                       : 'border-white/10 bg-slate-950/80'
                   }`}
                 >
@@ -416,9 +421,22 @@ export function FollowupScheduleSubPage({
                         </span>
                       )}
                       {isInitial ? (
-                        <span className="text-[10px] font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
-                          Stage A (Initial DM)
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
+                            Stage A (Initial DM)
+                          </span>
+                          {isWarmed ? (
+                            <span className="text-[10px] font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/40 font-mono flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              <span>🔥 Warmed &amp; Ready</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40 font-mono flex items-center gap-1 animate-pulse">
+                              <Lock className="w-3 h-3 text-amber-400" />
+                              <span>🔒 Warm-Up Locked</span>
+                            </span>
+                          )}
+                        </div>
                       ) : isDay7 ? (
                         <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40 font-mono">
                           ⚡ Day 7: Value Check-In
@@ -477,6 +495,34 @@ export function FollowupScheduleSubPage({
                     </p>
                   </div>
 
+                  {/* Dispatch Lock Notice for Today's Un-Warmed Leads */}
+                  {isDispatchLocked && (
+                    <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-start sm:items-center gap-2">
+                        <Lock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+                        <span>
+                          <strong>Dispatch Gate:</strong> This prospect is locked because they were not warmed up yesterday. Engage their profile and click <strong>"Mark as Warmed"</strong> to enable dispatch.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nowIso = new Date().toISOString();
+                          handleUpdateLeadItem({
+                            ...lead,
+                            warmupStatus: 'warmed',
+                            isWarmedUp: true,
+                            warmedUpAt: nowIso,
+                          });
+                        }}
+                        className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-950/40 shrink-0 transition cursor-pointer active:scale-95 self-end sm:self-auto"
+                      >
+                        <Flame className="w-3.5 h-3.5 fill-slate-950 text-slate-950" />
+                        <span>Mark as Warmed</span>
+                      </button>
+                    </div>
+                  )}
+
                   {/* Amber Sticky Note Box Preview */}
                   {renderQuickNoteBox(lead)}
 
@@ -520,9 +566,12 @@ export function FollowupScheduleSubPage({
                         <span>Replied!</span>
                       </button>
 
+                      {/* DISPATCH BUTTON: Disabled if isDispatchLocked */}
                       <button
                         type="button"
+                        disabled={isDispatchLocked}
                         onClick={() => {
+                          if (isDispatchLocked) return;
                           if (isInitial) {
                             handleUpdateLeadItem(markInitialSent(lead));
                           } else if (isDay7) {
@@ -533,18 +582,32 @@ export function FollowupScheduleSubPage({
                             handleUpdateLeadItem(markFollowupSent(lead, 3));
                           }
                         }}
-                        className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-600/30 transition cursor-pointer"
+                        className={
+                          isDispatchLocked
+                            ? 'px-4 py-1.5 rounded-xl bg-slate-800 text-slate-500 border border-slate-700/60 font-bold text-xs flex items-center gap-1.5 cursor-not-allowed opacity-60 shadow-none'
+                            : 'px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-600/30 transition cursor-pointer'
+                        }
+                        title={isDispatchLocked ? "Dispatch is locked until this lead is marked as 'warmed'" : undefined}
                       >
-                        <Send className="w-3.5 h-3.5" />
-                        <span>
-                          {isInitial
-                            ? 'Mark Initial DM Sent'
-                            : isDay7
-                            ? 'Mark Day 7 Sent'
-                            : isDay14
-                            ? 'Mark Day 14 Sent'
-                            : 'Mark Day 30 Sent (Archive)'}
-                        </span>
+                        {isDispatchLocked ? (
+                          <>
+                            <Lock className="w-3.5 h-3.5 text-amber-500" />
+                            <span>🔒 Dispatch Locked</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-3.5 h-3.5" />
+                            <span>
+                              {isInitial
+                                ? 'Mark Initial DM Sent'
+                                : isDay7
+                                ? 'Mark Day 7 Sent'
+                                : isDay14
+                                ? 'Mark Day 14 Sent'
+                                : 'Mark Day 30 Sent (Archive)'}
+                            </span>
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>

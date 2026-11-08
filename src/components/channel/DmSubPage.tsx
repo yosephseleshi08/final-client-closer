@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   Edit3,
   ExternalLink,
-  MessageSquare,
   X,
   FileText,
   Flame,
@@ -12,10 +11,17 @@ import {
   Unlock,
   Copy,
   Check,
+  AlertCircle,
+  Sparkles,
+  ArrowRight,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import { getChannelLabel } from '../../utils/channelStorage';
-import { getLocalTodayStr, addDays } from '../../utils/cadenceEngine';
+import {
+  getLocalTodayStr,
+  getTomorrowWarmupTargetDate,
+  isLeadWarmed,
+} from '../../utils/cadenceEngine';
 import { LeadAnalysisModal } from './LeadAnalysisModal';
 
 interface DmSubPageProps {
@@ -37,30 +43,24 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const [copiedLeadId, setCopiedLeadId] = useState<string | null>(null);
 
   const todayStr = getLocalTodayStr();
+  const warmupTargetDate = getTomorrowWarmupTargetDate(todayStr);
+
   const [year, month, day] = todayStr.split('-').map(Number);
   const todayDate = new Date(year, month - 1, day);
   const todayDayOfWeek = todayDate.getDay(); // 0 = Sun, 6 = Sat
   const isSaturday = todayDayOfWeek === 6;
   const isSunday = todayDayOfWeek === 0;
 
-  // Sunday Rule:
-  // - No DMs on Sunday, no warm-ups on Sunday.
-  // - On Saturday, warm-ups are for Monday's leads (addDays(todayStr, 2)).
-  // - Mon-Fri: warm-ups are for tomorrow's leads (addDays(todayStr, 1)).
-  const warmupTargetDate = isSunday
-    ? null
-    : isSaturday
-    ? addDays(todayStr, 2)
-    : addDays(todayStr, 1);
+  // STRICT RULE: This tab must ONLY display leads scheduled for TOMORROW.
+  // Leads scheduled for Wednesday, Thursday, etc. are NOT shown and cannot be accessed here.
+  const tomorrowLeads = leads.filter((l) => {
+    if (l.isCompleted || l.initialSentDate) return false;
+    return l.scheduledDate === warmupTargetDate;
+  });
 
-  const leadsNeedingWarmupToday = !warmupTargetDate
-    ? []
-    : leads.filter((l) => {
-        if (l.isCompleted || l.initialSentDate) return false;
-        return l.scheduledDate === warmupTargetDate;
-      });
-
-  const selectedLead = leads.find((l) => l.id === selectedLeadId);
+  const warmedCount = tomorrowLeads.filter((l) => isLeadWarmed(l)).length;
+  const lockedCount = tomorrowLeads.length - warmedCount;
+  const selectedLead = tomorrowLeads.find((l) => l.id === selectedLeadId);
 
   const handleOpenPitchEditor = (lead: ChannelLead) => {
     setSelectedLeadId(lead.id);
@@ -111,25 +111,9 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
     onUpdateLeads(updated);
   };
 
-  // Aggressive Warm-Up Lock Handlers
-  const handleUnlockWarmup = (lead: ChannelLead) => {
-    const nowIso = new Date().toISOString();
-    const updated = leads.map((l) => {
-      if (l.id === lead.id) {
-        return {
-          ...l,
-          warmupStatus: 'warmed' as const,
-          isWarmedUp: true,
-          warmedUpAt: nowIso,
-        };
-      }
-      return l;
-    });
-    onUpdateLeads(updated);
-  };
-
+  // Warm-Up Gate Toggle: Strictly sets warmupStatus to 'warmed' or 'locked'
   const handleToggleWarmup = (lead: ChannelLead) => {
-    const isCurrentlyWarmed = lead.warmupStatus === 'warmed' || Boolean(lead.isWarmedUp);
+    const isCurrentlyWarmed = isLeadWarmed(lead);
     const nextVal = !isCurrentlyWarmed;
     const nowIso = new Date().toISOString();
     const updated = leads.map((l) => {
@@ -176,387 +160,290 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
     return count;
   };
 
-  const completeSequencesCount = leads.filter(
-    (l) => (l.initialDM || l.customPitch) && l.followup3DM && l.followup7DM
-  ).length;
-
   return (
     <div className="space-y-6">
-      {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-base font-bold text-white font-['Outfit']">
-            {getChannelLabel(channel)} DM Cadence &amp; Sequences
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Craft full 3-touch cadence messages (Initial DM, 3-Day Bump, 7-Day Breakup) per prospect.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
-          <span>Full 3-Step Sequences:</span>
-          <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/20">
-            {completeSequencesCount} / {leads.length}
-          </span>
-        </div>
-      </div>
-
-      {/* Warm Up Today Section */}
-      <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-950/25 via-slate-900/90 to-slate-900 p-5 shadow-xl space-y-3">
-        <div className="flex items-center justify-between flex-wrap gap-2 border-b border-amber-500/20 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center shadow-sm">
-              <Flame className="w-4 h-4 text-amber-400" />
+      {/* Header Deck: Daily Warm-Up Cycle Notice */}
+      <div className="rounded-3xl border border-amber-500/30 bg-gradient-to-r from-amber-950/40 via-slate-900/95 to-slate-900/95 p-5 sm:p-6 backdrop-blur-xl shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center shrink-0 shadow-lg shadow-amber-950/50">
+              <Flame className="w-6 h-6 text-amber-400" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-white font-['Outfit']">
-                  🔥 Warm Up Today
-                </h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  {leadsNeedingWarmupToday.length} Due {isSaturday ? 'for Monday' : 'for Tomorrow'}
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-xl sm:text-2xl font-black text-white font-['Outfit']">
+                  🔥 Warm-Up Today ({getChannelLabel(channel)})
+                </h1>
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold">
+                  Target Dispatch: {warmupTargetDate} {isSaturday ? '(Monday)' : ''}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                {isSunday
-                  ? 'Sunday Rest Mode: Outreach and warm-ups paused. Rest up for the week ahead!'
-                  : isSaturday
-                  ? 'Saturday Warm-Up: Warming up prospects scheduled for Monday dispatch (Sunday is rest).'
-                  : 'Warm up these prospects today so they recognize your profile when outreach sends tomorrow.'}
+              <p className="text-xs text-slate-400 mt-0.5">
+                Daily Cycle: Warm up tomorrow's leads today. Once warmed, their dispatch buttons unlock automatically tomorrow morning.
               </p>
             </div>
           </div>
         </div>
 
-        {leadsNeedingWarmupToday.length === 0 ? (
-          <div className="py-4 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span>
-              {isSunday
-                ? 'Sunday is a rest day. No warm-ups today!'
-                : isSaturday
-                ? 'All prospects scheduled for Monday are warmed up, or no leads are scheduled for Monday.'
-                : 'All prospects scheduled for tomorrow are warmed up, or no leads are scheduled for tomorrow.'}
+        {/* Status Counter Chips */}
+        <div className="flex items-center gap-3 text-xs font-mono self-start md:self-auto flex-wrap">
+          <div className="bg-slate-950/70 border border-white/10 px-3.5 py-2 rounded-xl flex items-center gap-2">
+            <span className="text-slate-400 font-sans">Tomorrow's Leads:</span>
+            <strong className="text-white font-bold">{tomorrowLeads.length}</strong>
+          </div>
+          <div className="bg-emerald-500/10 border border-emerald-500/30 px-3.5 py-2 rounded-xl flex items-center gap-2 text-emerald-300 font-bold">
+            <span>🔥 Warmed:</span>
+            <span>{warmedCount}</span>
+          </div>
+          {lockedCount > 0 && (
+            <div className="bg-amber-500/10 border border-amber-500/30 px-3.5 py-2 rounded-xl flex items-center gap-2 text-amber-300 font-bold animate-pulse">
+              <span>🔒 Need Warm-Up:</span>
+              <span>{lockedCount}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Daily Cycle Rule Explainer Banner */}
+      <div className="p-4 rounded-2xl border border-white/10 bg-slate-900/60 backdrop-blur-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+        <div className="flex items-start sm:items-center gap-2.5 text-slate-300">
+          <Sparkles className="w-4 h-4 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+          <div className="space-y-0.5">
+            <span className="font-bold text-white">Strict Daily Cadence Gate:</span>
+            <span className="text-slate-400 ml-1">
+              Engage with these prospects on social/web today and click <strong>"Mark as Warmed"</strong>. Tomorrow morning, their dispatch buttons will be unlocked and ready for 1-click outreach.
             </span>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
-            {leadsNeedingWarmupToday.map((lead) => {
-              const isWarmed = lead.warmupStatus === 'warmed' || Boolean(lead.isWarmedUp);
+        </div>
+        <div className="text-[11px] font-mono text-slate-500 shrink-0">
+          Future days (Wed, Thu, etc.) remain hidden until their designated warm-up eve.
+        </div>
+      </div>
+
+      {/* Main Queue: ONLY Tomorrow's Leads */}
+      {tomorrowLeads.length === 0 ? (
+        <div className="rounded-3xl border border-white/[0.08] bg-slate-900/50 p-12 text-center text-slate-400 space-y-3">
+          <div className="w-14 h-14 rounded-2xl bg-slate-800/80 border border-white/10 text-emerald-400 flex items-center justify-center mx-auto shadow-inner">
+            <CheckCircle2 className="w-7 h-7 text-emerald-400" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-base sm:text-lg font-bold text-slate-200 font-['Outfit']">
+              {isSunday
+                ? 'Sunday Rest Mode: No warm-ups scheduled today'
+                : isSaturday
+                ? 'All Monday prospects are warmed up, or none are scheduled for Monday'
+                : 'No leads scheduled for tomorrow (or all already warmed up)'}
+            </h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto">
+              This tab strictly isolates tomorrow's scheduled outreach ({warmupTargetDate}). Prospects scheduled for future days will appear here the day before their scheduled dispatch.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-xs font-mono text-slate-400 px-1">
+            <span className="font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+              <Flame className="w-4 h-4 text-amber-400" />
+              <span>Tomorrow's Queue ({tomorrowLeads.length} Total Leads for {warmupTargetDate})</span>
+            </span>
+            <span className="text-slate-500">
+              Strict Gate: Only leads scheduled for {warmupTargetDate} are accessible
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3.5">
+            {tomorrowLeads.map((lead) => {
+              const isWarmed = isLeadWarmed(lead);
+              const stepCount = getSequenceStepCount(lead);
+              const isSavedJustNow = savedSuccessId === lead.id;
+              const initialMsg = lead.initialDM || lead.customPitch;
+
               return (
                 <div
                   key={lead.id}
-                  className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-2.5 ${
+                  className={`rounded-2xl border p-4.5 sm:p-5 transition-all shadow-xl space-y-3.5 ${
                     isWarmed
-                      ? 'border-emerald-500/40 bg-emerald-950/20 shadow-sm'
-                      : 'border-amber-500/50 bg-amber-950/20 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500/30'
+                      ? 'border-emerald-500/40 bg-gradient-to-r from-emerald-950/20 via-slate-900/90 to-slate-900'
+                      : 'border-amber-500/50 bg-gradient-to-r from-amber-950/30 via-slate-900/90 to-slate-900 ring-1 ring-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.12)]'
                   }`}
                 >
-                  <div className="space-y-0.5 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/20">
+                  {/* Lead Row Top Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20">
                         {lead.id}
                       </span>
-                      <span className="font-medium text-xs text-slate-200 truncate block font-['Outfit']">
+                      <h3 className="font-bold text-white text-base font-['Outfit']">
                         {lead.name}
-                      </span>
+                      </h3>
+
+                      {/* Warm-Up Status Pill */}
+                      {isWarmed ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>🔥 WARMED UP (Dispatch Unlocked Tomorrow)</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">
+                          <Lock className="w-3.5 h-3.5 text-amber-400" />
+                          <span>🔒 LOCKED (Warm-Up Required Before Dispatch)</span>
+                        </span>
+                      )}
+
+                      {lead.scheduledDate && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono text-slate-400 bg-white/5 border border-white/10">
+                          <Calendar className="w-3 h-3" />
+                          <span>Scheduled: {lead.scheduledDate}</span>
+                        </span>
+                      )}
+
+                      {lead.fb_message_restricted && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">
+                          ✉️ Email Dispatch Default
+                        </span>
+                      )}
                     </div>
+
+                    {/* Social Link */}
                     <a
-                      href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
+                      href={
+                        lead.fb_message_restricted && !lead.link.includes('@')
+                          ? `mailto:?subject=${encodeURIComponent(`Outreach: ${lead.name}`)}`
+                          : lead.link.startsWith('http')
+                          ? lead.link
+                          : `https://${lead.link}`
+                      }
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[10px] text-indigo-400 hover:text-indigo-300 truncate max-w-[170px]"
+                      className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition-colors px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 self-start sm:self-auto border border-white/10"
                     >
-                      <span className="truncate">{lead.link}</span>
-                      <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                      <span className="truncate max-w-xs">{lead.link}</span>
+                      <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                     </a>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleToggleWarmup(lead)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 shrink-0 ${
-                      isWarmed
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                        : 'bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/50 shadow-amber-950/40 animate-pulse'
-                    }`}
-                    title={isWarmed ? 'Profile Warmed Up (Click to untoggle)' : 'Mark profile as Warmed Up'}
-                  >
-                    <span>🔥</span>
-                    <span>{isWarmed ? 'Warmed' : 'Warm Up'}</span>
-                  </button>
+                  {/* Warm-Up Action Bar & Message Script Preview */}
+                  <div className="rounded-xl border border-white/10 bg-slate-950/70 p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-300 font-mono text-[11px]">
+                          Sequence Status:
+                        </span>
+                        <span
+                          className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
+                            stepCount === 3
+                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                              : stepCount > 0
+                              ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                              : 'bg-white/5 text-slate-400 border-white/10'
+                          }`}
+                        >
+                          {stepCount === 3 ? '✓ 3/3 Steps Ready' : `${stepCount}/3 Steps Set`}
+                        </span>
+                      </div>
+
+                      {initialMsg && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopyDm(lead)}
+                          className="flex items-center gap-1 text-xs text-indigo-400 hover:text-white transition cursor-pointer"
+                        >
+                          {copiedLeadId === lead.id ? (
+                            <>
+                              <Check className="w-3 h-3 text-emerald-400" />
+                              <span className="text-emerald-400 font-bold">Copied!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span>Copy Initial DM</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    {initialMsg ? (
+                      <p className="text-xs text-slate-300 italic bg-slate-900/80 p-2.5 rounded-lg border border-white/5 leading-relaxed font-sans">
+                        "{initialMsg}"
+                      </p>
+                    ) : (
+                      <div className="text-xs text-slate-500 flex items-center gap-2 py-1">
+                        <FileText className="w-3.5 h-3.5 opacity-60" />
+                        <span>No custom pitch written yet (standard hook will be used)</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bottom Action Controls */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-white/5">
+                    <div className="text-xs text-slate-400 font-sans">
+                      {isWarmed ? (
+                        <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Profile warmed! Dispatch button will be active tomorrow morning.</span>
+                        </span>
+                      ) : (
+                        <span className="text-amber-300 font-semibold flex items-center gap-1">
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Engage prospect profile, then click "Mark as Warmed" to unlock dispatch.</span>
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap self-end sm:self-auto">
+                      {/* Write/Edit 3-Step Sequence */}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenPitchEditor(lead)}
+                        className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 border border-white/10"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{stepCount > 0 ? 'Edit 3-Step' : 'Write 3-Step'}</span>
+                      </button>
+
+                      {/* Prompt Hub */}
+                      <button
+                        type="button"
+                        onClick={() => setPromptModalLeadId(lead.id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${
+                          lead.leadAnalysis?.trim()
+                            ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-500/30'
+                            : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 hover:text-white border-indigo-500/30'
+                        }`}
+                        title="Open Lead Analysis & Prompt Hub"
+                      >
+                        <span>📋</span>
+                        <span>Prompt</span>
+                        {lead.leadAnalysis?.trim() && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Analysis saved" />
+                        )}
+                      </button>
+
+                      {/* THE PRIMARY GATE: Toggle Warm-Up Status */}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleWarmup(lead)}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 ${
+                          isWarmed
+                            ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 shadow-emerald-950/40'
+                            : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-950/50 ring-2 ring-amber-400/50 animate-pulse'
+                        }`}
+                      >
+                        <Flame className={`w-4 h-4 ${isWarmed ? 'text-emerald-400' : 'fill-slate-950 text-slate-950'}`} />
+                        <span>{isWarmed ? '✓ Warmed (Click to Lock)' : '🔥 Mark as Warmed'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {isSavedJustNow && (
+                    <div className="text-[11px] text-emerald-400 font-semibold">
+                      ✓ Sequence Saved Successfully!
+                    </div>
+                  )}
                 </div>
               );
             })}
-          </div>
-        )}
-      </div>
-
-      {leads.length === 0 ? (
-        <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 p-12 text-center text-slate-400">
-          <MessageSquare className="w-8 h-8 text-slate-600 mx-auto mb-3" />
-          <p className="text-sm font-semibold text-slate-300">No leads available for sequence authoring</p>
-          <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-            Switch to the "Leads" sub-tab to paste prospect links first. They will immediately appear here.
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 backdrop-blur-sm overflow-hidden shadow-xl">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-4 text-left w-28">Lead ID</th>
-                  <th className="py-3 px-4 text-left w-56">Name &amp; Profile</th>
-                  <th className="py-3 px-4 text-left">3-Step Sequence Status &amp; Previews</th>
-                  <th className="py-3 px-4 text-right w-64">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.04]">
-                {leads.map((lead) => {
-                  const stepCount = getSequenceStepCount(lead);
-                  const isSavedJustNow = savedSuccessId === lead.id;
-                  const initialMsg = lead.initialDM || lead.customPitch;
-                  const step2Msg = lead.followup3DM;
-                  const step3Msg = lead.followup7DM;
-
-                  // Aggressive Warm-Up Lock:
-                  // A lead is locked unless it has been explicitly warmed up.
-                  const isWarmed = lead.warmupStatus === 'warmed' || Boolean(lead.isWarmedUp);
-                  const isLocked = !isWarmed;
-
-                  return (
-                    <tr
-                      key={lead.id}
-                      className={`transition-all duration-200 ${
-                        isWarmed
-                          ? 'bg-emerald-950/5 hover:bg-emerald-950/10'
-                          : 'hover:bg-white/[0.02]'
-                      }`}
-                    >
-                      {/* ID */}
-                      <td className="py-3.5 px-4 text-left font-mono text-xs tabular-nums">
-                        <span className="font-semibold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20">
-                          {lead.id}
-                        </span>
-                      </td>
-
-                      {/* Name & Link */}
-                      <td className="py-3.5 px-4 text-left">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-sm text-slate-100 font-['Outfit'] truncate max-w-xs">
-                            {lead.name}
-                          </span>
-                          {lead.leadAnalysis && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                              Analysis Ready
-                            </span>
-                          )}
-                          {lead.scheduledDate && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400 bg-white/5 border border-white/10">
-                              <Calendar className="w-2.5 h-2.5" />
-                              <span>{lead.scheduledDate}</span>
-                            </span>
-                          )}
-                          {lead.fb_message_restricted && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">
-                              ✉️ Email Dispatch Default (FB Restricted)
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                          <a
-                            href={lead.fb_message_restricted && !lead.link.includes('@') ? `mailto:?subject=${encodeURIComponent(`Outreach: ${lead.name}`)}` : (lead.link.startsWith('http') ? lead.link : `https://${lead.link}`)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-400 transition-colors truncate max-w-xs"
-                          >
-                            <span className="truncate">{lead.link}</span>
-                            <ExternalLink className="w-3 h-3 shrink-0" />
-                          </a>
-                        </div>
-                      </td>
-
-                      {/* 3-Step Sequence Status & Previews (Locked vs Warmed) */}
-                      <td className="py-3.5 px-4 text-left">
-                        {isLocked ? (
-                          <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/70 border border-amber-500/30 text-amber-300">
-                            <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
-                              <Lock className="w-4 h-4 text-amber-400" />
-                            </div>
-                            <div className="space-y-0.5 flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold text-xs text-amber-200">Aggressive Warm-Up Lock</span>
-                                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                  🔒 Locked
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-slate-400 truncate">
-                                Outreach DM script locked. Warm up this prospect to reveal message.
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleUnlockWarmup(lead)}
-                              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-amber-950/40 cursor-pointer active:scale-95 shrink-0"
-                            >
-                              <Flame className="w-3.5 h-3.5 fill-slate-950 text-slate-950" />
-                              <span>Warm Up Now</span>
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {/* Step Badges Row */}
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span
-                                className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
-                                  stepCount === 3
-                                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                                    : stepCount > 0
-                                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                                    : 'bg-white/5 text-slate-400 border-white/10'
-                                }`}
-                              >
-                                {stepCount === 3 ? '✓ 3/3 Steps Ready' : `${stepCount}/3 Steps Set`}
-                              </span>
-
-                              <span
-                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                                  initialMsg
-                                    ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                                    : 'bg-white/5 text-slate-500'
-                                }`}
-                                title={initialMsg ? `Initial DM: ${initialMsg}` : 'Initial DM not written'}
-                              >
-                                1. Initial
-                              </span>
-                              <span
-                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                                  step2Msg
-                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                    : 'bg-white/5 text-slate-500'
-                                }`}
-                                title={step2Msg ? `3-Day Follow-Up: ${step2Msg}` : '3-Day Follow-Up not written'}
-                              >
-                                2. Day 3
-                              </span>
-                              <span
-                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                                  step3Msg
-                                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                                    : 'bg-white/5 text-slate-500'
-                                }`}
-                                title={step3Msg ? `7-Day Breakup: ${step3Msg}` : '7-Day Breakup not written'}
-                              >
-                                3. Day 7
-                              </span>
-                              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 ml-auto flex items-center gap-1">
-                                <Unlock className="w-3 h-3" />
-                                <span>Unlocked</span>
-                              </span>
-                            </div>
-
-                            {/* Preview snippet of the initial DM */}
-                            {initialMsg ? (
-                              <p className="text-xs text-slate-300 line-clamp-2 italic bg-slate-950/40 p-2 rounded-lg border border-white/5">
-                                "{initialMsg}"
-                              </p>
-                            ) : (
-                              <span className="text-xs text-slate-500 flex items-center gap-1.5">
-                                <FileText className="w-3.5 h-3.5 opacity-60" />
-                                <span>No custom sequence drafted yet (standard intro will be used)</span>
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Action Buttons: Lock shows Warm Up Now, Warmed shows Copy DM */}
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {isLocked ? (
-                            <button
-                              type="button"
-                              onClick={() => handleUnlockWarmup(lead)}
-                              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-amber-950/40 cursor-pointer active:scale-95"
-                              title="Warm Up Now to unlock DM script"
-                            >
-                              <Lock className="w-3.5 h-3.5" />
-                              <span>Warm Up Now</span>
-                            </button>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => handleCopyDm(lead)}
-                                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-md shadow-indigo-600/20 active:scale-95"
-                                title="Copy Initial DM to clipboard"
-                              >
-                                {copiedLeadId === lead.id ? (
-                                  <>
-                                    <Check className="w-3.5 h-3.5 text-emerald-300" />
-                                    <span>Copied!</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy className="w-3.5 h-3.5" />
-                                    <span>Copy DM</span>
-                                  </>
-                                )}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleToggleWarmup(lead)}
-                                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 border bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-emerald-950/30"
-                                title="Profile Warmed Up (Click to lock)"
-                              >
-                                <span>🔥</span>
-                                <span>Warmed</span>
-                              </button>
-                            </>
-                          )}
-
-                          {/* Prompt Hub */}
-                          <button
-                            type="button"
-                            onClick={() => setPromptModalLeadId(lead.id)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 border shadow-sm ${
-                              lead.leadAnalysis?.trim()
-                                ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-500/30'
-                                : 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 hover:text-white border-indigo-500/30'
-                            }`}
-                            title="Open Lead Analysis & Prompt Hub"
-                          >
-                            <span>📋</span>
-                            <span>Prompt</span>
-                            {lead.leadAnalysis?.trim() && (
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Analysis saved" />
-                            )}
-                          </button>
-
-                          {/* Write/Edit 3-Step */}
-                          <button
-                            type="button"
-                            onClick={() => handleOpenPitchEditor(lead)}
-                            className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 border border-white/10"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 text-slate-400" />
-                            <span>{stepCount > 0 ? 'Edit 3-Step' : 'Write 3-Step'}</span>
-                          </button>
-                        </div>
-
-                        {isSavedJustNow && (
-                          <div className="text-[10px] text-emerald-400 font-semibold mt-1">
-                            Sequence Saved!
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
           </div>
         </div>
       )}
@@ -586,33 +473,6 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                 className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10"
               >
                 <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Manual Sequence Info & Prompt Hub Access */}
-            <div className="rounded-xl border border-white/10 bg-slate-950/70 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 shrink-0">
-                  <FileText className="w-4 h-4 text-indigo-300" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-white">Manual 3-Step Sequence Editor</h4>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Write tailored Day 1, Day 3, and Day 7 messages for manual outreach.
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setPromptModalLeadId(selectedLead.id)}
-                className="px-3.5 py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
-              >
-                <span>📋</span>
-                <span>Open Prompt Hub</span>
-                {selectedLead.leadAnalysis?.trim() && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                )}
               </button>
             </div>
 
@@ -759,7 +619,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
               <button
                 type="button"
                 onClick={() => setSelectedLeadId(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/10 transition"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
               >
                 Cancel
               </button>
