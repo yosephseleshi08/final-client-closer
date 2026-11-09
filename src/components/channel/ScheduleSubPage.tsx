@@ -6,9 +6,11 @@ import {
   Sparkles,
   Rocket,
   CheckCircle2,
+  Facebook,
+  Mail,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
-import { getChannelLabel, getPlatformLink } from '../../utils/channelStorage';
+import { getChannelLabel, getPlatformLink, getLeadFacebook, getLeadEmail } from '../../utils/channelStorage';
 import { TestLinkButton } from '../TestLinkButton';
 import {
   getLocalTodayStr,
@@ -159,19 +161,67 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
 
                       {/* Link */}
                       <td className="py-3.5 px-4 text-left text-xs text-slate-400">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <a
-                            href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
-                            target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-400 transition-colors truncate max-w-xs"
-                            title={`Open ${lead.platformLink || lead.link}`}
-                          >
-                            <span className="truncate">{lead.platformLink || lead.link}</span>
-                            <ExternalLink className="w-3 h-3 shrink-0" />
-                          </a>
-                          <TestLinkButton lead={lead} platform={lead.channel || channel} />
-                        </div>
+                        {channel === 'combined' ? (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {getLeadFacebook(lead) && (
+                              <div className="inline-flex items-center gap-1 p-1 px-1.5 rounded bg-sky-950/40 border border-sky-500/30 text-[11px]">
+                                <a
+                                  href={getPlatformLink(getLeadFacebook(lead), 'facebook')}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sky-300 hover:text-white flex items-center gap-1 font-mono"
+                                  title={`Open FB: ${getLeadFacebook(lead)}`}
+                                >
+                                  <Facebook className="w-3 h-3 text-sky-400" />
+                                  <span className="font-bold">FB</span>
+                                  <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                                </a>
+                                <TestLinkButton lead={lead} platform="facebook" label="Test FB" />
+                              </div>
+                            )}
+                            {getLeadEmail(lead) && (
+                              <div className="inline-flex items-center gap-1 p-1 px-1.5 rounded bg-indigo-950/40 border border-indigo-500/30 text-[11px]">
+                                <a
+                                  href={getPlatformLink(getLeadEmail(lead), 'email')}
+                                  className="text-indigo-300 hover:text-white flex items-center gap-1 font-mono"
+                                  title={`Send Email: ${getLeadEmail(lead)}`}
+                                >
+                                  <Mail className="w-3 h-3 text-indigo-400" />
+                                  <span className="font-bold">Email</span>
+                                  <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                                </a>
+                                <TestLinkButton lead={lead} platform="email" label="Test Email" />
+                              </div>
+                            )}
+                            {!getLeadFacebook(lead) && !getLeadEmail(lead) && (
+                              <div className="flex items-center gap-2">
+                                <a
+                                  href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[11px] text-slate-400 hover:text-indigo-400 truncate max-w-xs"
+                                >
+                                  <span className="truncate">{lead.platformLink || lead.link}</span>
+                                </a>
+                                <TestLinkButton lead={lead} platform={lead.channel || channel} />
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <a
+                              href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
+                              target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-400 transition-colors truncate max-w-xs"
+                              title={`Open ${lead.platformLink || lead.link}`}
+                            >
+                              <span className="truncate">{lead.platformLink || lead.link}</span>
+                              <ExternalLink className="w-3 h-3 shrink-0" />
+                            </a>
+                            <TestLinkButton lead={lead} platform={lead.channel || channel} />
+                          </div>
+                        )}
                       </td>
 
                       {/* Date Picker Input & Staggered Day Badge */}

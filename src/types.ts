@@ -296,6 +296,8 @@ export interface InboxLead {
   rawPlatform?: string;
   profileLink: string;
   platformLink?: string;
+  facebook?: string;
+  email?: string;
   prompt: string;
   uploadedAt: string;
   rawDetails?: Record<string, any>;
@@ -309,6 +311,9 @@ export interface ChannelLead {
   name: string; // Business or contact name
   link: string; // Raw platform link / social handle / website / mailto:
   platformLink?: string; // Explicit raw platformLink value from Lead Qualification JSON
+  facebook?: string; // Explicit Facebook page link or handle for dual-channel workflow
+  email?: string; // Explicit Email address for dual-channel workflow
+  rawDetails?: Record<string, any>; // Underlying extracted details from lead qualification
   channel: MultiChannelType;
   sortOrder: number; // rank for drag-and-drop ordering
   createdAt: string;

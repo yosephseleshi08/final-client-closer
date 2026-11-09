@@ -32,7 +32,7 @@ import { QuickNoteModal } from './QuickNoteModal';
 import { SundayPrepView } from './SundayPrepView';
 import { TestLinkButton } from './TestLinkButton';
 import { recordTodayCompletion } from '../utils/historyStorage';
-import { getPlatformLink } from '../utils/channelStorage';
+import { getPlatformLink, getLeadFacebook, getLeadEmail } from '../utils/channelStorage';
 import {
   getLocalTodayStr,
   normalizeToLocalDateStr,
@@ -1136,19 +1136,48 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                   <div className="font-semibold text-sm text-slate-100 truncate font-['Outfit']">
                     {lead.name}
                   </div>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <a
-                      href={getPlatformLink(lead.platformLink || lead.link, lead.channel)}
-                      target={getPlatformLink(lead.platformLink || lead.link, lead.channel).startsWith('mailto:') ? '_self' : '_blank'}
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 truncate max-w-full"
-                      title={`Open ${lead.platformLink || lead.link}`}
-                    >
-                      <span className="truncate">{lead.platformLink || lead.link}</span>
-                      <ExternalLink className="w-3 h-3 shrink-0" />
-                    </a>
-                    <TestLinkButton lead={lead} platform={lead.channel} />
-                  </div>
+                  {(() => {
+                    const fb = getLeadFacebook(lead);
+                    const warmupLink = fb || lead.platformLink || lead.link;
+                    const warmupHref = getPlatformLink(warmupLink, 'facebook');
+                    const isCombined = lead.channel === 'combined' || Boolean(fb);
+
+                    if (isCombined) {
+                      return (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <a
+                            href={warmupHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 truncate max-w-full font-medium"
+                            title={`Warm Up on Facebook: ${warmupLink}`}
+                          >
+                            <Facebook className="w-3 h-3 text-sky-400 shrink-0" />
+                            <span className="font-bold text-[10px] text-sky-300 bg-sky-500/20 px-1 rounded font-mono">FB</span>
+                            <span className="truncate max-w-[130px]">{warmupLink}</span>
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                          </a>
+                          <TestLinkButton lead={lead} platform="facebook" label="Test FB" />
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <a
+                          href={getPlatformLink(lead.platformLink || lead.link, lead.channel)}
+                          target={getPlatformLink(lead.platformLink || lead.link, lead.channel).startsWith('mailto:') ? '_self' : '_blank'}
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 truncate max-w-full"
+                          title={`Open ${lead.platformLink || lead.link}`}
+                        >
+                          <span className="truncate">{lead.platformLink || lead.link}</span>
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                        </a>
+                        <TestLinkButton lead={lead} platform={lead.channel} />
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <button

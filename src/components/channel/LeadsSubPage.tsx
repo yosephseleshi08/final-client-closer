@@ -30,6 +30,9 @@ import {
   X,
   ArrowRight,
   Upload,
+  Facebook,
+  Mail,
+  Edit2,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import {
@@ -45,6 +48,10 @@ import {
   saveChannelLeads,
   findDuplicateLead,
   getPlatformLink,
+  getLeadFacebook,
+  getLeadEmail,
+  hasDualChannelLinks,
+  detectLinkChannel,
 } from '../../utils/channelStorage';
 import { TestLinkButton } from '../TestLinkButton';
 import {
@@ -68,6 +75,7 @@ interface SortableLeadRowProps {
   onDelete: (id: string) => void;
   onToggleFbRestricted?: (id: string) => void;
   onRouteToEmail?: (lead: ChannelLead) => void;
+  onEditLinks?: (lead: ChannelLead) => void;
   isJustAdded?: boolean;
 }
 
@@ -77,6 +85,7 @@ function SortableLeadRow({
   onDelete,
   onToggleFbRestricted,
   onRouteToEmail,
+  onEditLinks,
   isJustAdded,
 }: SortableLeadRowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -90,6 +99,9 @@ function SortableLeadRow({
 
   const formattedUrl = getPlatformLink(lead.platformLink || lead.link, lead.channel || channel);
   const isMail = formattedUrl.startsWith('mailto:');
+
+  const fbLink = getLeadFacebook(lead);
+  const emailLink = getLeadEmail(lead);
 
   const dayStyle = getScheduleDayStyle(lead.scheduledDate);
   const isDueToday = isDateToday(lead.scheduledDate);
@@ -191,30 +203,121 @@ function SortableLeadRow({
         </div>
       </td>
 
-      {/* Link & Smart Route Dispatch */}
+      {/* Link & Dual-Channel Profile Links Display */}
       <td className="py-3.5 px-4 text-left text-xs text-slate-400">
-        <div className="flex items-center gap-2 flex-wrap">
-          <a
-            href={
-              lead.fb_message_restricted && !lead.link.includes('@')
-                ? `mailto:?subject=${encodeURIComponent(`Outreach: ${lead.name}`)}`
-                : formattedUrl
-            }
-            target={isMail ? '_self' : '_blank'}
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 transition-colors max-w-sm truncate group/link"
-            title={`Open ${lead.platformLink || lead.link}`}
-          >
-            <span className="truncate">{lead.platformLink || lead.link}</span>
-            <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-70 group-hover/link:opacity-100" />
-          </a>
-          <TestLinkButton lead={lead} platform={lead.channel || channel} />
-          {lead.fb_message_restricted && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
-              ✉️ Email Default
-            </span>
-          )}
-        </div>
+        {channel === 'combined' ? (
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {/* 1. Facebook Link & Test Link */}
+            {fbLink ? (
+              <div className="inline-flex items-center gap-1.5 p-1 px-2 rounded-lg bg-sky-950/40 border border-sky-500/30">
+                <a
+                  href={getPlatformLink(fbLink, 'facebook')}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-sky-300 hover:text-white font-medium group/fblink"
+                  title={`Open Facebook Profile: ${fbLink}`}
+                >
+                  <Facebook className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                  <span className="font-bold text-[10px] text-sky-300 bg-sky-500/20 px-1 py-0.2 rounded font-mono">
+                    FB
+                  </span>
+                  <span className="truncate max-w-[120px] text-[11px] font-mono text-sky-200">
+                    {fbLink.replace(/^https?:\/\/(?:www\.)?facebook\.com\/?/i, '') || fbLink}
+                  </span>
+                  <ExternalLink className="w-3 h-3 shrink-0 opacity-70 group-hover/fblink:opacity-100" />
+                </a>
+                <TestLinkButton lead={lead} platform="facebook" label="Test FB" />
+              </div>
+            ) : onEditLinks ? (
+              <button
+                type="button"
+                onClick={() => onEditLinks(lead)}
+                className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-lg border border-dashed border-sky-500/30 text-sky-400 hover:bg-sky-500/10 transition cursor-pointer"
+                title="Add Facebook Profile Link"
+              >
+                <Plus className="w-3 h-3 text-sky-400" />
+                <span>+ Add FB</span>
+              </button>
+            ) : null}
+
+            {/* 2. Email Link & Test Link */}
+            {emailLink ? (
+              <div className="inline-flex items-center gap-1.5 p-1 px-2 rounded-lg bg-indigo-950/40 border border-indigo-500/30">
+                <a
+                  href={getPlatformLink(emailLink, 'email')}
+                  className="inline-flex items-center gap-1 text-indigo-300 hover:text-white font-medium group/emaillink"
+                  title={`Send Email to: ${emailLink}`}
+                >
+                  <Mail className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <span className="font-bold text-[10px] text-indigo-300 bg-indigo-500/20 px-1 py-0.2 rounded font-mono">
+                    Email
+                  </span>
+                  <span className="truncate max-w-[130px] text-[11px] font-mono text-indigo-200">
+                    {emailLink.replace(/^mailto:/i, '')}
+                  </span>
+                  <ExternalLink className="w-3 h-3 shrink-0 opacity-70 group-hover/emaillink:opacity-100" />
+                </a>
+                <TestLinkButton lead={lead} platform="email" label="Test Email" />
+              </div>
+            ) : onEditLinks ? (
+              <button
+                type="button"
+                onClick={() => onEditLinks(lead)}
+                className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-lg border border-dashed border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/10 transition cursor-pointer"
+                title="Add Email Address"
+              >
+                <Plus className="w-3 h-3 text-indigo-400" />
+                <span>+ Add Email</span>
+              </button>
+            ) : null}
+
+            {/* Fallback if neither fbLink nor emailLink is detected */}
+            {!fbLink && !emailLink && (
+              <div className="flex items-center gap-2">
+                <a
+                  href={formattedUrl}
+                  target={isMail ? '_self' : '_blank'}
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 transition-colors max-w-sm truncate"
+                >
+                  <span className="truncate">{lead.platformLink || lead.link}</span>
+                  <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                </a>
+                <TestLinkButton lead={lead} platform={lead.channel || channel} />
+              </div>
+            )}
+
+            {lead.fb_message_restricted && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
+                ✉️ Email Default
+              </span>
+            )}
+          </div>
+        ) : (
+          /* Single channel (e.g. Instagram) */
+          <div className="flex items-center gap-2 flex-wrap">
+            <a
+              href={
+                lead.fb_message_restricted && !lead.link.includes('@')
+                  ? `mailto:?subject=${encodeURIComponent(`Outreach: ${lead.name}`)}`
+                  : formattedUrl
+              }
+              target={isMail ? '_self' : '_blank'}
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 transition-colors max-w-sm truncate group/link"
+              title={`Open ${lead.platformLink || lead.link}`}
+            >
+              <span className="truncate">{lead.platformLink || lead.link}</span>
+              <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-70 group-hover/link:opacity-100" />
+            </a>
+            <TestLinkButton lead={lead} platform={lead.channel || channel} />
+            {lead.fb_message_restricted && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
+                ✉️ Email Default
+              </span>
+            )}
+          </div>
+        )}
       </td>
 
       {/* Action: ONLY Delete Button (🗑️) */}
@@ -239,6 +342,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   const [linkInput, setLinkInput] = useState('');
   const [showNameModal, setShowNameModal] = useState(false);
   const [pendingLink, setPendingLink] = useState('');
+  const [pendingFb, setPendingFb] = useState('');
+  const [pendingEmail, setPendingEmail] = useState('');
   const [pendingName, setPendingName] = useState('');
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -251,6 +356,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   // Floating Action Button Centered Add Lead Modal state
   const [isAddLeadModalOpen, setIsAddLeadModalOpen] = useState(false);
   const [modalLinkInput, setModalLinkInput] = useState('');
+  const [modalFbInput, setModalFbInput] = useState('');
+  const [modalEmailInput, setModalEmailInput] = useState('');
   const [modalNameInput, setModalNameInput] = useState('');
   const [modalError, setModalError] = useState<string | null>(null);
   const [justAddedLeadId, setJustAddedLeadId] = useState<string | null>(null);
@@ -259,6 +366,12 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const [batchInputText, setBatchInputText] = useState('');
   const [batchError, setBatchError] = useState<string | null>(null);
+
+  // Dual-Channel Link Editor Modal State
+  const [editingLeadLinks, setEditingLeadLinks] = useState<ChannelLead | null>(null);
+  const [editFbLink, setEditFbLink] = useState('');
+  const [editEmailLink, setEditEmailLink] = useState('');
+  const [editLinkError, setEditLinkError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!duplicateAlert) return;
@@ -279,6 +392,59 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     })
   );
 
+  const handleOpenLinkEditor = (lead: ChannelLead) => {
+    setEditingLeadLinks(lead);
+    setEditFbLink(getLeadFacebook(lead) || (lead.link.includes('facebook') ? lead.link : ''));
+    setEditEmailLink(getLeadEmail(lead) || (lead.link.includes('@') ? lead.link : ''));
+    setEditLinkError(null);
+  };
+
+  const handleSaveLeadLinks = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLeadLinks) return;
+
+    const trimmedFb = editFbLink.trim();
+    const trimmedEmail = editEmailLink.trim();
+
+    if (!trimmedFb && !trimmedEmail) {
+      setEditLinkError('Please provide at least a Facebook link or an Email address.');
+      return;
+    }
+
+    // Check duplicate if newly introduced link conflicts with another lead
+    if (trimmedFb) {
+      const dup = leads.find((l) => l.id !== editingLeadLinks.id && findDuplicateLead(trimmedFb, [l]));
+      if (dup) {
+        setEditLinkError(`Facebook link already exists on lead ${dup.id} (${dup.name}).`);
+        return;
+      }
+    }
+    if (trimmedEmail) {
+      const dup = leads.find((l) => l.id !== editingLeadLinks.id && findDuplicateLead(trimmedEmail, [l]));
+      if (dup) {
+        setEditLinkError(`Email address already exists on lead ${dup.id} (${dup.name}).`);
+        return;
+      }
+    }
+
+    const primary = trimmedFb || trimmedEmail || editingLeadLinks.link;
+    const updated = leads.map((l) => {
+      if (l.id === editingLeadLinks.id) {
+        return {
+          ...l,
+          facebook: trimmedFb || undefined,
+          email: trimmedEmail || undefined,
+          link: primary,
+          platformLink: primary,
+        };
+      }
+      return l;
+    });
+
+    onUpdateLeads(updated);
+    setEditingLeadLinks(null);
+  };
+
   const handleBatchImportText = (rawText: string) => {
     const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
     if (lines.length === 0) {
@@ -292,13 +458,42 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
 
     for (const line of lines) {
       const parts = line.split(',').map((p) => p.trim());
-      const rawUrl = parts[0];
-      const customName = parts[1];
-      if (!rawUrl) continue;
+      if (parts.length === 0 || !parts[0]) continue;
 
-      // Strict duplicate check with full URL normalization
-      const duplicate = findDuplicateLead(rawUrl, currentList);
-      if (duplicate) {
+      let rawUrl = parts[0];
+      let customName = '';
+      let detectedFb: string | undefined = undefined;
+      let detectedEmail: string | undefined = undefined;
+
+      if (channel === 'combined') {
+        for (const part of parts) {
+          const ch = detectLinkChannel(part);
+          if (ch === 'facebook' && !detectedFb) {
+            detectedFb = part;
+          } else if (ch === 'email' && !detectedEmail) {
+            detectedEmail = part;
+          } else if (!customName && !part.startsWith('http') && !part.includes('/') && !part.includes('@')) {
+            customName = part;
+          }
+        }
+        if (!detectedFb && !detectedEmail) {
+          if (parts[0].includes('@')) detectedEmail = parts[0];
+          else detectedFb = parts[0];
+          customName = parts[1] || '';
+        } else if (!customName && parts.length > 2) {
+          customName = parts[parts.length - 1];
+        }
+        rawUrl = detectedFb || detectedEmail || parts[0];
+      } else {
+        customName = parts[1] || '';
+      }
+
+      // Strict duplicate check with full URL normalization across FB, Email, and primary link
+      const duplicateFb = detectedFb ? findDuplicateLead(detectedFb, currentList) : undefined;
+      const duplicateEmail = detectedEmail ? findDuplicateLead(detectedEmail, currentList) : undefined;
+      const duplicateUrl = findDuplicateLead(rawUrl, currentList);
+
+      if (duplicateFb || duplicateEmail || duplicateUrl) {
         duplicateCount++;
         continue;
       }
@@ -312,6 +507,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         name: businessName,
         link: rawUrl,
         platformLink: rawUrl,
+        facebook: detectedFb,
+        email: detectedEmail,
         channel,
         sortOrder: currentList.length,
         createdAt: new Date().toISOString(),
@@ -381,13 +578,32 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     const suggested = extractSuggestedName(trimmed);
     setPendingLink(trimmed);
     setPendingName(suggested);
+
+    if (channel === 'combined') {
+      const chType = detectLinkChannel(trimmed);
+      if (chType === 'facebook') {
+        setPendingFb(trimmed);
+        setPendingEmail('');
+      } else if (chType === 'email') {
+        setPendingEmail(trimmed);
+        setPendingFb('');
+      } else {
+        setPendingFb(trimmed);
+        setPendingEmail('');
+      }
+    }
+
     setShowNameModal(true);
   };
 
   const handleConfirmAddLead = (e: React.FormEvent) => {
     e.preventDefault();
 
-    const validation = validateChannelLink(pendingLink, channel);
+    const leadLinkToValidate = channel === 'combined'
+      ? (pendingFb.trim() || pendingEmail.trim() || pendingLink.trim())
+      : pendingLink.trim();
+
+    const validation = validateChannelLink(leadLinkToValidate, channel);
     if (!validation.isValid) {
       playWarningChime();
       setDuplicateAlert({
@@ -396,35 +612,41 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         detectedChannel: validation.detectedChannel,
       });
       setShowNameModal(false);
-      setPendingLink('');
-      setPendingName('');
       return;
     }
 
-    // BUG 2 FIX: Double check duplicate before saving
-    const existingLead = findDuplicateLead(pendingLink, leads);
-    if (existingLead) {
-      playWarningChime();
-      setDuplicateAlert({
-        message: 'Lead already exists in the pipeline.',
-        timestamp: Date.now(),
-      });
-      setShowNameModal(false);
-      setPendingLink('');
-      setPendingName('');
-      return;
+    // Double check duplicate before saving
+    if (pendingFb.trim()) {
+      const existing = findDuplicateLead(pendingFb.trim(), leads);
+      if (existing) {
+        playWarningChime();
+        setDuplicateAlert({ message: 'Lead already exists in the pipeline.', timestamp: Date.now() });
+        setShowNameModal(false);
+        return;
+      }
+    }
+    if (pendingEmail.trim()) {
+      const existing = findDuplicateLead(pendingEmail.trim(), leads);
+      if (existing) {
+        playWarningChime();
+        setDuplicateAlert({ message: 'Lead already exists in the pipeline.', timestamp: Date.now() });
+        setShowNameModal(false);
+        return;
+      }
     }
 
     const nextIdData = getNextLeadId(channel, leads);
-    const businessName = pendingName.trim() || extractSuggestedName(pendingLink);
+    const businessName = pendingName.trim() || extractSuggestedName(leadLinkToValidate);
     const assignedDate = getNextAvailableScheduleDate(leads, channel);
 
     const newLead: ChannelLead = {
       id: nextIdData.id,
       numericId: nextIdData.numericId,
       name: businessName,
-      link: pendingLink.trim(),
-      platformLink: pendingLink.trim(),
+      link: leadLinkToValidate,
+      platformLink: leadLinkToValidate,
+      facebook: channel === 'combined' && pendingFb.trim() ? pendingFb.trim() : undefined,
+      email: channel === 'combined' && pendingEmail.trim() ? pendingEmail.trim() : undefined,
       channel,
       sortOrder: leads.length,
       createdAt: new Date().toISOString(),
@@ -441,6 +663,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
 
     setLinkInput('');
     setPendingLink('');
+    setPendingFb('');
+    setPendingEmail('');
     setPendingName('');
     setShowNameModal(false);
   };
@@ -449,41 +673,88 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     e.preventDefault();
     setModalError(null);
 
-    const trimmedLink = modalLinkInput.trim();
-    if (!trimmedLink) {
-      setModalError('Please enter a valid prospect URL or handle.');
-      return;
-    }
+    let businessName = modalNameInput.trim();
+    let primaryLink = '';
+    let fbLinkVal: string | undefined = undefined;
+    let emailVal: string | undefined = undefined;
 
-    const validation = validateChannelLink(trimmedLink, channel);
-    if (!validation.isValid) {
-      playWarningChime();
-      setModalError(validation.errorMessage || 'Invalid link for this channel.');
-      return;
-    }
+    if (channel === 'combined') {
+      const fb = modalFbInput.trim();
+      const em = modalEmailInput.trim();
 
-    // BUG 2 FIX: Strict duplicate check with normalization
-    const existing = findDuplicateLead(trimmedLink, leads);
-    if (existing) {
-      playWarningChime();
-      setDuplicateAlert({
-        message: 'Lead already exists in the pipeline.',
-        timestamp: Date.now(),
-      });
-      setModalError('Lead already exists in the pipeline.');
-      return;
+      if (!fb && !em) {
+        setModalError('Please enter at least a Facebook link or an Email address.');
+        return;
+      }
+
+      if (fb) {
+        const val = validateChannelLink(fb, 'facebook');
+        if (!val.isValid) {
+          setModalError(val.errorMessage || 'Invalid Facebook link.');
+          return;
+        }
+        if (findDuplicateLead(fb, leads)) {
+          setModalError('Facebook link already exists in the pipeline.');
+          return;
+        }
+        fbLinkVal = fb;
+      }
+
+      if (em) {
+        const val = validateChannelLink(em, 'email');
+        if (!val.isValid) {
+          setModalError(val.errorMessage || 'Invalid Email address.');
+          return;
+        }
+        if (findDuplicateLead(em, leads)) {
+          setModalError('Email address already exists in the pipeline.');
+          return;
+        }
+        emailVal = em;
+      }
+
+      primaryLink = fbLinkVal || emailVal || '';
+      businessName = businessName || extractSuggestedName(primaryLink);
+    } else {
+      const trimmedLink = modalLinkInput.trim();
+      if (!trimmedLink) {
+        setModalError('Please enter a valid prospect URL or handle.');
+        return;
+      }
+
+      const validation = validateChannelLink(trimmedLink, channel);
+      if (!validation.isValid) {
+        playWarningChime();
+        setModalError(validation.errorMessage || 'Invalid link for this channel.');
+        return;
+      }
+
+      const existing = findDuplicateLead(trimmedLink, leads);
+      if (existing) {
+        playWarningChime();
+        setDuplicateAlert({
+          message: 'Lead already exists in the pipeline.',
+          timestamp: Date.now(),
+        });
+        setModalError('Lead already exists in the pipeline.');
+        return;
+      }
+
+      primaryLink = trimmedLink;
+      businessName = businessName || extractSuggestedName(trimmedLink);
     }
 
     const nextIdData = getNextLeadId(channel, leads);
-    const businessName = modalNameInput.trim() || extractSuggestedName(trimmedLink);
     const assignedDate = getNextAvailableScheduleDate(leads, channel);
 
     const newLead: ChannelLead = {
       id: nextIdData.id,
       numericId: nextIdData.numericId,
       name: businessName,
-      link: trimmedLink,
-      platformLink: trimmedLink,
+      link: primaryLink,
+      platformLink: primaryLink,
+      facebook: fbLinkVal,
+      email: emailVal,
       channel,
       sortOrder: leads.length,
       createdAt: new Date().toISOString(),
@@ -499,6 +770,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
 
     setIsAddLeadModalOpen(false);
     setModalLinkInput('');
+    setModalFbInput('');
+    setModalEmailInput('');
     setModalNameInput('');
   };
 
@@ -725,7 +998,9 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                 <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
                   <th className="py-3 px-4 text-left w-32">ID</th>
                   <th className="py-3 px-4 text-left">Prospect Name</th>
-                  <th className="py-3 px-4 text-left">Profile Link</th>
+                  <th className="py-3 px-4 text-left">
+                    {channel === 'combined' ? 'Profile Links (FB / Email)' : 'Profile Link'}
+                  </th>
                   <th className="py-3 px-4 text-right w-24">Action</th>
                 </tr>
               </thead>
@@ -736,7 +1011,9 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                       <div className="max-w-sm mx-auto space-y-2">
                         <p className="text-sm font-medium text-slate-400">No leads in {getChannelLabel(channel)} yet</p>
                         <p className="text-xs text-slate-500">
-                          Paste any link or handle above and press Enter to instantly intake your first lead.
+                          {channel === 'combined'
+                            ? 'Paste Facebook link or email address above and press Enter to intake your first dual-channel lead.'
+                            : 'Paste any link or handle above and press Enter to instantly intake your first lead.'}
                         </p>
                       </div>
                     </td>
@@ -758,8 +1035,9 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                         lead={lead}
                         channel={channel}
                         onDelete={handleDeleteLead}
-                        onToggleFbRestricted={channel === 'facebook' ? handleToggleFbRestricted : undefined}
+                        onToggleFbRestricted={channel === 'facebook' || channel === 'combined' ? handleToggleFbRestricted : undefined}
                         onRouteToEmail={channel === 'facebook' ? handleRouteToEmail : undefined}
+                        onEditLinks={channel === 'combined' ? handleOpenLinkEditor : undefined}
                         isJustAdded={lead.id === justAddedLeadId}
                       />
                     ))}
@@ -787,9 +1065,13 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
           <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-white/10 p-6 shadow-2xl space-y-5">
             <div>
-              <h3 className="text-lg font-bold text-white font-['Outfit']">Confirm Business Name</h3>
+              <h3 className="text-lg font-bold text-white font-['Outfit']">
+                {channel === 'combined' ? 'Confirm Dual-Channel Lead' : 'Confirm Business Name'}
+              </h3>
               <p className="text-xs text-slate-400 mt-1">
-                Enter or verify the name for this prospect. It will be assigned to the next available ID.
+                {channel === 'combined'
+                  ? 'Verify prospect name and channel links. Facebook will be used for warm-up, and Email for dispatch.'
+                  : 'Enter or verify the name for this prospect. It will be assigned to the next available ID.'}
               </p>
             </div>
 
@@ -803,15 +1085,46 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                   autoFocus
                   value={pendingName}
                   onChange={(e) => setPendingName(e.target.value)}
-                  placeholder="e.g. Copper Vine Bistro"
+                  placeholder="e.g. Michel's at the Colony Surf"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
-              <div className="p-3 rounded-xl bg-slate-950/60 border border-white/5 text-xs space-y-1">
-                <span className="text-slate-400">Intake Link:</span>
-                <p className="font-mono text-indigo-300 truncate">{pendingLink}</p>
-              </div>
+              {channel === 'combined' ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-sky-300 mb-1 flex items-center gap-1.5">
+                      <Facebook className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Facebook Profile / Page URL (For Warm-Up)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={pendingFb}
+                      onChange={(e) => setPendingFb(e.target.value)}
+                      placeholder="e.g. facebook.com/michels_colony_surf"
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-sky-500 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-indigo-300 mb-1 flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Email Address (For Pitch Dispatch)</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={pendingEmail}
+                      onChange={(e) => setPendingEmail(e.target.value)}
+                      placeholder="e.g. contact@michels.com"
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="p-3 rounded-xl bg-slate-950/60 border border-white/5 text-xs space-y-1">
+                  <span className="text-slate-400">Intake Link:</span>
+                  <p className="font-mono text-indigo-300 truncate">{pendingLink}</p>
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-2.5 pt-2">
                 <button
@@ -845,6 +1158,11 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                 <h3 className="text-xl font-black text-white font-['Outfit'] mt-0.5">
                   Add New {getChannelLabel(channel)} Lead
                 </h3>
+                {channel === 'combined' && (
+                  <p className="text-xs text-slate-400 mt-1">
+                    Dual-channel workflow: Add Facebook for warm-up, and Email for dispatch.
+                  </p>
+                )}
               </div>
               <button
                 type="button"
@@ -865,40 +1183,84 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
             <form onSubmit={handleModalAddSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Prospect Link / Handle <span className="text-rose-400">*</span>
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
-                    <LinkIcon className="w-4 h-4" />
-                  </div>
-                  <input
-                    type="text"
-                    autoFocus
-                    value={modalLinkInput}
-                    onChange={(e) => {
-                      setModalLinkInput(e.target.value);
-                      if (!modalNameInput) {
-                        setModalNameInput(extractSuggestedName(e.target.value));
-                      }
-                    }}
-                    placeholder={`e.g. instagram.com/restaurant_handle`}
-                    className="w-full pl-9 pr-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
                   Business / Contact Name
                 </label>
                 <input
                   type="text"
+                  autoFocus={channel !== 'combined'}
                   value={modalNameInput}
                   onChange={(e) => setModalNameInput(e.target.value)}
-                  placeholder="e.g. Bella Luna Trattoria"
+                  placeholder="e.g. Michel's at the Colony Surf"
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
               </div>
+
+              {channel === 'combined' ? (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-sky-300 mb-1.5 flex items-center gap-1.5">
+                      <Facebook className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Facebook Profile Link (Used for Warm-Up)</span>
+                    </label>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={modalFbInput}
+                      onChange={(e) => {
+                        setModalFbInput(e.target.value);
+                        if (!modalNameInput && e.target.value) {
+                          setModalNameInput(extractSuggestedName(e.target.value));
+                        }
+                      }}
+                      placeholder="e.g. facebook.com/michelscolonysurf"
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-indigo-300 mb-1.5 flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Email Address (Used for Dispatch)</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={modalEmailInput}
+                      onChange={(e) => {
+                        setModalEmailInput(e.target.value);
+                        if (!modalNameInput && !modalFbInput && e.target.value) {
+                          setModalNameInput(extractSuggestedName(e.target.value));
+                        }
+                      }}
+                      placeholder="e.g. contact@michels.com"
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                    Prospect Link / Handle <span className="text-rose-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                      <LinkIcon className="w-4 h-4" />
+                    </div>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={modalLinkInput}
+                      onChange={(e) => {
+                        setModalLinkInput(e.target.value);
+                        if (!modalNameInput) {
+                          setModalNameInput(extractSuggestedName(e.target.value));
+                        }
+                      }}
+                      placeholder={`e.g. instagram.com/restaurant_handle`}
+                      className="w-full pl-9 pr-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-3 pt-2">
                 <button
@@ -914,6 +1276,88 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                 >
                   <Plus className="w-4 h-4" />
                   <span>Save Lead</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Dual-Channel Link Editor Modal (Add/Edit FB or Email on any lead) */}
+      {editingLeadLinks && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-white/10 p-6 sm:p-7 shadow-2xl space-y-5 text-slate-100">
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 font-mono">
+                  Dual-Channel Channels
+                </span>
+                <h3 className="text-xl font-black text-white font-['Outfit'] mt-0.5">
+                  Edit Links: {editingLeadLinks.name}
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Facebook is used for warm-up today; Email is used for dispatch tomorrow.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingLeadLinks(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {editLinkError && (
+              <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-200 text-xs font-medium flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{editLinkError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveLeadLinks} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-sky-300 mb-1.5 flex items-center gap-1.5">
+                  <Facebook className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Facebook Profile / Page URL (For Warm-Up)</span>
+                </label>
+                <input
+                  type="text"
+                  value={editFbLink}
+                  onChange={(e) => setEditFbLink(e.target.value)}
+                  placeholder="e.g. facebook.com/michels_restaurant"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-sky-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-indigo-300 mb-1.5 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Email Address (For Dispatch)</span>
+                </label>
+                <input
+                  type="email"
+                  value={editEmailLink}
+                  onChange={(e) => setEditEmailLink(e.target.value)}
+                  placeholder="e.g. manager@michels.com"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingLeadLinks(null)}
+                  className="px-4 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-sky-600 hover:from-indigo-500 hover:to-sky-500 text-white text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/30 active:scale-95"
+                >
+                  <Edit2 className="w-4 h-4" />
+                  <span>Save Channel Links</span>
                 </button>
               </div>
             </form>

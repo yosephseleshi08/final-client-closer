@@ -201,6 +201,30 @@ export function parseQualifiedLeadsJson(jsonText: string): InboxLead[] {
     // Extract raw platformLink without mutation, stripping underscores, or regex replacements
     const rawPlatformLink = extractRawPlatformLink(it);
 
+    // Explicit dual-channel link extraction
+    const rawFb = String(
+      it.facebook ||
+      it.Facebook ||
+      it.facebookUrl ||
+      it.facebook_url ||
+      it.facebookLink ||
+      it.facebook_link ||
+      it.fb ||
+      it.socialLinks?.facebook ||
+      (rawPlatformLink.includes('facebook.com') || rawPlatformLink.includes('fb.com') ? rawPlatformLink : '')
+    ).trim();
+
+    const rawEmail = String(
+      it.email ||
+      it.Email ||
+      it.emailAddress ||
+      it.email_address ||
+      it.contactEmail ||
+      it.contact_email ||
+      it.socialLinks?.email ||
+      (rawPlatformLink.includes('@') && !rawPlatformLink.includes('facebook.com') && !rawPlatformLink.includes('instagram.com') ? rawPlatformLink : '')
+    ).trim();
+
     const prompt = String(
       it.prompt ||
       it.customPitch ||
@@ -219,6 +243,8 @@ export function parseQualifiedLeadsJson(jsonText: string): InboxLead[] {
       rawPlatform,
       profileLink: rawPlatformLink,
       platformLink: rawPlatformLink,
+      facebook: rawFb || undefined,
+      email: rawEmail || undefined,
       prompt,
       uploadedAt: nowIso,
       rawDetails: it,
@@ -291,12 +317,34 @@ export function acceptInboxLeadIntoCrm(
   // Strictly enforce daily quota (IG: 6, Combined: 4) & skip Sunday
   const assignedScheduleDate = getNextAvailableScheduleDate(currentLeads, targetChannel);
 
+  // Dual-channel link extraction (Facebook & Email)
+  const extractedFb =
+    lead.facebook ||
+    lead.rawDetails?.facebook ||
+    lead.rawDetails?.Facebook ||
+    lead.rawDetails?.facebookUrl ||
+    lead.rawDetails?.facebook_url ||
+    lead.rawDetails?.fb ||
+    lead.rawDetails?.socialLinks?.facebook ||
+    (rawPlatformLink.includes('facebook.com') || rawPlatformLink.includes('fb.com') ? rawPlatformLink : undefined);
+
+  const extractedEmail =
+    lead.email ||
+    lead.rawDetails?.email ||
+    lead.rawDetails?.Email ||
+    lead.rawDetails?.emailAddress ||
+    lead.rawDetails?.contactEmail ||
+    lead.rawDetails?.socialLinks?.email ||
+    (rawPlatformLink.includes('@') && !rawPlatformLink.includes('facebook.com') && !rawPlatformLink.includes('instagram.com') ? rawPlatformLink : undefined);
+
   const newChannelLead: ChannelLead = {
     id,
     numericId,
     name: lead.name,
     link: storedLink,
     platformLink: storedLink,
+    facebook: extractedFb || undefined,
+    email: extractedEmail || undefined,
     channel: targetChannel,
     sortOrder: 0,
     createdAt: nowIso,
@@ -311,6 +359,7 @@ export function acceptInboxLeadIntoCrm(
     leadAnalysis: lead.prompt || undefined,
     analysisSavedAt: lead.prompt ? nowIso : undefined,
     stagedDmMiniPitch: lead.prompt || undefined,
+    rawDetails: lead.rawDetails,
   };
 
   // Prepend new lead at index 0 and resequence sort order

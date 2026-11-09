@@ -6,6 +6,7 @@ interface TestLinkButtonProps {
   url?: string;
   lead?: any;
   platform?: string;
+  label?: string;
   className?: string;
   size?: 'sm' | 'xs';
 }
@@ -14,14 +15,14 @@ export const TestLinkButton: React.FC<TestLinkButtonProps> = ({
   url,
   lead,
   platform,
+  label,
   className = '',
   size = 'xs',
 }) => {
   const [tested, setTested] = useState(false);
 
-  const rawUrl = url || lead?.platformLink || lead?.link || lead?.profileLink || '';
   const resolvedPlatform = platform || lead?.platform || lead?.channel || '';
-  const resolvedHref = getPlatformLink(rawUrl, resolvedPlatform);
+  const resolvedHref = getPlatformLink(url || lead, resolvedPlatform);
 
   if (!resolvedHref) return null;
 

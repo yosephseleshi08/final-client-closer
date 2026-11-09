@@ -14,9 +14,11 @@ import {
   AlertCircle,
   Sparkles,
   ArrowRight,
+  Facebook,
+  Mail,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
-import { getChannelLabel, getPlatformLink } from '../../utils/channelStorage';
+import { getChannelLabel, getPlatformLink, getLeadFacebook, getLeadEmail } from '../../utils/channelStorage';
 import { TestLinkButton } from '../TestLinkButton';
 import {
   getLocalTodayStr,
@@ -259,6 +261,11 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
               const isSavedJustNow = savedSuccessId === lead.id;
               const initialMsg = lead.initialDM || lead.customPitch;
 
+              const fbLink = getLeadFacebook(lead);
+              const emailLink = getLeadEmail(lead);
+              const warmupTargetLink = fbLink || lead.link;
+              const warmupHref = getPlatformLink(warmupTargetLink, 'facebook');
+
               return (
                 <div
                   key={lead.id}
@@ -305,24 +312,54 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                       )}
                     </div>
 
-                    {/* Social Link & Test Link */}
-                    <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-                      <a
-                        href={
-                          lead.fb_message_restricted && !lead.link.includes('@')
-                            ? `mailto:?subject=${encodeURIComponent(`Outreach: ${lead.name}`)}`
-                            : getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)
-                        }
-                        target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition-colors px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10"
-                        title={`Open ${lead.platformLink || lead.link}`}
-                      >
-                        <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
-                        <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                      </a>
-                      <TestLinkButton lead={lead} platform={lead.channel || channel} />
-                    </div>
+                    {/* Warm-Up Social Link & Test Link */}
+                    {channel === 'combined' || fbLink ? (
+                      <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                        <a
+                          href={warmupHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-xs text-sky-300 hover:text-white transition-colors px-3 py-1.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 font-semibold group/fblink"
+                          title={`Warm Up via Facebook: ${warmupTargetLink}`}
+                        >
+                          <Facebook className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                          <span className="font-bold text-[10px] text-sky-300 bg-sky-500/20 px-1 py-0.2 rounded font-mono">
+                            FB Warm-Up
+                          </span>
+                          <span className="truncate max-w-xs">{warmupTargetLink}</span>
+                          <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-70 group-hover/fblink:opacity-100" />
+                        </a>
+                        <TestLinkButton lead={lead} platform="facebook" label="Test FB" />
+
+                        {emailLink && (
+                          <span
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-mono text-indigo-300/90 bg-indigo-500/10 border border-indigo-500/20"
+                            title={`Email saved for dispatch: ${emailLink}`}
+                          >
+                            <Mail className="w-3 h-3 text-indigo-400" />
+                            <span className="truncate max-w-[150px]">Dispatch: {emailLink}</span>
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                        <a
+                          href={
+                            lead.fb_message_restricted && !lead.link.includes('@')
+                              ? `mailto:?subject=${encodeURIComponent(`Outreach: ${lead.name}`)}`
+                              : getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)
+                          }
+                          target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition-colors px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10"
+                          title={`Open ${lead.platformLink || lead.link}`}
+                        >
+                          <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
+                          <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                        </a>
+                        <TestLinkButton lead={lead} platform={lead.channel || channel} />
+                      </div>
+                    )}
                   </div>
 
                   {/* Warm-Up Action Bar & Message Script Preview */}

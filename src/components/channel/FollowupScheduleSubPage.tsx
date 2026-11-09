@@ -20,6 +20,8 @@ import {
   StickyNote,
   TrendingUp,
   FileText,
+  Mail,
+  Facebook,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import { QuickNoteModal } from '../QuickNoteModal';
@@ -43,7 +45,7 @@ import {
   getLeadBaseContactDate,
   isLeadWarmed,
 } from '../../utils/cadenceEngine';
-import { getChannelLabel, getPlatformLink } from '../../utils/channelStorage';
+import { getChannelLabel, getPlatformLink, getLeadEmail, getLeadFacebook } from '../../utils/channelStorage';
 import { TestLinkButton } from '../TestLinkButton';
 
 interface FollowupScheduleSubPageProps {
@@ -155,6 +157,68 @@ export function FollowupScheduleSubPage({
       <span>{lead.quickNote ? 'Edit Note' : '📝 Add Note'}</span>
     </button>
   );
+
+  const renderDispatchLinks = (lead: ChannelLead) => {
+    const emailLink = getLeadEmail(lead);
+    const fbLink = getLeadFacebook(lead);
+    const isCombined = channel === 'combined' || Boolean(emailLink && fbLink);
+
+    if (isCombined || emailLink) {
+      const dispatchHref = getPlatformLink(emailLink || lead.link, 'email');
+      return (
+        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+          <a
+            href={dispatchHref}
+            className="inline-flex items-center gap-1.5 text-xs text-indigo-300 hover:text-white transition px-3 py-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 font-medium group/emaillink"
+            title={`Click to open Email client and send pitch to: ${emailLink || lead.link}`}
+          >
+            <Mail className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            <span className="font-bold text-[10px] text-indigo-300 bg-indigo-500/20 px-1 py-0.2 rounded font-mono">
+              Email Dispatch
+            </span>
+            <span className="truncate max-w-xs">{emailLink || lead.link}</span>
+            <ExternalLink className="w-3 h-3 shrink-0 opacity-70 group-hover/emaillink:opacity-100" />
+          </a>
+          <TestLinkButton lead={lead} platform="email" label="Test Email" />
+
+          {fbLink && (
+            <a
+              href={getPlatformLink(fbLink, 'facebook')}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 font-mono px-2 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20"
+              title={`View Facebook Profile: ${fbLink}`}
+            >
+              <Facebook className="w-3 h-3 text-sky-400 shrink-0" />
+              <span className="font-bold">FB:</span>
+              <span className="truncate max-w-[120px]">
+                {fbLink.replace(/^https?:\/\/(?:www\.)?facebook\.com\/?/i, '') || fbLink}
+              </span>
+              <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+            </a>
+          )}
+        </div>
+      );
+    }
+
+    const defaultHref = getPlatformLink(lead.platformLink || lead.link, lead.channel || channel);
+    const isMail = defaultHref.startsWith('mailto:');
+    return (
+      <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+        <a
+          href={defaultHref}
+          target={isMail ? '_self' : '_blank'}
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10"
+          title={`Open ${lead.platformLink || lead.link}`}
+        >
+          <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
+          <ExternalLink className="w-3 h-3 shrink-0" />
+        </a>
+        <TestLinkButton lead={lead} platform={lead.channel || channel} />
+      </div>
+    );
+  };
 
   // Leads dismissed for today only (safely kept in database & Leads tab)
   const dismissedTodayLeads = leads.filter((l) => isLeadDismissedToday(l));
@@ -458,19 +522,7 @@ export function FollowupScheduleSubPage({
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-                      <a
-                        href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
-                        target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10"
-                        title={`Open ${lead.platformLink || lead.link}`}
-                      >
-                        <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
-                        <ExternalLink className="w-3 h-3 shrink-0" />
-                      </a>
-                      <TestLinkButton lead={lead} platform={lead.channel || channel} />
-                    </div>
+                    {renderDispatchLinks(lead)}
                   </div>
 
                   {/* Pre-staged Copy Box */}
@@ -672,19 +724,7 @@ export function FollowupScheduleSubPage({
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-                        <a
-                          href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
-                          target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10"
-                          title={`Open ${lead.platformLink || lead.link}`}
-                        >
-                          <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
-                          <ExternalLink className="w-3 h-3 shrink-0" />
-                        </a>
-                        <TestLinkButton lead={lead} platform={lead.channel || channel} />
-                      </div>
+                      {renderDispatchLinks(lead)}
                     </div>
 
                     <div className="rounded-xl border border-amber-500/20 bg-amber-950/30 p-2.5 space-y-1.5">
@@ -874,19 +914,7 @@ export function FollowupScheduleSubPage({
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-                        <a
-                          href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
-                          target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10"
-                          title={`Open ${lead.platformLink || lead.link}`}
-                        >
-                          <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
-                          <ExternalLink className="w-3 h-3 shrink-0" />
-                        </a>
-                        <TestLinkButton lead={lead} platform={lead.channel || channel} />
-                      </div>
+                      {renderDispatchLinks(lead)}
                     </div>
 
                     <div className="rounded-xl border border-purple-500/20 bg-purple-950/30 p-2.5 space-y-1.5">
@@ -1076,19 +1104,7 @@ export function FollowupScheduleSubPage({
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-                        <a
-                          href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
-                          target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10"
-                          title={`Open ${lead.platformLink || lead.link}`}
-                        >
-                          <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
-                          <ExternalLink className="w-3 h-3 shrink-0" />
-                        </a>
-                        <TestLinkButton lead={lead} platform={lead.channel || channel} />
-                      </div>
+                      {renderDispatchLinks(lead)}
                     </div>
 
                     <div className="rounded-xl border border-rose-500/20 bg-rose-950/30 p-2.5 space-y-1.5">
@@ -1264,19 +1280,7 @@ export function FollowupScheduleSubPage({
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <a
-                      href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
-                      target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
-                      rel="noopener noreferrer"
-                      className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-mono"
-                      title={`Open ${lead.platformLink || lead.link}`}
-                    >
-                      <span>{lead.platformLink || lead.link}</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                    <TestLinkButton lead={lead} platform={lead.channel || channel} />
-                  </div>
+                  {renderDispatchLinks(lead)}
                 </div>
               </div>
             ))

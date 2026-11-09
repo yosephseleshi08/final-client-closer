@@ -326,7 +326,13 @@ export function findDuplicateLead(
   existingLeads: ChannelLead[]
 ): ChannelLead | undefined {
   if (!newLink || !Array.isArray(existingLeads)) return undefined;
-  return existingLeads.find((l) => areLinksEquivalent(newLink, l.link));
+  return existingLeads.find((l) => {
+    if (areLinksEquivalent(newLink, l.link)) return true;
+    if (l.platformLink && areLinksEquivalent(newLink, l.platformLink)) return true;
+    if (l.facebook && areLinksEquivalent(newLink, l.facebook)) return true;
+    if (l.email && areLinksEquivalent(newLink, l.email)) return true;
+    return false;
+  });
 }
 
 /**
@@ -570,6 +576,107 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 /**
+ * Extracts or derives the Facebook page URL or handle from a lead object.
+ */
+export function getLeadFacebook(lead?: any): string | undefined {
+  if (!lead) return undefined;
+  if (typeof lead === 'string') {
+    const s = lead.trim();
+    if (s.includes('facebook.com') || s.includes('fb.com') || s.includes('fb.me')) return s;
+    if (!s.includes('@') && !s.includes('instagram.com') && !s.includes('instagr.am')) return s;
+    return undefined;
+  }
+  const explicit =
+    lead.facebook ||
+    lead.fb ||
+    lead.facebookUrl ||
+    lead.facebook_url ||
+    lead.facebookLink ||
+    lead.facebook_link;
+  if (explicit && typeof explicit === 'string' && explicit.trim()) {
+    return explicit.trim();
+  }
+  const rawDetails = lead.rawDetails;
+  if (rawDetails) {
+    const fromRaw =
+      rawDetails.facebook ||
+      rawDetails.Facebook ||
+      rawDetails.facebookUrl ||
+      rawDetails.facebook_url ||
+      rawDetails.fb ||
+      rawDetails.socialLinks?.facebook;
+    if (fromRaw && typeof fromRaw === 'string' && fromRaw.trim()) {
+      return fromRaw.trim();
+    }
+  }
+  const link = lead.platformLink || lead.link || lead.profileLink;
+  if (typeof link === 'string') {
+    const trimmed = link.trim();
+    if (trimmed.includes('facebook.com') || trimmed.includes('fb.com') || trimmed.includes('fb.me')) {
+      return trimmed;
+    }
+    if ((lead.channel === 'facebook' || lead.platform === 'Facebook') && !trimmed.includes('@')) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Extracts or derives the Email address from a lead object.
+ */
+export function getLeadEmail(lead?: any): string | undefined {
+  if (!lead) return undefined;
+  if (typeof lead === 'string') {
+    const s = lead.trim();
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) || s.startsWith('mailto:')) return s;
+    return undefined;
+  }
+  const explicit =
+    lead.email ||
+    lead.Email ||
+    lead.emailAddress ||
+    lead.email_address ||
+    lead.contactEmail ||
+    lead.contact_email;
+  if (explicit && typeof explicit === 'string' && explicit.trim()) {
+    return explicit.trim();
+  }
+  const rawDetails = lead.rawDetails;
+  if (rawDetails) {
+    const fromRaw =
+      rawDetails.email ||
+      rawDetails.Email ||
+      rawDetails.emailAddress ||
+      rawDetails.email_address ||
+      rawDetails.contactEmail ||
+      rawDetails.contact_email ||
+      rawDetails.socialLinks?.email;
+    if (fromRaw && typeof fromRaw === 'string' && fromRaw.trim()) {
+      return fromRaw.trim();
+    }
+  }
+  const link = lead.platformLink || lead.link || lead.profileLink;
+  if (typeof link === 'string') {
+    const trimmed = link.trim();
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) || trimmed.startsWith('mailto:')) {
+      return trimmed;
+    }
+    if ((lead.channel === 'email' || lead.platform === 'Email') && trimmed.includes('@')) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Checks if a lead possesses both a Facebook link and an Email address.
+ */
+export function hasDualChannelLinks(lead?: any): boolean {
+  return Boolean(getLeadFacebook(lead) && getLeadEmail(lead));
+}
+
+/**
  * Resolves a lead's raw platform/profile link to a safe, valid clickable href URL
  * without mutating or corrupting the underlying stored link.
  *
@@ -593,6 +700,7 @@ export function getPlatformLink(
     instagram?: string;
     platform?: string;
     channel?: string;
+    rawDetails?: Record<string, any>;
     [key: string]: any;
   },
   explicitPlatform?: string
@@ -600,21 +708,28 @@ export function getPlatformLink(
   if (!linkOrLead) return '';
 
   let rawLink = '';
-  let platform = explicitPlatform || '';
+  let platform = (explicitPlatform || '').toLowerCase();
 
   if (typeof linkOrLead === 'object') {
-    platform = platform || linkOrLead.platform || linkOrLead.channel || '';
-    rawLink =
-      linkOrLead.platformLink ||
-      linkOrLead.link ||
-      linkOrLead.profileLink ||
-      (platform.toLowerCase().includes('email') ? linkOrLead.email : '') ||
-      (platform.toLowerCase().includes('fb') ? linkOrLead.facebook : '') ||
-      (platform.toLowerCase().includes('ig') ? linkOrLead.instagram : '') ||
-      linkOrLead.email ||
-      linkOrLead.facebook ||
-      linkOrLead.instagram ||
-      '';
+    const objPlatform = (linkOrLead.platform || linkOrLead.channel || '').toLowerCase();
+    platform = platform || objPlatform;
+
+    if (platform.includes('fb') || platform.includes('face')) {
+      rawLink = getLeadFacebook(linkOrLead) || linkOrLead.facebook || linkOrLead.link || '';
+    } else if (platform.includes('email') || platform.includes('mail')) {
+      rawLink = getLeadEmail(linkOrLead) || linkOrLead.email || linkOrLead.link || '';
+    } else if (platform.includes('ig') || platform.includes('insta')) {
+      rawLink = linkOrLead.instagram || linkOrLead.platformLink || linkOrLead.link || '';
+    } else {
+      rawLink =
+        linkOrLead.platformLink ||
+        linkOrLead.link ||
+        linkOrLead.profileLink ||
+        linkOrLead.facebook ||
+        linkOrLead.email ||
+        linkOrLead.instagram ||
+        '';
+    }
   } else {
     rawLink = linkOrLead;
   }
@@ -628,10 +743,9 @@ export function getPlatformLink(
     return trimmed;
   }
 
-  const pLower = platform.toLowerCase();
   const isEmail =
-    pLower === 'email' ||
-    pLower.includes('mail') ||
+    platform.includes('email') ||
+    platform.includes('mail') ||
     (!trimmed.includes('/') && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed));
 
   // 2. Email: Prepend mailto: to the email address
@@ -649,23 +763,28 @@ export function getPlatformLink(
     return `https://instagram.com/${trimmed.slice(1)}`;
   }
 
-  const isInstagram = pLower.includes('ig') || pLower.includes('insta');
-  if (isInstagram && !trimmed.includes('/') && !trimmed.includes('.')) {
-    return `https://instagram.com/${trimmed}`;
-  }
-
-  if (trimmed.startsWith('instagram.com') || trimmed.startsWith('www.instagram.com')) {
-    return `https://${trimmed}`;
+  const isInstagram = platform.includes('ig') || platform.includes('insta');
+  if (isInstagram) {
+    if (!trimmed.includes('/') && !trimmed.includes('.')) {
+      return `https://instagram.com/${trimmed}`;
+    }
+    if (trimmed.startsWith('instagram.com') || trimmed.startsWith('www.instagram.com')) {
+      return `https://${trimmed}`;
+    }
+    return `https://instagram.com/${trimmed.replace(/^\/+/, '')}`;
   }
 
   // 5. Facebook: If it starts with facebook.com or fb.com, prepend https://
-  const isFacebook = pLower.includes('fb') || pLower.includes('face');
+  const isFacebook = platform.includes('fb') || platform.includes('face');
   if (isFacebook) {
     if (trimmed.startsWith('facebook.com') || trimmed.startsWith('fb.com') || trimmed.startsWith('www.facebook.com')) {
       return `https://${trimmed}`;
     }
-    if (!trimmed.includes('/') && !trimmed.includes('.')) {
+    if (trimmed.startsWith('profile.php')) {
       return `https://facebook.com/${trimmed}`;
+    }
+    if (!trimmed.includes('/') && !trimmed.includes('.')) {
+      return `https://facebook.com/${trimmed.replace(/^@/, '')}`;
     }
     return `https://${trimmed}`;
   }
