@@ -14,7 +14,8 @@ import {
   Clock,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../types';
-import { getChannelLabel } from '../utils/channelStorage';
+import { getChannelLabel, getPlatformLink } from '../utils/channelStorage';
+import { TestLinkButton } from './TestLinkButton';
 import { getLocalTodayStr } from '../utils/cadenceEngine';
 import { canMarkReelOnDate } from '../utils/growthCurve';
 import { VideoVerificationModal } from './VideoVerificationModal';
@@ -428,16 +429,20 @@ export const VideoScriptModal: React.FC<VideoScriptModalProps> = ({
         )}
 
         {/* Modal Footer Actions */}
-        <div className="flex items-center justify-between pt-2 border-t border-white/10 text-xs text-slate-400">
-          <a
-            href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 transition-colors font-mono max-w-sm truncate"
-          >
-            <span className="truncate">{lead.link}</span>
-            <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-          </a>
+        <div className="flex items-center justify-between pt-2 border-t border-white/10 text-xs text-slate-400 gap-3 flex-wrap">
+          <div className="flex items-center gap-2 max-w-sm truncate">
+            <a
+              href={getPlatformLink(lead.platformLink || lead.link, channel)}
+              target={getPlatformLink(lead.platformLink || lead.link, channel).startsWith('mailto:') ? '_self' : '_blank'}
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 transition-colors font-mono truncate"
+              title={`Open ${lead.platformLink || lead.link}`}
+            >
+              <span className="truncate">{lead.platformLink || lead.link}</span>
+              <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+            </a>
+            <TestLinkButton lead={lead} platform={channel} />
+          </div>
 
           <button
             type="button"

@@ -19,7 +19,8 @@ import {
   deleteMockupImage,
   getMockupStorageKey,
 } from '../../utils/indexedDbVault';
-import { getChannelLabel } from '../../utils/channelStorage';
+import { getChannelLabel, getPlatformLink } from '../../utils/channelStorage';
+import { TestLinkButton } from '../TestLinkButton';
 
 interface MockupSubPageProps {
   channel: MultiChannelType;
@@ -196,15 +197,19 @@ export function MockupSubPage({ channel, leads, onUpdateLeads }: MockupSubPagePr
                         <div className="font-medium text-sm text-slate-100 font-['Outfit'] truncate max-w-xs">
                           {lead.name}
                         </div>
-                        <a
-                          href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-400 transition-colors mt-0.5 truncate max-w-xs"
-                        >
-                          <span className="truncate">{lead.link}</span>
-                          <ExternalLink className="w-3 h-3 shrink-0" />
-                        </a>
+                        <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                          <a
+                            href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
+                            target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-400 transition-colors truncate max-w-xs"
+                            title={`Open ${lead.platformLink || lead.link}`}
+                          >
+                            <span className="truncate">{lead.platformLink || lead.link}</span>
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                          </a>
+                          <TestLinkButton lead={lead} platform={lead.channel || channel} />
+                        </div>
                       </td>
 
                       {/* Mockup Status Display */}

@@ -25,6 +25,8 @@ import {
   removeInboxLead,
   clearAllInboxLeads,
 } from '../utils/inboxStorage';
+import { getPlatformLink } from '../utils/channelStorage';
+import { TestLinkButton } from './TestLinkButton';
 
 interface LeadInboxViewProps {
   onLeadAccepted?: (targetChannel: MultiChannelType, updatedLeads: ChannelLead[]) => void;
@@ -461,13 +463,9 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
 
                 <div className="grid grid-cols-1 gap-3.5">
                   {inboxLeads.map((lead, index) => {
-                    const formattedLink = lead.profileLink?.startsWith('http://') || lead.profileLink?.startsWith('https://')
-                      ? lead.profileLink
-                      : lead.profileLink?.startsWith('@')
-                      ? `https://instagram.com/${lead.profileLink.replace('@', '')}`
-                      : lead.profileLink
-                      ? `https://${lead.profileLink}`
-                      : '';
+                    const displayLink = lead.platformLink || lead.profileLink || '';
+                    const resolvedHref = getPlatformLink(displayLink, lead.platform);
+                    const isMail = resolvedHref.startsWith('mailto:');
 
                     return (
                       <div
@@ -488,22 +486,23 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
                           </div>
 
                           {/* Profile Link */}
-                          {lead.profileLink && (
-                            <div className="flex items-center gap-2 text-xs">
+                          {displayLink && (
+                            <div className="flex items-center gap-2 text-xs flex-wrap">
                               <span className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider">Link:</span>
                               <a
-                                href={formattedLink || '#'}
-                                target="_blank"
+                                href={resolvedHref || '#'}
+                                target={isMail ? '_self' : '_blank'}
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 transition-colors font-mono max-w-md truncate group/link"
-                                title={`Open ${lead.profileLink}`}
+                                title={`Open ${displayLink}`}
                               >
-                                <span className="truncate">{lead.profileLink}</span>
+                                <span className="truncate">{displayLink}</span>
                                 <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-70 group-hover/link:opacity-100" />
                               </a>
+                              <TestLinkButton url={displayLink} platform={lead.platform} />
                               <button
                                 type="button"
-                                onClick={() => handleCopyLink(lead.id, lead.profileLink)}
+                                onClick={() => handleCopyLink(lead.id, displayLink)}
                                 className="p-1 rounded text-slate-500 hover:text-slate-300 transition cursor-pointer"
                                 title="Copy profile link"
                               >

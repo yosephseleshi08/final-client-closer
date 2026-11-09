@@ -44,7 +44,9 @@ import {
   loadChannelLeads,
   saveChannelLeads,
   findDuplicateLead,
+  getPlatformLink,
 } from '../../utils/channelStorage';
+import { TestLinkButton } from '../TestLinkButton';
 import {
   getScheduleDayStyle,
   isDateToday,
@@ -86,9 +88,8 @@ function SortableLeadRow({
     zIndex: isDragging ? 50 : undefined,
   };
 
-  const formattedUrl = lead.link.startsWith('http://') || lead.link.startsWith('https://')
-    ? lead.link
-    : `https://${lead.link}`;
+  const formattedUrl = getPlatformLink(lead.platformLink || lead.link, lead.channel || channel);
+  const isMail = formattedUrl.startsWith('mailto:');
 
   const dayStyle = getScheduleDayStyle(lead.scheduledDate);
   const isDueToday = isDateToday(lead.scheduledDate);
@@ -194,14 +195,20 @@ function SortableLeadRow({
       <td className="py-3.5 px-4 text-left text-xs text-slate-400">
         <div className="flex items-center gap-2 flex-wrap">
           <a
-            href={lead.fb_message_restricted && !lead.link.includes('@') ? `mailto:?subject=${encodeURIComponent(`Outreach: ${lead.name}`)}` : formattedUrl}
-            target="_blank"
+            href={
+              lead.fb_message_restricted && !lead.link.includes('@')
+                ? `mailto:?subject=${encodeURIComponent(`Outreach: ${lead.name}`)}`
+                : formattedUrl
+            }
+            target={isMail ? '_self' : '_blank'}
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 transition-colors max-w-sm truncate group/link"
+            title={`Open ${lead.platformLink || lead.link}`}
           >
-            <span className="truncate">{lead.link}</span>
+            <span className="truncate">{lead.platformLink || lead.link}</span>
             <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-70 group-hover/link:opacity-100" />
           </a>
+          <TestLinkButton lead={lead} platform={lead.channel || channel} />
           {lead.fb_message_restricted && (
             <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
               ✉️ Email Default
@@ -304,6 +311,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         numericId: nextIdData.numericId,
         name: businessName,
         link: rawUrl,
+        platformLink: rawUrl,
         channel,
         sortOrder: currentList.length,
         createdAt: new Date().toISOString(),
@@ -416,6 +424,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       numericId: nextIdData.numericId,
       name: businessName,
       link: pendingLink.trim(),
+      platformLink: pendingLink.trim(),
       channel,
       sortOrder: leads.length,
       createdAt: new Date().toISOString(),
@@ -474,6 +483,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       numericId: nextIdData.numericId,
       name: businessName,
       link: trimmedLink,
+      platformLink: trimmedLink,
       channel,
       sortOrder: leads.length,
       createdAt: new Date().toISOString(),

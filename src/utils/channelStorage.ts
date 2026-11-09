@@ -568,3 +568,109 @@ function downloadBlob(blob: Blob, filename: string) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Resolves a lead's raw platform/profile link to a safe, valid clickable href URL
+ * without mutating or corrupting the underlying stored link.
+ *
+ * Rules:
+ * 1. Never modify or strip the original stored string.
+ * 2. If it starts with mailto:, return as-is.
+ * 3. Email: If the link is an email address or platform is Email,
+ *    prepend mailto: (if not already starting with mailto:).
+ * 4. Instagram: If it starts with '@', strip the '@' and prepend 'https://instagram.com/'.
+ * 5. Facebook: Use the facebook field/link. If it already has 'https://' or 'http://',
+ *    use it as-is (do NOT strip www. or trailing slashes). If not, prepend 'https://'.
+ * 6. If already starts with 'http://' or 'https://', return as-is.
+ */
+export function getPlatformLink(
+  linkOrLead?: string | {
+    link?: string;
+    platformLink?: string;
+    profileLink?: string;
+    email?: string;
+    facebook?: string;
+    instagram?: string;
+    platform?: string;
+    channel?: string;
+    [key: string]: any;
+  },
+  explicitPlatform?: string
+): string {
+  if (!linkOrLead) return '';
+
+  let rawLink = '';
+  let platform = explicitPlatform || '';
+
+  if (typeof linkOrLead === 'object') {
+    platform = platform || linkOrLead.platform || linkOrLead.channel || '';
+    rawLink =
+      linkOrLead.platformLink ||
+      linkOrLead.link ||
+      linkOrLead.profileLink ||
+      (platform.toLowerCase().includes('email') ? linkOrLead.email : '') ||
+      (platform.toLowerCase().includes('fb') ? linkOrLead.facebook : '') ||
+      (platform.toLowerCase().includes('ig') ? linkOrLead.instagram : '') ||
+      linkOrLead.email ||
+      linkOrLead.facebook ||
+      linkOrLead.instagram ||
+      '';
+  } else {
+    rawLink = linkOrLead;
+  }
+
+  if (typeof rawLink !== 'string') return '';
+  const trimmed = rawLink.trim();
+  if (!trimmed) return '';
+
+  // 1. If it starts with mailto:, return as-is
+  if (/^mailto:/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  const pLower = platform.toLowerCase();
+  const isEmail =
+    pLower === 'email' ||
+    pLower.includes('mail') ||
+    (!trimmed.includes('/') && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed));
+
+  // 2. Email: Prepend mailto: to the email address
+  if (isEmail) {
+    return `mailto:${trimmed.replace(/^mailto:/i, '')}`;
+  }
+
+  // 3. If already has http:// or https://, use exactly as provided (never strip www. or trailing slashes)
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  // 4. Instagram: If it starts with '@', strip '@' and prepend https://instagram.com/
+  if (trimmed.startsWith('@')) {
+    return `https://instagram.com/${trimmed.slice(1)}`;
+  }
+
+  const isInstagram = pLower.includes('ig') || pLower.includes('insta');
+  if (isInstagram && !trimmed.includes('/') && !trimmed.includes('.')) {
+    return `https://instagram.com/${trimmed}`;
+  }
+
+  if (trimmed.startsWith('instagram.com') || trimmed.startsWith('www.instagram.com')) {
+    return `https://${trimmed}`;
+  }
+
+  // 5. Facebook: If it starts with facebook.com or fb.com, prepend https://
+  const isFacebook = pLower.includes('fb') || pLower.includes('face');
+  if (isFacebook) {
+    if (trimmed.startsWith('facebook.com') || trimmed.startsWith('fb.com') || trimmed.startsWith('www.facebook.com')) {
+      return `https://${trimmed}`;
+    }
+    if (!trimmed.includes('/') && !trimmed.includes('.')) {
+      return `https://facebook.com/${trimmed}`;
+    }
+    return `https://${trimmed}`;
+  }
+
+  // 6. Generic web fallback: prepend https://
+  return `https://${trimmed}`;
+}
+

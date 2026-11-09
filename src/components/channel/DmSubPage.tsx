@@ -16,7 +16,8 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
-import { getChannelLabel } from '../../utils/channelStorage';
+import { getChannelLabel, getPlatformLink } from '../../utils/channelStorage';
+import { TestLinkButton } from '../TestLinkButton';
 import {
   getLocalTodayStr,
   getTomorrowWarmupTargetDate,
@@ -304,22 +305,24 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                       )}
                     </div>
 
-                    {/* Social Link */}
-                    <a
-                      href={
-                        lead.fb_message_restricted && !lead.link.includes('@')
-                          ? `mailto:?subject=${encodeURIComponent(`Outreach: ${lead.name}`)}`
-                          : lead.link.startsWith('http')
-                          ? lead.link
-                          : `https://${lead.link}`
-                      }
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition-colors px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 self-start sm:self-auto border border-white/10"
-                    >
-                      <span className="truncate max-w-xs">{lead.link}</span>
-                      <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                    </a>
+                    {/* Social Link & Test Link */}
+                    <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                      <a
+                        href={
+                          lead.fb_message_restricted && !lead.link.includes('@')
+                            ? `mailto:?subject=${encodeURIComponent(`Outreach: ${lead.name}`)}`
+                            : getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)
+                        }
+                        target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition-colors px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10"
+                        title={`Open ${lead.platformLink || lead.link}`}
+                      >
+                        <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
+                        <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                      </a>
+                      <TestLinkButton lead={lead} platform={lead.channel || channel} />
+                    </div>
                   </div>
 
                   {/* Warm-Up Action Bar & Message Script Preview */}

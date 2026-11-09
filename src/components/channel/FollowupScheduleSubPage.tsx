@@ -43,7 +43,8 @@ import {
   getLeadBaseContactDate,
   isLeadWarmed,
 } from '../../utils/cadenceEngine';
-import { getChannelLabel } from '../../utils/channelStorage';
+import { getChannelLabel, getPlatformLink } from '../../utils/channelStorage';
+import { TestLinkButton } from '../TestLinkButton';
 
 interface FollowupScheduleSubPageProps {
   channel: MultiChannelType;
@@ -457,15 +458,19 @@ export function FollowupScheduleSubPage({
                       )}
                     </div>
 
-                    <a
-                      href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 self-start sm:self-auto"
-                    >
-                      <span className="truncate max-w-xs">{lead.link}</span>
-                      <ExternalLink className="w-3 h-3 shrink-0" />
-                    </a>
+                    <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                      <a
+                        href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
+                        target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10"
+                        title={`Open ${lead.platformLink || lead.link}`}
+                      >
+                        <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                      </a>
+                      <TestLinkButton lead={lead} platform={lead.channel || channel} />
+                    </div>
                   </div>
 
                   {/* Pre-staged Copy Box */}
@@ -667,15 +672,19 @@ export function FollowupScheduleSubPage({
                         </span>
                       </div>
 
-                      <a
-                        href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 self-start sm:self-auto"
-                      >
-                        <span className="truncate max-w-xs">{lead.link}</span>
-                        <ExternalLink className="w-3 h-3 shrink-0" />
-                      </a>
+                      <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                        <a
+                          href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
+                          target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10"
+                          title={`Open ${lead.platformLink || lead.link}`}
+                        >
+                          <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                        </a>
+                        <TestLinkButton lead={lead} platform={lead.channel || channel} />
+                      </div>
                     </div>
 
                     <div className="rounded-xl border border-amber-500/20 bg-amber-950/30 p-2.5 space-y-1.5">
@@ -865,15 +874,19 @@ export function FollowupScheduleSubPage({
                         </span>
                       </div>
 
-                      <a
-                        href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 self-start sm:self-auto"
-                      >
-                        <span className="truncate max-w-xs">{lead.link}</span>
-                        <ExternalLink className="w-3 h-3 shrink-0" />
-                      </a>
+                      <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                        <a
+                          href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
+                          target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10"
+                          title={`Open ${lead.platformLink || lead.link}`}
+                        >
+                          <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                        </a>
+                        <TestLinkButton lead={lead} platform={lead.channel || channel} />
+                      </div>
                     </div>
 
                     <div className="rounded-xl border border-purple-500/20 bg-purple-950/30 p-2.5 space-y-1.5">
@@ -1063,15 +1076,19 @@ export function FollowupScheduleSubPage({
                         </span>
                       </div>
 
-                      <a
-                        href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 self-start sm:self-auto"
-                      >
-                        <span className="truncate max-w-xs">{lead.link}</span>
-                        <ExternalLink className="w-3 h-3 shrink-0" />
-                      </a>
+                      <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                        <a
+                          href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
+                          target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10"
+                          title={`Open ${lead.platformLink || lead.link}`}
+                        >
+                          <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                        </a>
+                        <TestLinkButton lead={lead} platform={lead.channel || channel} />
+                      </div>
                     </div>
 
                     <div className="rounded-xl border border-rose-500/20 bg-rose-950/30 p-2.5 space-y-1.5">
@@ -1247,15 +1264,19 @@ export function FollowupScheduleSubPage({
                       </span>
                     )}
                   </div>
-                  <a
-                    href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-mono"
-                  >
-                    <span>{lead.link}</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <a
+                      href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
+                      target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
+                      rel="noopener noreferrer"
+                      className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-mono"
+                      title={`Open ${lead.platformLink || lead.link}`}
+                    >
+                      <span>{lead.platformLink || lead.link}</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <TestLinkButton lead={lead} platform={lead.channel || channel} />
+                  </div>
                 </div>
               </div>
             ))

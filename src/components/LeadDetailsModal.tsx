@@ -29,6 +29,7 @@ import { MockupVault } from './MockupVault';
 import { LeadScreenshotVault } from './LeadScreenshotVault';
 import { Sparkles, RefreshCw, Image as ImageIcon } from 'lucide-react';
 import { LeadAnalysisModal } from './channel/LeadAnalysisModal';
+import { getPlatformLink } from '../utils/channelStorage';
 
 interface LeadDetailsModalProps {
   lead: Lead | null;
@@ -721,10 +722,11 @@ export const LeadDetailsModal: React.FC<LeadDetailsModalProps> = ({
                         <span>Copy Link</span>
                       </button>
                       <a
-                        href={storedLink.startsWith('http') || storedLink.startsWith('mailto:') ? storedLink : `https://${storedLink}`}
-                        target="_blank"
+                        href={getPlatformLink(storedLink, lead.platform)}
+                        target={getPlatformLink(storedLink, lead.platform).startsWith('mailto:') ? '_self' : '_blank'}
                         rel="noreferrer"
                         className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-3.5 py-1.5 text-xs font-bold text-white shadow-md transition cursor-pointer"
+                        title={`Open ${storedLink}`}
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
                         <span>Open Link</span>

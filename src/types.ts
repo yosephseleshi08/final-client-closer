@@ -295,6 +295,7 @@ export interface InboxLead {
   platform: 'Instagram' | 'Facebook' | 'Email' | 'Other';
   rawPlatform?: string;
   profileLink: string;
+  platformLink?: string;
   prompt: string;
   uploadedAt: string;
   rawDetails?: Record<string, any>;
@@ -306,7 +307,8 @@ export interface ChannelLead {
   id: string; // e.g. "IG-1", "EM-1", "FB-1"
   numericId: number; // integer for next ID calculation
   name: string; // Business or contact name
-  link: string; // URL / social handle / website
+  link: string; // Raw platform link / social handle / website / mailto:
+  platformLink?: string; // Explicit raw platformLink value from Lead Qualification JSON
   channel: MultiChannelType;
   sortOrder: number; // rank for drag-and-drop ordering
   createdAt: string;

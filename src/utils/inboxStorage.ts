@@ -116,13 +116,18 @@ export function parseQualifiedLeadsJson(jsonText: string): InboxLead[] {
       platform = 'Instagram';
     }
 
-    const profileLink = String(
-      it.profileLink ||
-      it.profile_link ||
-      it.link ||
-      it.url ||
-      it.profileUrl ||
-      it.handle ||
+    const rawPlatformLink = String(
+      it.platformLink ??
+      it.platform_link ??
+      it.profileLink ??
+      it.profile_link ??
+      it.link ??
+      it.url ??
+      it.profileUrl ??
+      it.handle ??
+      it.email ??
+      it.facebook ??
+      it.instagram ??
       ''
     ).trim();
 
@@ -142,7 +147,8 @@ export function parseQualifiedLeadsJson(jsonText: string): InboxLead[] {
       name: name || 'Qualified Prospect',
       platform,
       rawPlatform,
-      profileLink,
+      profileLink: rawPlatformLink,
+      platformLink: rawPlatformLink,
       prompt,
       uploadedAt: nowIso,
       rawDetails: it,
@@ -184,14 +190,36 @@ export function acceptInboxLeadIntoCrm(
   // Load existing leads for this channel if not provided
   const currentLeads = existingChannelLeads?.[targetChannel] ?? loadChannelLeads(targetChannel);
 
-  const formattedLink = lead.profileLink || (
-    targetChannel === 'instagram'
-      ? `@${lead.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`
-      : `https://${lead.platform.toLowerCase()}.com/${lead.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`
-  );
+  // CRITICAL RULE 1: Never modify the platformLink value on import.
+  // Store the exact raw platformLink / profileLink provided without prepending https:// or mangling.
+  const rawPlatformLink = String(
+    lead.platformLink ||
+    lead.profileLink ||
+    lead.rawDetails?.platformLink ||
+    lead.rawDetails?.platform_link ||
+    lead.rawDetails?.profileLink ||
+    lead.rawDetails?.profile_link ||
+    lead.rawDetails?.link ||
+    lead.rawDetails?.url ||
+    lead.rawDetails?.email ||
+    lead.rawDetails?.facebook ||
+    lead.rawDetails?.instagram ||
+    ''
+  ).trim();
 
-  // BUG 2 FIX: Strict duplicate check before adding
-  const duplicate = findDuplicateLead(formattedLink, currentLeads);
+  let storedLink = rawPlatformLink;
+  if (!storedLink) {
+    if (targetChannel === 'instagram') {
+      storedLink = `@${lead.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    } else if (lead.platform === 'Email') {
+      storedLink = `mailto:${lead.name.toLowerCase().replace(/[^a-z0-9]/g, '')}@example.com`;
+    } else {
+      storedLink = `https://facebook.com/${lead.name.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+    }
+  }
+
+  // Strict duplicate check before adding
+  const duplicate = findDuplicateLead(storedLink, currentLeads);
   if (duplicate) {
     return {
       targetChannel,
@@ -205,14 +233,15 @@ export function acceptInboxLeadIntoCrm(
   const nowIso = new Date().toISOString();
   const isFbRestricted = Boolean(lead.rawDetails?.fb_message_restricted || lead.rawDetails?.restricted);
 
-  // BUG 1 FIX: Strictly enforce daily quota (IG: 6, Combined: 4) & skip Sunday
+  // Strictly enforce daily quota (IG: 6, Combined: 4) & skip Sunday
   const assignedScheduleDate = getNextAvailableScheduleDate(currentLeads, targetChannel);
 
   const newChannelLead: ChannelLead = {
     id,
     numericId,
     name: lead.name,
-    link: formattedLink,
+    link: storedLink,
+    platformLink: rawPlatformLink || storedLink,
     channel: targetChannel,
     sortOrder: 0,
     createdAt: nowIso,

@@ -30,7 +30,9 @@ import {
 import { ChannelLead, MultiChannelType } from '../types';
 import { QuickNoteModal } from './QuickNoteModal';
 import { SundayPrepView } from './SundayPrepView';
+import { TestLinkButton } from './TestLinkButton';
 import { recordTodayCompletion } from '../utils/historyStorage';
+import { getPlatformLink } from '../utils/channelStorage';
 import {
   getLocalTodayStr,
   normalizeToLocalDateStr,
@@ -1134,15 +1136,19 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                   <div className="font-semibold text-sm text-slate-100 truncate font-['Outfit']">
                     {lead.name}
                   </div>
-                  <a
-                    href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 truncate max-w-full"
-                  >
-                    <span className="truncate">{lead.link}</span>
-                    <ExternalLink className="w-3 h-3 shrink-0" />
-                  </a>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <a
+                      href={getPlatformLink(lead.platformLink || lead.link, lead.channel)}
+                      target={getPlatformLink(lead.platformLink || lead.link, lead.channel).startsWith('mailto:') ? '_self' : '_blank'}
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 truncate max-w-full"
+                      title={`Open ${lead.platformLink || lead.link}`}
+                    >
+                      <span className="truncate">{lead.platformLink || lead.link}</span>
+                      <ExternalLink className="w-3 h-3 shrink-0" />
+                    </a>
+                    <TestLinkButton lead={lead} platform={lead.channel} />
+                  </div>
                 </div>
 
                 <button

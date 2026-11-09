@@ -26,6 +26,8 @@ import {
   getMondayDateStr,
   getWeeklyOutreachStats,
 } from '../utils/cadenceEngine';
+import { getPlatformLink } from '../utils/channelStorage';
+import { TestLinkButton } from './TestLinkButton';
 
 interface SundayPrepViewProps {
   combinedLeads?: ChannelLead[];
@@ -396,15 +398,19 @@ export const SundayPrepView: React.FC<SundayPrepViewProps> = ({
                   </div>
 
                   {lead.link && (
-                    <a
-                      href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10 self-start sm:self-auto"
-                    >
-                      <span className="truncate max-w-xs">{lead.link}</span>
-                      <ExternalLink className="w-3 h-3 shrink-0" />
-                    </a>
+                    <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                      <a
+                        href={getPlatformLink(lead.platformLink || lead.link, lead.channel)}
+                        target={getPlatformLink(lead.platformLink || lead.link, lead.channel).startsWith('mailto:') ? '_self' : '_blank'}
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10"
+                        title={`Open ${lead.platformLink || lead.link}`}
+                      >
+                        <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                      </a>
+                      <TestLinkButton lead={lead} platform={lead.channel} />
+                    </div>
                   )}
                 </div>
 
