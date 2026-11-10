@@ -817,5 +817,95 @@ export function getNextAvailableScheduleDate(
   }
 }
 
+/**
+ * Determines if a lead is strictly Email-only (no social Instagram or Facebook profile).
+ * Email-only leads do not undergo social warm-up engagement.
+ */
+export function isEmailOnlyLead(lead?: ChannelLead | null): boolean {
+  if (!lead) return false;
+  if (lead.channel === 'email') return true;
 
+  const rawLink = (lead.platformLink || lead.link || '').trim().toLowerCase();
+  const fb = (lead.facebook || '').trim().toLowerCase();
+  const ig = (lead.instagram || '').trim().toLowerCase();
 
+  const hasIg =
+    lead.channel === 'instagram' ||
+    ig.length > 0 ||
+    rawLink.startsWith('@') ||
+    rawLink.includes('instagram.com') ||
+    rawLink.includes('instagr.am');
+
+  const hasFb =
+    lead.channel === 'facebook' ||
+    fb.length > 0 ||
+    rawLink.includes('facebook.com') ||
+    rawLink.includes('fb.com') ||
+    rawLink.includes('fb.me');
+
+  if (hasIg || hasFb) return false;
+
+  const email = (lead.email || '').trim().toLowerCase();
+  return Boolean(
+    email ||
+    rawLink.startsWith('mailto:') ||
+    (!rawLink.includes('/') && rawLink.includes('@')) ||
+    lead.channel === 'combined'
+  );
+}
+
+/**
+ * Intelligent Channel Routing: Returns the dispatch channel for a given touchpoint step.
+ * Step 0 = Day 0 (Initial)
+ * Step 1 = Day 4/7 (Follow-up 1)
+ * Step 2 = Day 8/14 (Follow-up 2)
+ * Step 3 = Day 14/30 (Breakup / Final Nudge)
+ */
+export function getTouchpointChannel(
+  lead?: ChannelLead | null,
+  step: 0 | 1 | 2 | 3 | number = 0
+): 'instagram' | 'email' | 'facebook' {
+  if (!lead) return 'email';
+
+  const rawLink = (lead.platformLink || lead.link || '').trim().toLowerCase();
+  const fb = (lead.facebook || '').trim().toLowerCase();
+  const email = (lead.email || '').trim().toLowerCase();
+
+  const isIgLead =
+    lead.channel === 'instagram' ||
+    (!fb && !email && (rawLink.startsWith('@') || rawLink.includes('instagram.com') || rawLink.includes('instagr.am')));
+
+  if (isIgLead) {
+    // Step 0 (Day 0) & Step 1 (Day 4/7): Instagram DM
+    if (step === 0 || step === 1) {
+      return 'instagram';
+    }
+    // Step 2 & 3: If email exists -> Email, otherwise Instagram
+    const hasEmail = Boolean(email || lead.email || (rawLink.includes('@') && !rawLink.includes('instagram')));
+    return hasEmail ? 'email' : 'instagram';
+  }
+
+  // Facebook Leads: All dispatch days default to Email
+  // Email-only leads: All dispatch days default to Email
+  return 'email';
+}
+
+/**
+ * Returns formatted badge label for a touchpoint step.
+ */
+export function getTouchpointLabel(
+  lead?: ChannelLead | null,
+  step: 0 | 1 | 2 | 3 | number = 0
+): string {
+  const channel = getTouchpointChannel(lead, step);
+  switch (channel) {
+    case 'instagram':
+      return '📱 Instagram DM';
+    case 'email':
+      return '✉️ Email Dispatch';
+    case 'facebook':
+      return '👤 Facebook';
+    default:
+      return '✉️ Email Dispatch';
+  }
+}
