@@ -89,12 +89,12 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
     return allLeads.filter((l) => Boolean(l.initialSentDate)).length;
   }, [allLeads]);
 
-  // Map touchpoints per date: Initial (Blue), D7 (Purple), D14 (Amber), D30 (Red)
+  // Map touchpoints per date: Initial (Blue), D4 (Purple), D8 (Amber), D14 (Red)
   // CRITICAL: Only count when outreach was ACTUALLY MARKED AS SENT. Never count unsent scheduled dates!
   const touchpointsByDate = useMemo(() => {
     const map: Record<
       string,
-      { initial: number; d7: number; d14: number; d30: number }
+      { initial: number; d4: number; d8: number; d14: number }
     > = {};
 
     allLeads.forEach((l) => {
@@ -102,35 +102,35 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
       if (l.initialSentDate) {
         const initDate = normalizeToLocalDateStr(l.initialSentDate);
         if (initDate) {
-          if (!map[initDate]) map[initDate] = { initial: 0, d7: 0, d14: 0, d30: 0 };
+          if (!map[initDate]) map[initDate] = { initial: 0, d4: 0, d8: 0, d14: 0 };
           map[initDate].initial += 1;
         }
       }
 
-      // 2. Day 7 Follow-Up — ONLY if actually marked as sent!
+      // 2. Day 4 Follow-Up — ONLY if actually marked as sent!
       if (l.followup1SentDate) {
-        const d7Date = normalizeToLocalDateStr(l.followup1SentDate);
-        if (d7Date) {
-          if (!map[d7Date]) map[d7Date] = { initial: 0, d7: 0, d14: 0, d30: 0 };
-          map[d7Date].d7 += 1;
+        const d4Date = normalizeToLocalDateStr(l.followup1SentDate);
+        if (d4Date) {
+          if (!map[d4Date]) map[d4Date] = { initial: 0, d4: 0, d8: 0, d14: 0 };
+          map[d4Date].d4 += 1;
         }
       }
 
-      // 3. Day 14 Follow-Up — ONLY if actually marked as sent!
+      // 3. Day 8 Follow-Up — ONLY if actually marked as sent!
       if (l.followup2SentDate) {
-        const d14Date = normalizeToLocalDateStr(l.followup2SentDate);
-        if (d14Date) {
-          if (!map[d14Date]) map[d14Date] = { initial: 0, d7: 0, d14: 0, d30: 0 };
-          map[d14Date].d14 += 1;
+        const d8Date = normalizeToLocalDateStr(l.followup2SentDate);
+        if (d8Date) {
+          if (!map[d8Date]) map[d8Date] = { initial: 0, d4: 0, d8: 0, d14: 0 };
+          map[d8Date].d8 += 1;
         }
       }
 
-      // 4. Day 30 Follow-Up — ONLY if actually marked as sent!
+      // 4. Day 14 Follow-Up — ONLY if actually marked as sent!
       if (l.followup3SentDate) {
-        const d30Date = normalizeToLocalDateStr(l.followup3SentDate);
-        if (d30Date) {
-          if (!map[d30Date]) map[d30Date] = { initial: 0, d7: 0, d14: 0, d30: 0 };
-          map[d30Date].d30 += 1;
+        const d14Date = normalizeToLocalDateStr(l.followup3SentDate);
+        if (d14Date) {
+          if (!map[d14Date]) map[d14Date] = { initial: 0, d4: 0, d8: 0, d14: 0 };
+          map[d14Date].d14 += 1;
         }
       }
     });
@@ -420,13 +420,13 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
               🔵 Initial
             </span>
             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-              🟣 D7
+              🟣 D4
             </span>
             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              🟡 D14
+              🟡 D8
             </span>
             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30">
-              🔴 D30
+              🔴 D14
             </span>
           </div>
         </div>
@@ -437,7 +437,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
             const isToday = day.date === todayStr;
             const isSelected = selectedDate === day.date;
             const statusMeta = getStatusDisplay(day);
-            const tp = touchpointsByDate[day.date] || { initial: 0, d7: 0, d14: 0, d30: 0 };
+            const tp = touchpointsByDate[day.date] || { initial: 0, d4: 0, d8: 0, d14: 0 };
 
             let borderStyle = 'border-white/5 hover:border-white/20';
             if (isSelected) {
@@ -503,28 +503,28 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                         🔵 {tp.initial}
                       </span>
                     )}
-                    {tp.d7 > 0 && (
+                    {tp.d4 > 0 && (
                       <span
                         className="px-1 py-0.2 rounded text-[9px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 font-mono"
-                        title={`${tp.d7} Day 7 Follow-Ups (+7d)`}
+                        title={`${tp.d4} Day 4 Follow-Ups (+4d: Kitchen Ticket PDF)`}
                       >
-                        🟣 {tp.d7}
+                        🟣 {tp.d4}
+                      </span>
+                    )}
+                    {tp.d8 > 0 && (
+                      <span
+                        className="px-1 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono"
+                        title={`${tp.d8} Day 8 Follow-Ups (+8d: Takeout Surge)`}
+                      >
+                        🟡 {tp.d8}
                       </span>
                     )}
                     {tp.d14 > 0 && (
                       <span
-                        className="px-1 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono"
-                        title={`${tp.d14} Day 14 Follow-Ups (+14d)`}
-                      >
-                        🟡 {tp.d14}
-                      </span>
-                    )}
-                    {tp.d30 > 0 && (
-                      <span
                         className="px-1 py-0.2 rounded text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 font-mono"
-                        title={`${tp.d30} Day 30 Final Follow-Ups (+30d)`}
+                        title={`${tp.d14} Day 14 Final Follow-Ups (+14d: Breakup Loom)`}
                       >
-                        🔴 {tp.d30}
+                        🔴 {tp.d14}
                       </span>
                     )}
                   </div>

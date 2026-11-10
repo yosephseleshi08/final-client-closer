@@ -32,7 +32,7 @@ import { QuickNoteModal } from './QuickNoteModal';
 import { SundayPrepView } from './SundayPrepView';
 import { TestLinkButton } from './TestLinkButton';
 import { recordTodayCompletion } from '../utils/historyStorage';
-import { getPlatformLink, getLeadFacebook, getLeadEmail } from '../utils/channelStorage';
+import { getPlatformLink, getLeadFacebook, getLeadEmail, getBlindRouteLink } from '../utils/channelStorage';
 import {
   getLocalTodayStr,
   normalizeToLocalDateStr,
@@ -49,15 +49,14 @@ import {
   restoreDismissedLead,
   isLeadDismissedToday,
   isInitialSentToday,
-  isDay7FollowupDue,
+  isDay4FollowupDue,
+  isDay8FollowupDue,
   isDay14FollowupDue,
-  isDay30FollowupDue,
   setDay3Reminder,
   revertInitialSent,
   getCadenceMessageTemplates,
   getTomorrowWarmupTargetDate,
   isLeadWarmed,
-  isEmailOnlyLead,
 } from '../utils/cadenceEngine';
 
 interface TodaysSchedulePageProps {
@@ -211,17 +210,17 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       return true;
     }
 
-    // Check if follow-up 1 (Day 7) is overdue
+    // Check if follow-up 1 (Day 4) is overdue
     if (l.initialSentDate && l.followupCount === 0 && l.followup1Date && isDateOverdue(l.followup1Date)) {
       return true;
     }
 
-    // Check if follow-up 2 (Day 14) is overdue
+    // Check if follow-up 2 (Day 8) is overdue
     if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && isDateOverdue(l.followup2Date)) {
       return true;
     }
 
-    // Check if follow-up 3 (Day 30) is overdue
+    // Check if follow-up 3 (Day 14) is overdue
     if (l.initialSentDate && l.followupCount === 2 && l.followup3Date && isDateOverdue(l.followup3Date)) {
       return true;
     }
@@ -241,19 +240,19 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const sentTodayLeads = filteredAllLeads.filter((l) => isInitialSentToday(l, todayStr));
   const initialSentTodayCount = sentTodayLeads.length;
 
-  // 4. FOLLOW-UPS SENT TODAY (Day 7, Day 14, and Day 30 follow-up touches sent today)
-  const day7SentTodayLeads = filteredAllLeads.filter(
+  // 4. FOLLOW-UPS SENT TODAY (Day 4, Day 8, and Day 14 follow-up touches sent today)
+  const day4SentTodayLeads = filteredAllLeads.filter(
     (l) => normalizeToLocalDateStr(l.followup1SentDate) === todayStr
   );
-  const day14SentTodayLeads = filteredAllLeads.filter(
+  const day8SentTodayLeads = filteredAllLeads.filter(
     (l) => normalizeToLocalDateStr(l.followup2SentDate) === todayStr
   );
-  const day30SentTodayLeads = filteredAllLeads.filter(
+  const day14SentTodayLeads = filteredAllLeads.filter(
     (l) => normalizeToLocalDateStr(l.followup3SentDate) === todayStr
   );
-  const followupsSentTodayCount = day7SentTodayLeads.length + day14SentTodayLeads.length + day30SentTodayLeads.length;
+  const followupsSentTodayCount = day4SentTodayLeads.length + day8SentTodayLeads.length + day14SentTodayLeads.length;
 
-  // Total tasks completed across all of today's schedule (Initial DM + Day 7 FU + Day 14 FU + Day 30 FU)
+  // Total tasks completed across all of today's schedule (Initial DM + Day 4 FU + Day 8 FU + Day 14 FU)
   const totalTasksCompletedToday = initialSentTodayCount + followupsSentTodayCount;
 
   // 5. FOLLOW-UPS DUE TODAY (Section 2 - Strict Time-Lock Enforced)
@@ -262,18 +261,18 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     if (isLeadDismissedToday(l)) return false;
     if (!l.initialSentDate) return false;
 
-    // Day 7 check: due today
-    if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDay7FollowupDue(l, todayStr))) {
+    // Day 4 check: due today
+    if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDay4FollowupDue(l, todayStr))) {
+      return true;
+    }
+
+    // Day 8 check: due today
+    if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDay8FollowupDue(l, todayStr))) {
       return true;
     }
 
     // Day 14 check: due today
-    if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDay14FollowupDue(l, todayStr))) {
-      return true;
-    }
-
-    // Day 30 check: due today
-    if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDay30FollowupDue(l, todayStr))) {
+    if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDay14FollowupDue(l, todayStr))) {
       return true;
     }
 
@@ -314,8 +313,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     ? []
     : filteredAllLeads.filter((l) => {
         if (l.isCompleted || l.initialSentDate) return false;
-        if (isEmailOnlyLead(l)) return false; // Strict: Email-only leads require no warm-up
-        return l.scheduledDate === warmupTargetDateStr;
+        if (l.scheduledDate !== warmupTargetDateStr) return false;
+        // INTELLIGENT ROUTING: Only leads with social warm-up profiles (IG or FB). Email-only leads hidden.
+        return getBlindRouteLink(l, 'warmup') !== null;
       });
 
   const handleToggleLeadWarmup = (lead: ChannelLead) => {
@@ -344,16 +344,16 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       if (isLeadDismissedToday(l)) return false;
       if (!l.initialSentDate) return false;
 
-      // Day 7
-      if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date) || isDay7FollowupDue(l, todayStr))) {
+      // Day 4
+      if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date) || isDay4FollowupDue(l, todayStr))) {
+        return true;
+      }
+      // Day 8
+      if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date) || isDay8FollowupDue(l, todayStr))) {
         return true;
       }
       // Day 14
-      if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date) || isDay14FollowupDue(l, todayStr))) {
-        return true;
-      }
-      // Day 30
-      if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDateOverdue(l.followup3Date) || isDay30FollowupDue(l, todayStr))) {
+      if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDateOverdue(l.followup3Date) || isDay14FollowupDue(l, todayStr))) {
         return true;
       }
       return false;
@@ -373,9 +373,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
       if (isLeadDismissedToday(l)) return false;
       if (!l.initialSentDate) return false;
-      if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date) || isDay7FollowupDue(l, todayStr))) return true;
-      if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date) || isDay14FollowupDue(l, todayStr))) return true;
-      if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDateOverdue(l.followup3Date) || isDay30FollowupDue(l, todayStr))) return true;
+      if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date) || isDay4FollowupDue(l, todayStr))) return true;
+      if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date) || isDay8FollowupDue(l, todayStr))) return true;
+      if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDateOverdue(l.followup3Date) || isDay14FollowupDue(l, todayStr))) return true;
       return false;
     }).length,
   };
@@ -1139,44 +1139,33 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                     {lead.name}
                   </div>
                   {(() => {
-                    const fb = getLeadFacebook(lead);
-                    const warmupLink = fb || lead.platformLink || lead.link;
-                    const warmupHref = getPlatformLink(warmupLink, 'facebook');
-                    const isCombined = lead.channel === 'combined' || Boolean(fb);
+                    const route = getBlindRouteLink(lead, 'warmup');
+                    if (!route) return null;
 
-                    if (isCombined) {
-                      return (
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <a
-                            href={warmupHref}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 truncate max-w-full font-medium"
-                            title={`Warm Up on Facebook: ${warmupLink}`}
-                          >
-                            <Facebook className="w-3 h-3 text-sky-400 shrink-0" />
-                            <span className="font-bold text-[10px] text-sky-300 bg-sky-500/20 px-1 rounded font-mono">FB</span>
-                            <span className="truncate max-w-[130px]">{warmupLink}</span>
-                            <ExternalLink className="w-3 h-3 shrink-0" />
-                          </a>
-                          <TestLinkButton lead={lead} platform="facebook" label="Test FB" />
-                        </div>
-                      );
-                    }
-
+                    const isFb = route.channelType === 'facebook';
                     return (
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <a
-                          href={getPlatformLink(lead.platformLink || lead.link, lead.channel)}
-                          target={getPlatformLink(lead.platformLink || lead.link, lead.channel).startsWith('mailto:') ? '_self' : '_blank'}
+                          href={route.href}
+                          target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 truncate max-w-full"
-                          title={`Open ${lead.platformLink || lead.link}`}
+                          className={`inline-flex items-center gap-1 text-[11px] truncate max-w-full font-medium ${
+                            isFb ? 'text-sky-400 hover:text-sky-300' : 'text-pink-400 hover:text-pink-300'
+                          }`}
+                          title={`${route.actionLabel}: ${route.link}`}
                         >
-                          <span className="truncate">{lead.platformLink || lead.link}</span>
+                          {isFb ? (
+                            <Facebook className="w-3 h-3 text-sky-400 shrink-0" />
+                          ) : (
+                            <Instagram className="w-3 h-3 text-pink-400 shrink-0" />
+                          )}
+                          <span className="font-bold text-[10px] bg-white/10 px-1 rounded font-mono">
+                            {route.badgeLabel}
+                          </span>
+                          <span className="truncate max-w-[130px]">{route.link}</span>
                           <ExternalLink className="w-3 h-3 shrink-0" />
                         </a>
-                        <TestLinkButton lead={lead} platform={lead.channel} />
+                        <TestLinkButton lead={lead} platform={route.channelType} label={`Test ${route.badgeLabel}`} />
                       </div>
                     );
                   })()}

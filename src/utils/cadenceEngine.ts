@@ -1,5 +1,4 @@
 import { ChannelLead, MultiChannelType } from '../types';
-import { getLeadFacebook, getLeadEmail, getPlatformLink } from './channelStorage';
 
 /**
  * Returns today's date formatted as YYYY-MM-DD strictly in user's local timezone
@@ -142,16 +141,16 @@ export function isLeadDismissedToday(lead: ChannelLead): boolean {
 
 /**
  * Cadence Transition: Mark initial outreach as Sent.
- * Automatically schedules Value-Based Follow-Up timeline:
- * - Day 7: Value Check-In (kitchen ticket PDF)
- * - Day 14: Social Proof / Case Study (12% jump in takeout)
- * - Day 30: The Breakup / Final Audit (60-second Loom)
+ * Automatically schedules Closed-System 4/8/14 Follow-Up timeline:
+ * - Day 4: Value Check-In (kitchen ticket PDF)
+ * - Day 8: Social Proof / Case Study (12% jump in takeout)
+ * - Day 14: Final Nudge / Breakup (60-second Loom)
  */
 export function markInitialSent(lead: ChannelLead, sentDate = getLocalTodayStr()): ChannelLead {
   const normSentDate = normalizeToLocalDateStr(sentDate) || getLocalTodayStr();
-  const fu1 = addDays(normSentDate, 7);
-  const fu2 = addDays(normSentDate, 14);
-  const fu3 = addDays(normSentDate, 30);
+  const fu1 = addDays(normSentDate, 4);
+  const fu2 = addDays(normSentDate, 8);
+  const fu3 = addDays(normSentDate, 14);
 
   return {
     ...lead,
@@ -193,7 +192,7 @@ export function getDaysSinceContact(lead: ChannelLead, today = getLocalTodayStr(
 }
 
 /**
- * Cadence Transition: Mark a follow-up step as Sent (Step 1 = Day 7, Step 2 = Day 14, Step 3 = Day 30).
+ * Cadence Transition: Mark a follow-up step as Sent (Step 1 = Day 4, Step 2 = Day 8, Step 3 = Day 14).
  */
 export function markFollowupSent(
   lead: ChannelLead,
@@ -224,7 +223,7 @@ export function markFollowupSent(
     };
   }
 
-  // Step 3: Final Day 30 touchpoint done - Archive / Complete
+  // Step 3: Final Day 14 touchpoint done - Archive / Complete
   return {
     ...lead,
     followup3SentDate: normSentDate,
@@ -283,15 +282,15 @@ export function isInitialSentToday(lead: ChannelLead, today = getLocalTodayStr()
 }
 
 /**
- * Strict Day 7 Follow-Up Time-Lock (Value Check-In):
- * Returns true ONLY if today is on or after (initialSentDate + 7 days) and Follow-Up 1 is pending.
+ * Strict Day 4 Follow-Up Time-Lock (Value Check-In):
+ * Returns true ONLY if today is on or after (initialSentDate + 4 days) and Follow-Up 1 is pending.
  */
-export function isDay7FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
+export function isDay4FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
   if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
   if (!lead.initialSentDate && !lead.dmSent) return false;
   if (lead.followupCount !== undefined && lead.followupCount > 0) return false;
 
-  const targetDate = lead.followup1Date || addDays(getLeadBaseContactDate(lead), 7);
+  const targetDate = lead.followup1Date || addDays(getLeadBaseContactDate(lead), 4);
   const normalizedTarget = normalizeToLocalDateStr(targetDate);
   if (!normalizedTarget) return false;
 
@@ -299,15 +298,15 @@ export function isDay7FollowupDue(lead: ChannelLead, today = getLocalTodayStr())
 }
 
 /**
- * Strict Day 14 Follow-Up Time-Lock (Social Proof / Case Study):
- * Returns true ONLY if today is on or after (initialSentDate + 14 days) and Follow-Up 1 is completed.
+ * Strict Day 8 Follow-Up Time-Lock (Social Proof / Quick Bump):
+ * Returns true ONLY if today is on or after (initialSentDate + 8 days) and Follow-Up 1 is completed.
  */
-export function isDay14FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
+export function isDay8FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
   if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
   if (!lead.initialSentDate && !lead.dmSent) return false;
   if (lead.followupCount !== 1) return false;
 
-  const targetDate = lead.followup2Date || addDays(getLeadBaseContactDate(lead), 14);
+  const targetDate = lead.followup2Date || addDays(getLeadBaseContactDate(lead), 8);
   const normalizedTarget = normalizeToLocalDateStr(targetDate);
   if (!normalizedTarget) return false;
 
@@ -315,15 +314,15 @@ export function isDay14FollowupDue(lead: ChannelLead, today = getLocalTodayStr()
 }
 
 /**
- * Strict Day 30 Follow-Up Time-Lock (Breakup / Final Audit):
- * Returns true ONLY if today is on or after (initialSentDate + 30 days) and Follow-Up 2 is completed.
+ * Strict Day 14 Follow-Up Time-Lock (Breakup / Final Nudge):
+ * Returns true ONLY if today is on or after (initialSentDate + 14 days) and Follow-Up 2 is completed.
  */
-export function isDay30FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
+export function isDay14FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
   if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
   if (!lead.initialSentDate && !lead.dmSent) return false;
   if (lead.followupCount !== 2) return false;
 
-  const targetDate = lead.followup3Date || addDays(getLeadBaseContactDate(lead), 30);
+  const targetDate = lead.followup3Date || addDays(getLeadBaseContactDate(lead), 14);
   const normalizedTarget = normalizeToLocalDateStr(targetDate);
   if (!normalizedTarget) return false;
 
@@ -331,19 +330,21 @@ export function isDay30FollowupDue(lead: ChannelLead, today = getLocalTodayStr()
 }
 
 /**
- * Checks if any follow-up touchpoint (Day 7, Day 14, or Day 30) is due today or overdue.
+ * Checks if any follow-up touchpoint (Day 4, Day 8, or Day 14) is due today or overdue.
  */
 export function isAnyFollowupDueToday(lead: ChannelLead, today = getLocalTodayStr()): boolean {
-  return isDay7FollowupDue(lead, today) || isDay14FollowupDue(lead, today) || isDay30FollowupDue(lead, today);
+  return isDay4FollowupDue(lead, today) || isDay8FollowupDue(lead, today) || isDay14FollowupDue(lead, today);
 }
 
-// Backwards-compatibility alias for older code
-export const isDay3FollowupDue = isDay7FollowupDue;
+// Backwards-compatibility aliases for legacy 7/14/30 and 3/7 callers
+export const isDay7FollowupDue = isDay4FollowupDue;
+export const isDay30FollowupDue = isDay14FollowupDue;
+export const isDay3FollowupDue = isDay4FollowupDue;
 
 /**
- * Auto-calculates and persists the exact Day 7 reminder date.
+ * Auto-calculates and persists the exact Day 4 reminder date.
  */
-export function setDay3Reminder(lead: ChannelLead, daysAhead = 7): ChannelLead {
+export function setDay3Reminder(lead: ChannelLead, daysAhead = 4): ChannelLead {
   const baseDate = getLeadBaseContactDate(lead);
   const reminderDate = addDays(baseDate, daysAhead);
   return {
@@ -371,12 +372,12 @@ export function revertInitialSent(lead: ChannelLead): ChannelLead {
 }
 
 /**
- * Returns high-converting pre-staged copy templates for Video Value First outreach & cadence:
- * - STAGE A (Initial Contact - Day 1)
+ * Returns high-converting pre-staged copy templates for Closed-System 4/8/14 outreach cadence:
+ * - STAGE A (Initial Contact - Day 0)
  * - STAGE B (Post-Reaction - "Send it")
- * - Day 7 Trigger (Value Check-In: kitchen ticket PDF)
- * - Day 14 Trigger (Social Proof / Case Study: 12% jump in takeout)
- * - Day 30 Trigger (The "Breakup" / Final Audit: 60-second Loom)
+ * - Day 4 Trigger (Value Check-In: kitchen ticket PDF)
+ * - Day 8 Trigger (Social Proof / Case Study: 12% jump in takeout)
+ * - Day 14 Trigger (The "Breakup" / Final Audit: 60-second Loom)
  */
 export function getCadenceMessageTemplates(lead: ChannelLead) {
   const recipient = lead.name?.trim() || 'there';
@@ -385,38 +386,35 @@ export function getCadenceMessageTemplates(lead: ChannelLead) {
 
   // Stage A & Stage B Video Value scripts
   const stageAMessage =
-    lead.initialDM?.trim() ||
-    lead.customPitch?.trim() ||
     `Hey ${recipient}! I just posted a quick video on my story/feed breaking down your menu design/website and how you could easily add 15-20 more covers this weekend. Tagged you guys! Mind if I send the direct link to the full breakdown here?`;
 
   const stageBMessage =
     `Here you go: ${liveLink}. Let me know what you think of the online ordering tip at 1:12! If you want the full kitchen ticket PDF I mentioned, happy to send that over too.`;
 
-  // Value-Based Timeline Triggers (4-Step Cadence)
-  const day7Message =
-    lead.followupDM_Day7?.trim() ||
+  // Value-Based Timeline Triggers (4/8/14 Sequence)
+  const day4Message =
     lead.followup3DM?.trim() ||
     `Hey ${recipient}, did you get a chance to see that breakdown video? We just put together a quick PDF on 3 ways to speed up kitchen ticket times on Friday nights—want me to drop it here?`;
 
-  const day14Message =
-    lead.followupDM_Day14?.trim() ||
+  const day8Message =
     lead.followup7DM?.trim() ||
     `Hey ${recipient}! Quick update—another spot in ${city} implemented that online ordering tweak from the video we tagged you in and saw a 12% jump in takeout orders last week. Thought of you guys!`;
 
-  const day30Message =
-    lead.breakupDM_Day30?.trim() ||
+  const day14Message =
     `Hey ${recipient}, I know you're super busy running service. I'm archiving our video breakdown this week, but I recorded a quick 60-second Loom showing the #1 leak on your mobile checkout. Should I send the Loom or would you rather I close your file?`;
 
   return {
     initialPitch: stageAMessage,
     stageAMessage,
     stageBMessage,
-    day7Message,
+    day4Message,
+    day8Message,
     day14Message,
-    day30Message,
     // Backwards-compatible aliases
-    day3Bump: day7Message,
-    day7Loom: day14Message,
+    day7Message: day4Message,
+    day30Message: day14Message,
+    day3Bump: day4Message,
+    day7Loom: day8Message,
   };
 }
 
@@ -635,170 +633,14 @@ export function getTomorrowWarmupTargetDate(referenceDateStr = getLocalTodayStr(
 }
 
 /**
- * Checks if a lead belongs to Instagram channel:
- * - Lead channel is 'instagram'
- * - Or explicit instagram field is set
- * - Or link / platformLink contains instagram.com or instagr.am
- * - Or link starts with @ (and is not an email)
- */
-export function isInstagramLead(lead?: ChannelLead | null): boolean {
-  if (!lead) return false;
-  if (lead.channel === 'instagram') return true;
-  if (lead.instagram && typeof lead.instagram === 'string' && lead.instagram.trim()) return true;
-  const link = (lead.platformLink || lead.link || '').trim().toLowerCase();
-  if (link.includes('instagram.com') || link.includes('instagr.am')) return true;
-  if (link.startsWith('@') && !link.includes('.') && !link.includes('facebook')) return true;
-  return false;
-}
-
-/**
- * Checks if a lead has Facebook presence:
- * - Not an Instagram lead
- * - Has explicit facebook field/url or link includes facebook.com/fb.com/fb.me
- * - Or lead.channel === 'facebook'
- */
-export function isFacebookLead(lead?: ChannelLead | null): boolean {
-  if (!lead) return false;
-  if (isInstagramLead(lead)) return false;
-  const fb = getLeadFacebook(lead);
-  if (fb && fb.trim()) return true;
-  const link = (lead.platformLink || lead.link || '').trim().toLowerCase();
-  if (link.includes('facebook.com') || link.includes('fb.com') || link.includes('fb.me')) return true;
-  if (lead.channel === 'facebook') return true;
-  return false;
-}
-
-/**
- * Checks if a lead is Email-Only:
- * - Neither Instagram nor Facebook
- * - Has email or lead.channel === 'email'
- */
-export function isEmailOnlyLead(lead?: ChannelLead | null): boolean {
-  if (!lead) return false;
-  if (isInstagramLead(lead)) return false;
-  if (isFacebookLead(lead)) return false;
-  const email = getLeadEmail(lead);
-  return Boolean(email && email.trim()) || lead.channel === 'email';
-}
-
-export type CadenceStep = 'initial' | 'day7' | 'day14' | 'day30' | 0 | 1 | 2 | 3;
-export type TouchpointChannel = 'instagram' | 'email' | 'facebook';
-
-/**
- * Intelligent Channel Routing:
- * 1. Instagram Leads (With or Without Email):
- *    - Warm-Up: Instagram.
- *    - Initial Outreach (Day 0): Instagram DM.
- *    - Follow-Up 1 (Day 7): Instagram DM.
- *    - Follow-Up 2 (Day 14): If they have an email, route to Email. If not, Instagram DM.
- *    - Follow-Up 3 (Day 30): If they have an email, route to Email. If not, Instagram DM.
- * 2. Facebook Leads (With Email):
- *    - Warm-Up: Facebook (like/comment/follow).
- *    - All Outreach (Day 0, 7, 14, 30): Must route to Email. Do NOT schedule any Facebook DMs.
- * 3. Email-Only Leads:
- *    - Warm-Up: None required (auto-warmed).
- *    - All Outreach (Day 0, 7, 14, 30): Route to Email immediately.
- */
-export function getTouchpointChannel(
-  lead: ChannelLead,
-  step: CadenceStep
-): TouchpointChannel {
-  const stepKey: 'initial' | 'day7' | 'day14' | 'day30' =
-    step === 0 ? 'initial' : step === 1 ? 'day7' : step === 2 ? 'day14' : step === 3 ? 'day30' : step;
-
-  const hasEmail = Boolean(getLeadEmail(lead));
-
-  // 1. Instagram Leads (With or Without Email)
-  if (isInstagramLead(lead)) {
-    if (stepKey === 'initial' || stepKey === 'day7') {
-      return 'instagram';
-    }
-    // Day 14 and Day 30: If they have an email, route to Email. If not, Instagram DM.
-    return hasEmail ? 'email' : 'instagram';
-  }
-
-  // 2. Facebook Leads (With Email)
-  if (isFacebookLead(lead)) {
-    if (hasEmail) {
-      return 'email';
-    }
-    return 'facebook';
-  }
-
-  // 3. Email-Only Leads
-  if (isEmailOnlyLead(lead) || hasEmail) {
-    return 'email';
-  }
-
-  return lead.channel === 'instagram' ? 'instagram' : 'email';
-}
-
-/**
- * Returns user-facing label for the touchpoint cadence day and routed channel.
- * e.g. "Day 0 - Instagram", "Day 7 - Instagram", "Day 14 - Email", "Day 30 - Email"
- */
-export function getTouchpointLabel(lead: ChannelLead, step: CadenceStep): string {
-  const stepKey: 'initial' | 'day7' | 'day14' | 'day30' =
-    step === 0 ? 'initial' : step === 1 ? 'day7' : step === 2 ? 'day14' : step === 3 ? 'day30' : step;
-  const channel = getTouchpointChannel(lead, step);
-  const chLabel = channel === 'instagram' ? 'Instagram' : channel === 'email' ? 'Email' : 'Facebook';
-
-  switch (stepKey) {
-    case 'initial':
-      return `Day 0 - ${chLabel}`;
-    case 'day7':
-      return `Day 7 - ${chLabel}`;
-    case 'day14':
-      return `Day 14 - ${chLabel}`;
-    case 'day30':
-      return `Day 30 - ${chLabel}`;
-  }
-}
-
-/**
- * Resolves the destination dispatch URL for the given touchpoint step.
- */
-export function getTouchpointHref(
-  lead: ChannelLead,
-  step: CadenceStep,
-  subject?: string,
-  body?: string
-): string {
-  const routedChannel = getTouchpointChannel(lead, step);
-
-  if (routedChannel === 'email') {
-    const email = getLeadEmail(lead) || (lead.link.includes('@') ? lead.link : '');
-    const cleanEmail = email.replace(/^mailto:/i, '').trim();
-    const queryParts: string[] = [];
-    if (subject) queryParts.push(`subject=${encodeURIComponent(subject)}`);
-    if (body) queryParts.push(`body=${encodeURIComponent(body)}`);
-    const qs = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
-    return cleanEmail ? `mailto:${cleanEmail}${qs}` : (lead.link.startsWith('http') ? lead.link : `mailto:${lead.link}`);
-  }
-
-  if (routedChannel === 'instagram') {
-    const igTarget = lead.instagram || (lead.channel === 'instagram' ? lead.link : undefined);
-    return getPlatformLink(igTarget || lead.link, 'instagram');
-  }
-
-  const fbTarget = getLeadFacebook(lead) || lead.link;
-  return getPlatformLink(fbTarget, 'facebook');
-}
-
-/**
  * Checks if a lead has been marked as warmed up.
- * Email-only leads never require warm-up and are always considered warmed.
  */
 export function isLeadWarmed(lead: ChannelLead): boolean {
-  if (isEmailOnlyLead(lead)) {
-    return true;
-  }
   return lead.warmupStatus === 'warmed' || Boolean(lead.isWarmedUp);
 }
 
 /**
  * Checks if a lead's dispatch is locked (warm-up required).
- * Email-only leads are never locked.
  */
 export function isLeadDispatchLocked(lead: ChannelLead): boolean {
   return !isLeadWarmed(lead);
@@ -806,16 +648,12 @@ export function isLeadDispatchLocked(lead: ChannelLead): boolean {
 
 /**
  * Smart Warm-Up Alert Logic:
- * - If email-only: false (no warm-up needed)
  * - If already warmed up: false
  * - If Saturday: do NOT show warm-up alerts for Sunday (rest day)
  * - If Sunday: show warm-up alerts for Monday's leads (to prep for Monday launch)
  * - On normal weekdays: show warm-up alert for leads scheduled for today or overdue
  */
 export function shouldShowWarmupAlert(lead: ChannelLead): boolean {
-  if (isEmailOnlyLead(lead)) {
-    return false;
-  }
   if (lead.isWarmedUp || lead.warmupStatus === 'warmed' || lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') {
     return false;
   }
@@ -856,6 +694,18 @@ export function shouldShowWarmupAlert(lead: ChannelLead): boolean {
  * 3. Evenly distributes unsent leads across Mon, Tue, Wed, Thu, Fri, Sat, (skip Sun), Mon...
  *    until all leads are assigned.
  */
+/**
+ * Auto-Schedule Engine: Closed-System Flat Capacity Model
+ * 1. Requirement 4: Starts TOMORROW (never today). Today is strictly reserved for warming up tomorrow's leads.
+ * 2. Strictly enforces the daily quota:
+ *    - Instagram: 6 leads / day
+ *    - Combined Outreach (Email/Facebook): 4 leads / day
+ * 3. SKIPS Sundays entirely:
+ *    - If tomorrow is Sunday, the first scheduled date MUST be Monday (+2 days).
+ *    - Any subsequent Sunday is also completely skipped.
+ * 4. Evenly distributes unsent leads across Mon, Tue, Wed, Thu, Fri, Sat, (skip Sun), Mon...
+ *    until all leads are assigned.
+ */
 export function autoScheduleLeads(
   leads: ChannelLead[],
   channel: MultiChannelType,
@@ -864,11 +714,13 @@ export function autoScheduleLeads(
   // Quota definition: Instagram = 6/day, Combined Outreach = 4/day
   const dailyQuota = channel === 'instagram' ? 6 : 4;
 
-  const baseToday = startDateStr || getLocalTodayStr();
+  // Requirement 4: Auto-schedule starts TOMORROW, never today!
+  const tomorrowStr = addDays(getLocalTodayStr(), 1);
+  const baseToday = startDateStr || tomorrowStr;
   const [year, month, day] = baseToday.split('-').map(Number);
   const cursor = new Date(year, month - 1, day);
 
-  // Rule 3: Skip Sundays entirely. If today is Sunday, first scheduled date MUST be Monday.
+  // Skip Sundays entirely. If start falls on Sunday, advance to Monday.
   if (cursor.getDay() === 0) {
     cursor.setDate(cursor.getDate() + 1);
   }
@@ -906,12 +758,10 @@ export function autoScheduleLeads(
 
   return leads.map((lead) => {
     if (assignments[lead.id]) {
-      const isEmailOnly = isEmailOnlyLead(lead);
       return {
         ...lead,
         scheduledDate: assignments[lead.id],
-        warmupStatus: isEmailOnly ? 'warmed' : (lead.warmupStatus || (lead.isWarmedUp ? 'warmed' : 'locked')),
-        isWarmedUp: isEmailOnly ? true : (lead.isWarmedUp || lead.warmupStatus === 'warmed'),
+        warmupStatus: lead.warmupStatus || (lead.isWarmedUp ? 'warmed' : 'locked'),
         dismissedDate: undefined,
       };
     }
@@ -920,8 +770,9 @@ export function autoScheduleLeads(
 }
 
 /**
- * Calculates the next available schedule date for a new lead based on current channel leads,
- * respecting the daily quota (Instagram: 6/day, Combined: 4/day) and skipping Sundays.
+ * Calculates the next available schedule date for a new lead based on current channel leads.
+ * Requirement 4: Starts TOMORROW (never today). Today is reserved for warming up tomorrow's leads.
+ * Respects the daily quota (Instagram: 6/day, Combined: 4/day) and skips Sundays.
  */
 export function getNextAvailableScheduleDate(
   currentLeads: ChannelLead[],
@@ -929,10 +780,14 @@ export function getNextAvailableScheduleDate(
   startDateStr?: string
 ): string {
   const dailyQuota = channel === 'instagram' ? 6 : 4;
-  const baseToday = startDateStr || getLocalTodayStr();
+
+  // Requirement 4: Schedule starts TOMORROW, never today!
+  const tomorrowStr = addDays(getLocalTodayStr(), 1);
+  const baseToday = startDateStr || tomorrowStr;
   const [year, month, day] = baseToday.split('-').map(Number);
   const cursor = new Date(year, month - 1, day);
 
+  // Skip Sunday to Monday
   if (cursor.getDay() === 0) {
     cursor.setDate(cursor.getDate() + 1);
   }

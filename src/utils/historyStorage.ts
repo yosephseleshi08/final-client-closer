@@ -226,11 +226,16 @@ export function recordTodayCompletion(
     percentage = 100;
   }
 
+  const earliestOutreach = getEarliestOutreachDate();
+  const isPreLaunchNow = !earliestOutreach && totalCompleted === 0;
+
   let status: DailyHistoryStatus = 'zero';
   if (isFrozen) {
     status = 'frozen';
   } else if (isSunday) {
     status = 'sunday';
+  } else if (isPreLaunchNow) {
+    status = 'pre_launch';
   } else if (percentage >= 100) {
     status = 'full';
   } else if (percentage > 0) {
@@ -503,7 +508,7 @@ export function get30DayHistoryView(
     const isFrozen = isDateFrozen(dateStr);
     const existing = mapByDate.get(dateStr);
 
-    if (existing && existing.dmsSent > 0) {
+    if (earliestDate && existing && existing.dmsSent > 0) {
       result.push({
         ...existing,
         isFrozen: isFrozen || existing.status === 'frozen',

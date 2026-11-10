@@ -40,18 +40,13 @@ import {
   restoreDismissedLead,
   isLeadDismissedToday,
   getCadenceMessageTemplates,
-  isDay7FollowupDue,
+  isDay4FollowupDue,
+  isDay8FollowupDue,
   isDay14FollowupDue,
-  isDay30FollowupDue,
   getLeadBaseContactDate,
   isLeadWarmed,
-  isEmailOnlyLead,
-  getTouchpointChannel,
-  getTouchpointLabel,
-  getTouchpointHref,
-  CadenceStep,
 } from '../../utils/cadenceEngine';
-import { getChannelLabel, getPlatformLink, getLeadEmail, getLeadFacebook } from '../../utils/channelStorage';
+import { getChannelLabel, getBlindRouteLink } from '../../utils/channelStorage';
 import { TestLinkButton } from '../TestLinkButton';
 
 interface FollowupScheduleSubPageProps {
@@ -61,7 +56,7 @@ interface FollowupScheduleSubPageProps {
   onNavigateToSchedule: () => void;
 }
 
-type FollowupCadenceTab = 'due_today' | 'day7' | 'day14' | 'day30' | 'completed';
+type FollowupCadenceTab = 'due_today' | 'day4' | 'day8' | 'day14' | 'completed';
 
 export function FollowupScheduleSubPage({
   channel,
@@ -164,105 +159,44 @@ export function FollowupScheduleSubPage({
     </button>
   );
 
-  const renderDispatchLinks = (lead: ChannelLead, step: CadenceStep = 0, messageText?: string) => {
-    const routedChannel = getTouchpointChannel(lead, step);
-    const touchpointLabel = getTouchpointLabel(lead, step);
-    const emailSubj = `Outreach: ${lead.name}`;
-    const emailBody = messageText || '';
-    const dispatchHref = getTouchpointHref(lead, step, emailSubj, emailBody);
+  /**
+   * INTELLIGENT CHANNEL ROUTING (The Blind Rule)
+   * Shows ONLY the single routed link. Never shows both links side-by-side.
+   */
+  const renderDispatchLinks = (lead: ChannelLead, stage: 0 | 4 | 8 | 14 = 0) => {
+    const route = getBlindRouteLink(lead, 'dispatch', stage);
+    if (!route) return null;
 
-    const emailLink = getLeadEmail(lead);
-    const fbLink = getLeadFacebook(lead);
+    const badgeColor =
+      route.channelType === 'email'
+        ? 'bg-indigo-500/15 hover:bg-indigo-500/25 border-indigo-500/30 text-indigo-300'
+        : route.channelType === 'instagram'
+        ? 'bg-pink-500/15 hover:bg-pink-500/25 border-pink-500/30 text-pink-300'
+        : 'bg-sky-500/15 hover:bg-sky-500/25 border-sky-500/30 text-sky-300';
 
-    if (routedChannel === 'email') {
-      return (
-        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-          <a
-            href={dispatchHref}
-            className="inline-flex items-center gap-1.5 text-xs text-indigo-300 hover:text-white transition px-3 py-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 font-medium group/emaillink"
-            title={`Click to open Email client and send pitch to: ${emailLink || lead.link}`}
-          >
-            <Mail className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-            <span className="font-bold text-[10px] text-indigo-300 bg-indigo-500/20 px-1.5 py-0.2 rounded font-mono">
-              {touchpointLabel}
-            </span>
-            <span className="truncate max-w-xs">{emailLink || lead.link}</span>
-            <ExternalLink className="w-3 h-3 shrink-0 opacity-70 group-hover/emaillink:opacity-100" />
-          </a>
-          <TestLinkButton lead={lead} platform="email" label="Test Email" />
-
-          {fbLink && (
-            <a
-              href={getPlatformLink(fbLink, 'facebook')}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 font-mono px-2 py-1 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20"
-              title={`View Facebook Profile: ${fbLink}`}
-            >
-              <Facebook className="w-3 h-3 text-sky-400 shrink-0" />
-              <span className="font-bold">FB:</span>
-              <span className="truncate max-w-[120px]">
-                {fbLink.replace(/^https?:\/\/(?:www\.)?facebook\.com\/?/i, '') || fbLink}
-              </span>
-              <ExternalLink className="w-2.5 h-2.5 opacity-60" />
-            </a>
-          )}
-        </div>
-      );
-    }
-
-    if (routedChannel === 'instagram') {
-      return (
-        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-          <a
-            href={dispatchHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-pink-300 hover:text-white transition px-3 py-1.5 rounded-xl bg-pink-500/15 hover:bg-pink-500/25 border border-pink-500/30 font-medium group/iglink"
-            title={`Open Instagram Profile / DM for ${lead.name}`}
-          >
-            <Instagram className="w-3.5 h-3.5 text-pink-400 shrink-0" />
-            <span className="font-bold text-[10px] text-pink-300 bg-pink-500/20 px-1.5 py-0.2 rounded font-mono">
-              {touchpointLabel}
-            </span>
-            <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
-            <ExternalLink className="w-3 h-3 shrink-0 opacity-70 group-hover/iglink:opacity-100" />
-          </a>
-          <TestLinkButton lead={lead} platform="instagram" label="Test IG" />
-
-          {emailLink && (
-            <a
-              href={getPlatformLink(emailLink, 'email')}
-              className="inline-flex items-center gap-1 text-[11px] text-indigo-300 hover:text-white font-mono px-2 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20"
-              title={`Email available: ${emailLink}`}
-            >
-              <Mail className="w-3 h-3 text-indigo-400 shrink-0" />
-              <span className="font-bold">Email:</span>
-              <span className="truncate max-w-[120px]">{emailLink}</span>
-            </a>
-          )}
-        </div>
-      );
-    }
-
-    // Facebook fallback
     return (
       <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
         <a
-          href={dispatchHref}
-          target="_blank"
+          href={route.href}
+          target={route.isMailto ? '_self' : '_blank'}
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-xs text-sky-300 hover:text-white transition px-3 py-1.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 font-medium"
-          title={`Open Facebook Profile: ${fbLink || lead.link}`}
+          className={`inline-flex items-center gap-1.5 text-xs hover:text-white transition px-3 py-1.5 rounded-xl border font-medium ${badgeColor}`}
+          title={`${route.actionLabel}: ${route.link}`}
         >
-          <Facebook className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-          <span className="font-bold text-[10px] text-sky-300 bg-sky-500/20 px-1.5 py-0.2 rounded font-mono">
-            {touchpointLabel}
+          {route.channelType === 'email' ? (
+            <Mail className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+          ) : route.channelType === 'instagram' ? (
+            <Instagram className="w-3.5 h-3.5 text-pink-400 shrink-0" />
+          ) : (
+            <Facebook className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+          )}
+          <span className="font-bold text-[10px] bg-white/10 px-1 py-0.5 rounded font-mono">
+            {route.badgeLabel}
           </span>
-          <span className="truncate max-w-xs">{fbLink || lead.link}</span>
-          <ExternalLink className="w-3 h-3 shrink-0" />
+          <span className="truncate max-w-xs">{route.link}</span>
+          <ExternalLink className="w-3 h-3 shrink-0 opacity-70" />
         </a>
-        <TestLinkButton lead={lead} platform="facebook" label="Test FB" />
+        <TestLinkButton lead={lead} platform={route.channelType} label={`Test ${route.badgeLabel}`} />
       </div>
     );
   };
@@ -280,58 +214,58 @@ export function FollowupScheduleSubPage({
       return true;
     }
 
-    // Follow-ups due today or overdue (Day 7, Day 14, Day 30)
-    if (isDay7FollowupDue(l, todayStr)) return true;
+    // Follow-ups due today or overdue (Day 4, Day 8, Day 14)
+    if (isDay4FollowupDue(l, todayStr)) return true;
+    if (isDay8FollowupDue(l, todayStr)) return true;
     if (isDay14FollowupDue(l, todayStr)) return true;
-    if (isDay30FollowupDue(l, todayStr)) return true;
 
     return false;
   });
 
-  // 2. Sub-tab: DAY 7 (Value Check-In)
-  const allDay7Pending = leads.filter((l) => {
+  // 2. Sub-tab: DAY 4 (Kitchen Ticket PDF)
+  const allDay4Pending = leads.filter((l) => {
     if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
     return Boolean(l.initialSentDate || l.dmSent) && (l.followupCount === 0 || l.followupCount === undefined);
   });
-  const day7ActionableLeads = allDay7Pending.filter((l) => isDay7FollowupDue(l, todayStr));
-  const day7LockedLeads = allDay7Pending.filter((l) => !isDay7FollowupDue(l, todayStr));
-  const nextDay7Countdown = day7LockedLeads.length > 0
-    ? Math.min(...day7LockedLeads.map((l) => {
-        const targetDate = l.followup1Date || addDays(getLeadBaseContactDate(l), 7);
+  const day4ActionableLeads = allDay4Pending.filter((l) => isDay4FollowupDue(l, todayStr));
+  const day4LockedLeads = allDay4Pending.filter((l) => !isDay4FollowupDue(l, todayStr));
+  const nextDay4Countdown = day4LockedLeads.length > 0
+    ? Math.min(...day4LockedLeads.map((l) => {
+        const targetDate = l.followup1Date || addDays(getLeadBaseContactDate(l), 4);
         const diff = getDayDifference(targetDate, todayStr);
         return diff > 0 ? diff : 1;
       }))
-    : 7;
+    : 4;
 
-  // 3. Sub-tab: DAY 14 (Social Proof / Case Study)
-  const allDay14Pending = leads.filter((l) => {
+  // 3. Sub-tab: DAY 8 (Takeout Surge)
+  const allDay8Pending = leads.filter((l) => {
     if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
     return Boolean(l.initialSentDate || l.dmSent) && l.followupCount === 1;
+  });
+  const day8ActionableLeads = allDay8Pending.filter((l) => isDay8FollowupDue(l, todayStr));
+  const day8LockedLeads = allDay8Pending.filter((l) => !isDay8FollowupDue(l, todayStr));
+  const nextDay8Countdown = day8LockedLeads.length > 0
+    ? Math.min(...day8LockedLeads.map((l) => {
+        const targetDate = l.followup2Date || addDays(getLeadBaseContactDate(l), 8);
+        const diff = getDayDifference(targetDate, todayStr);
+        return diff > 0 ? diff : 1;
+      }))
+    : 8;
+
+  // 4. Sub-tab: DAY 14 (Final Nudge / Breakup)
+  const allDay14Pending = leads.filter((l) => {
+    if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+    return Boolean(l.initialSentDate || l.dmSent) && l.followupCount === 2;
   });
   const day14ActionableLeads = allDay14Pending.filter((l) => isDay14FollowupDue(l, todayStr));
   const day14LockedLeads = allDay14Pending.filter((l) => !isDay14FollowupDue(l, todayStr));
   const nextDay14Countdown = day14LockedLeads.length > 0
     ? Math.min(...day14LockedLeads.map((l) => {
-        const targetDate = l.followup2Date || addDays(getLeadBaseContactDate(l), 14);
+        const targetDate = l.followup3Date || addDays(getLeadBaseContactDate(l), 14);
         const diff = getDayDifference(targetDate, todayStr);
         return diff > 0 ? diff : 1;
       }))
     : 14;
-
-  // 4. Sub-tab: DAY 30 (Breakup / Final Audit)
-  const allDay30Pending = leads.filter((l) => {
-    if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
-    return Boolean(l.initialSentDate || l.dmSent) && l.followupCount === 2;
-  });
-  const day30ActionableLeads = allDay30Pending.filter((l) => isDay30FollowupDue(l, todayStr));
-  const day30LockedLeads = allDay30Pending.filter((l) => !isDay30FollowupDue(l, todayStr));
-  const nextDay30Countdown = day30LockedLeads.length > 0
-    ? Math.min(...day30LockedLeads.map((l) => {
-        const targetDate = l.followup3Date || addDays(getLeadBaseContactDate(l), 30);
-        const diff = getDayDifference(targetDate, todayStr);
-        return diff > 0 ? diff : 1;
-      }))
-    : 30;
 
   // 5. Sub-tab: COMPLETED / ARCHIVED
   const completedLeads = leads.filter((l) => {
@@ -346,21 +280,21 @@ export function FollowupScheduleSubPage({
       icon: <CalendarDays className="w-3.5 h-3.5" />,
     },
     {
-      id: 'day7',
-      label: 'Day 7 (Value Check-In)',
-      count: day7ActionableLeads.length,
+      id: 'day4',
+      label: 'Day 4 (Value Check-In)',
+      count: day4ActionableLeads.length,
       icon: <FileText className="w-3.5 h-3.5" />,
     },
     {
-      id: 'day14',
-      label: 'Day 14 (Social Proof)',
-      count: day14ActionableLeads.length,
+      id: 'day8',
+      label: 'Day 8 (Takeout Surge)',
+      count: day8ActionableLeads.length,
       icon: <TrendingUp className="w-3.5 h-3.5" />,
     },
     {
-      id: 'day30',
-      label: 'Day 30 (Breakup Audit)',
-      count: day30ActionableLeads.length,
+      id: 'day14',
+      label: 'Day 14 (Breakup Loom)',
+      count: day14ActionableLeads.length,
       icon: <Flame className="w-3.5 h-3.5" />,
     },
     {
@@ -377,10 +311,10 @@ export function FollowupScheduleSubPage({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-bold text-white font-['Outfit']">
-            {getChannelLabel(channel)} Value-Based Follow-Up Timeline
+            {getChannelLabel(channel)} Closed-System Follow-Up Timeline
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Value-First Cadence: Day 7 (Kitchen Ticket PDF) → Day 14 (Online Ordering Takeout Surge) → Day 30 (60s Loom Mobile Audit).
+            4/8/14 Cadence: Day 4 (Kitchen Ticket PDF) → Day 8 (Takeout Surge) → Day 14 (Breakup Loom).
           </p>
         </div>
 
@@ -393,7 +327,7 @@ export function FollowupScheduleSubPage({
                 ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm shadow-amber-500/20'
                 : 'bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 border-white/10'
             }`}
-            title="Toggle Admin Override to force-send follow-ups outside designated +7/+14/+30 windows"
+            title="Toggle Admin Override to force-send follow-ups outside designated +4/+8/+14 windows"
           >
             <Zap className={`w-3.5 h-3.5 ${adminOverrideEnabled ? 'text-amber-400 animate-pulse' : 'text-slate-400'}`} />
             <span>{adminOverrideEnabled ? '⚡ Override Active' : '🛡️ Strict Cadence'}</span>
@@ -483,32 +417,30 @@ export function FollowupScheduleSubPage({
               const isInitial = !lead.initialSentDate && !lead.dmSent;
               const isWarmed = isLeadWarmed(lead);
               const isDispatchLocked = isInitial && !isWarmed;
-              const isDay7 = (lead.initialSentDate || lead.dmSent) && (lead.followupCount === 0 || lead.followupCount === undefined);
-              const isDay14 = lead.followupCount === 1;
-              const isDay30 = lead.followupCount === 2;
+              const isDay4 = (lead.initialSentDate || lead.dmSent) && (lead.followupCount === 0 || lead.followupCount === undefined);
+              const isDay8 = lead.followupCount === 1;
+              const isDay14 = lead.followupCount === 2;
+
+              const stageNumber: 0 | 4 | 8 | 14 = isInitial ? 0 : isDay4 ? 4 : isDay8 ? 8 : 14;
 
               const targetDate = isInitial
                 ? lead.scheduledDate!
-                : isDay7
-                ? (lead.followup1Date || addDays(getLeadBaseContactDate(lead), 7))
-                : isDay14
-                ? (lead.followup2Date || addDays(getLeadBaseContactDate(lead), 14))
-                : (lead.followup3Date || addDays(getLeadBaseContactDate(lead), 30));
+                : isDay4
+                ? (lead.followup1Date || addDays(getLeadBaseContactDate(lead), 4))
+                : isDay8
+                ? (lead.followup2Date || addDays(getLeadBaseContactDate(lead), 8))
+                : (lead.followup3Date || addDays(getLeadBaseContactDate(lead), 14));
 
               const isOverdue = targetDate < todayStr;
               const isToday = targetDate === todayStr;
 
-              const currentStep: CadenceStep = isInitial ? 0 : isDay7 ? 1 : isDay14 ? 2 : 3;
-              const touchpointLabel = getTouchpointLabel(lead, currentStep);
-              const routedChannel = getTouchpointChannel(lead, currentStep);
-
               const copyText = isInitial
-                ? (lead.initialDM || lead.customPitch || templates.stageAMessage)
-                : isDay7
-                ? (lead.followupDM_Day7 || lead.followup3DM || templates.day7Message)
-                : isDay14
-                ? (lead.followupDM_Day14 || lead.followup7DM || templates.day14Message)
-                : (lead.breakupDM_Day30 || templates.day30Message);
+                ? templates.stageAMessage
+                : isDay4
+                ? templates.day7Message
+                : isDay8
+                ? templates.day14Message
+                : templates.day30Message;
 
               return (
                 <div
@@ -538,9 +470,8 @@ export function FollowupScheduleSubPage({
                       )}
                       {isInitial ? (
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-[10px] font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono flex items-center gap-1">
-                            {routedChannel === 'instagram' ? <Instagram className="w-3 h-3 text-pink-400" /> : <Mail className="w-3 h-3 text-indigo-400" />}
-                            <span>{touchpointLabel}</span>
+                          <span className="text-[10px] font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
+                            Stage A (Initial DM)
                           </span>
                           {isWarmed ? (
                             <span className="text-[10px] font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/40 font-mono flex items-center gap-1">
@@ -554,20 +485,17 @@ export function FollowupScheduleSubPage({
                             </span>
                           )}
                         </div>
-                      ) : isDay7 ? (
-                        <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40 font-mono flex items-center gap-1">
-                          {routedChannel === 'instagram' ? <Instagram className="w-3 h-3 text-pink-400" /> : <Mail className="w-3 h-3 text-indigo-400" />}
-                          <span>⚡ {touchpointLabel} (Value Check-In)</span>
+                      ) : isDay4 ? (
+                        <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40 font-mono">
+                          ⚡ Day 4: Value Check-In
                         </span>
-                      ) : isDay14 ? (
-                        <span className="text-[10px] font-bold text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-500/40 font-mono flex items-center gap-1">
-                          {routedChannel === 'instagram' ? <Instagram className="w-3 h-3 text-pink-400" /> : <Mail className="w-3 h-3 text-indigo-400" />}
-                          <span>📊 {touchpointLabel} (Social Proof)</span>
+                      ) : isDay8 ? (
+                        <span className="text-[10px] font-bold text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-500/40 font-mono">
+                          📊 Day 8: Takeout Surge
                         </span>
                       ) : (
-                        <span className="text-[10px] font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded border border-rose-500/40 font-mono flex items-center gap-1">
-                          {routedChannel === 'instagram' ? <Instagram className="w-3 h-3 text-pink-400" /> : <Mail className="w-3 h-3 text-indigo-400" />}
-                          <span>🎯 {touchpointLabel} (Breakup Loom)</span>
+                        <span className="text-[10px] font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded border border-rose-500/40 font-mono">
+                          🎯 Day 14: Breakup Loom
                         </span>
                       )}
                       {isOverdue && (
@@ -577,7 +505,7 @@ export function FollowupScheduleSubPage({
                       )}
                     </div>
 
-                    {renderDispatchLinks(lead, currentStep, copyText)}
+                    {renderDispatchLinks(lead, stageNumber)}
                   </div>
 
                   {/* Pre-staged Copy Box */}
@@ -686,9 +614,9 @@ export function FollowupScheduleSubPage({
                           if (isDispatchLocked) return;
                           if (isInitial) {
                             handleUpdateLeadItem(markInitialSent(lead));
-                          } else if (isDay7) {
+                          } else if (isDay4) {
                             handleUpdateLeadItem(markFollowupSent(lead, 1));
-                          } else if (isDay14) {
+                          } else if (isDay8) {
                             handleUpdateLeadItem(markFollowupSent(lead, 2));
                           } else {
                             handleUpdateLeadItem(markFollowupSent(lead, 3));
@@ -712,11 +640,11 @@ export function FollowupScheduleSubPage({
                             <span>
                               {isInitial
                                 ? 'Mark Initial DM Sent'
-                                : isDay7
-                                ? 'Mark Day 7 Sent'
-                                : isDay14
-                                ? 'Mark Day 14 Sent'
-                                : 'Mark Day 30 Sent (Archive)'}
+                                : isDay4
+                                ? 'Mark Day 4 Sent'
+                                : isDay8
+                                ? 'Mark Day 8 Sent'
+                                : 'Mark Day 14 Sent (Archive)'}
                             </span>
                           </>
                         )}
@@ -730,16 +658,16 @@ export function FollowupScheduleSubPage({
         </div>
       )}
 
-      {/* SUB-TAB 2: DAY 7 (Value Check-In) */}
-      {activeCadenceTab === 'day7' && (
+      {/* SUB-TAB 2: DAY 4 (Value Check-In - Kitchen Ticket PDF) */}
+      {activeCadenceTab === 'day4' && (
         <div className="space-y-4">
-          {day7ActionableLeads.length === 0 ? (
-            day7LockedLeads.length === 0 ? (
+          {day4ActionableLeads.length === 0 ? (
+            day4LockedLeads.length === 0 ? (
               <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 p-12 text-center text-slate-400">
                 <FileText className="w-8 h-8 text-amber-400/50 mx-auto mb-3" />
-                <p className="text-sm font-semibold text-slate-300">No leads currently in Day 7 Cadence</p>
+                <p className="text-sm font-semibold text-slate-300">No leads currently in Day 4 Cadence</p>
                 <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                  When you send Stage A outreach, leads automatically enter the Day 7 value check-in pipeline.
+                  When you send Stage A outreach, leads automatically enter the Day 4 value check-in pipeline.
                 </p>
               </div>
             ) : (
@@ -748,18 +676,18 @@ export function FollowupScheduleSubPage({
                   <Lock className="w-6 h-6" />
                 </div>
                 <h3 className="text-lg font-black text-white font-['Outfit']">
-                  No Day 7 follow-ups due. Next follow-up in {nextDay7Countdown} {nextDay7Countdown === 1 ? 'day' : 'days'}.
+                  No Day 4 follow-ups due. Next follow-up in {nextDay4Countdown} {nextDay4Countdown === 1 ? 'day' : 'days'}.
                 </h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  Day 7 Value Check-In is time-locked to give prospects adequate space. Prospects will unlock on Day 7.
+                  Day 4 Value Check-In is time-locked to give prospects adequate space. Prospects will unlock on Day 4.
                 </p>
               </div>
             )
           ) : (
             <div className="space-y-3">
-              {day7ActionableLeads.map((lead) => {
+              {day4ActionableLeads.map((lead) => {
                 const templates = getCadenceMessageTemplates(lead);
-                const fu1Date = lead.followup1Date || addDays(getLeadBaseContactDate(lead), 7);
+                const fu1Date = lead.followup1Date || addDays(getLeadBaseContactDate(lead), 4);
 
                 return (
                   <div
@@ -775,22 +703,22 @@ export function FollowupScheduleSubPage({
                           {lead.name}
                         </h3>
                         <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40 font-mono">
-                          ⚡ Day 7: Value Check-In
+                          ⚡ Day 4: Value Check-In
                         </span>
                       </div>
 
-                      {renderDispatchLinks(lead)}
+                      {renderDispatchLinks(lead, 4)}
                     </div>
 
                     <div className="rounded-xl border border-amber-500/20 bg-amber-950/30 p-2.5 space-y-1.5">
                       <div className="flex items-center justify-between text-[11px] font-bold text-amber-300">
-                        <span>Day 7 Trigger Message (Kitchen Ticket PDF)</span>
+                        <span>Day 4 Trigger Message (Kitchen Ticket PDF)</span>
                         <button
                           type="button"
-                          onClick={() => handleCopy(`${lead.id}-day7`, templates.day7Message)}
+                          onClick={() => handleCopy(`${lead.id}-day4`, templates.day7Message)}
                           className="flex items-center gap-1 text-xs text-amber-300 hover:text-white transition cursor-pointer"
                         >
-                          {copiedKey === `${lead.id}-day7` ? (
+                          {copiedKey === `${lead.id}-day4` ? (
                             <>
                               <Check className="w-3 h-3 text-emerald-400" />
                               <span className="text-emerald-400">Copied!</span>
@@ -845,7 +773,7 @@ export function FollowupScheduleSubPage({
                           className="px-4 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-600/30 transition cursor-pointer"
                         >
                           <Check className="w-3.5 h-3.5" />
-                          <span>Mark Day 7 Sent</span>
+                          <span>Mark Day 4 Sent</span>
                         </button>
                       </div>
                     </div>
@@ -855,19 +783,19 @@ export function FollowupScheduleSubPage({
             </div>
           )}
 
-          {/* Locked Day 7 Leads */}
-          {day7LockedLeads.length > 0 && (
+          {/* Locked Day 4 Leads */}
+          {day4LockedLeads.length > 0 && (
             <div className="space-y-3 pt-2">
               <div className="flex items-center justify-between text-xs font-mono text-slate-400 px-1">
                 <span className="font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5" />
-                  <span>Upcoming Day 7 Leads ({day7LockedLeads.length})</span>
+                  <span>Upcoming Day 4 Leads ({day4LockedLeads.length})</span>
                 </span>
-                <span>Unlocks on Day 7</span>
+                <span>Unlocks on Day 4</span>
               </div>
 
-              {day7LockedLeads.map((lead) => {
-                const target = lead.followup1Date || addDays(getLeadBaseContactDate(lead), 7);
+              {day4LockedLeads.map((lead) => {
+                const target = lead.followup1Date || addDays(getLeadBaseContactDate(lead), 4);
                 const diff = Math.max(1, getDayDifference(target, todayStr));
                 const templates = getCadenceMessageTemplates(lead);
 
@@ -897,17 +825,17 @@ export function FollowupScheduleSubPage({
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => handleCopy(`${lead.id}-day7-override`, templates.day7Message)}
+                            onClick={() => handleCopy(`${lead.id}-day4-override`, templates.day7Message)}
                             className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-300 font-semibold cursor-pointer"
                           >
-                            {copiedKey === `${lead.id}-day7-override` ? 'Copied!' : 'Copy Msg'}
+                            {copiedKey === `${lead.id}-day4-override` ? 'Copied!' : 'Copy Msg'}
                           </button>
                           <button
                             type="button"
                             onClick={() => handleUpdateLeadItem(markFollowupSent(lead, 1))}
                             className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold shadow transition cursor-pointer"
                           >
-                            ⚡ Force Send Day 7
+                            ⚡ Force Send Day 4
                           </button>
                         </div>
                       </div>
@@ -920,16 +848,16 @@ export function FollowupScheduleSubPage({
         </div>
       )}
 
-      {/* SUB-TAB 3: DAY 14 (Social Proof / Case Study) */}
-      {activeCadenceTab === 'day14' && (
+      {/* SUB-TAB 3: DAY 8 (Takeout Surge) */}
+      {activeCadenceTab === 'day8' && (
         <div className="space-y-4">
-          {day14ActionableLeads.length === 0 ? (
-            day14LockedLeads.length === 0 ? (
+          {day8ActionableLeads.length === 0 ? (
+            day8LockedLeads.length === 0 ? (
               <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 p-12 text-center text-slate-400">
                 <TrendingUp className="w-8 h-8 text-purple-400/50 mx-auto mb-3" />
-                <p className="text-sm font-semibold text-slate-300">No leads currently in Day 14 Cadence</p>
+                <p className="text-sm font-semibold text-slate-300">No leads currently in Day 8 Cadence</p>
                 <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                  Leads progress to Day 14 after Day 7 is dispatched.
+                  Leads progress to Day 8 after Day 4 is dispatched.
                 </p>
               </div>
             ) : (
@@ -938,18 +866,18 @@ export function FollowupScheduleSubPage({
                   <Lock className="w-6 h-6" />
                 </div>
                 <h3 className="text-lg font-black text-white font-['Outfit']">
-                  No Day 14 follow-ups due. Next follow-up in {nextDay14Countdown} {nextDay14Countdown === 1 ? 'day' : 'days'}.
+                  No Day 8 follow-ups due. Next follow-up in {nextDay8Countdown} {nextDay8Countdown === 1 ? 'day' : 'days'}.
                 </h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  Day 14 Social Proof trigger is time-locked.
+                  Day 8 Takeout Surge trigger is time-locked.
                 </p>
               </div>
             )
           ) : (
             <div className="space-y-3">
-              {day14ActionableLeads.map((lead) => {
+              {day8ActionableLeads.map((lead) => {
                 const templates = getCadenceMessageTemplates(lead);
-                const fu2Date = lead.followup2Date || addDays(getLeadBaseContactDate(lead), 14);
+                const fu2Date = lead.followup2Date || addDays(getLeadBaseContactDate(lead), 8);
 
                 return (
                   <div
@@ -965,22 +893,22 @@ export function FollowupScheduleSubPage({
                           {lead.name}
                         </h3>
                         <span className="text-[10px] font-bold text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-500/40 font-mono">
-                          📊 Day 14: Social Proof
+                          📊 Day 8: Takeout Surge
                         </span>
                       </div>
 
-                      {renderDispatchLinks(lead)}
+                      {renderDispatchLinks(lead, 8)}
                     </div>
 
                     <div className="rounded-xl border border-purple-500/20 bg-purple-950/30 p-2.5 space-y-1.5">
                       <div className="flex items-center justify-between text-[11px] font-bold text-purple-300">
-                        <span>Day 14 Trigger Message (Takeout Surge Case Study)</span>
+                        <span>Day 8 Trigger Message (Takeout Surge Case Study)</span>
                         <button
                           type="button"
-                          onClick={() => handleCopy(`${lead.id}-day14`, templates.day14Message)}
+                          onClick={() => handleCopy(`${lead.id}-day8`, templates.day14Message)}
                           className="flex items-center gap-1 text-xs text-purple-300 hover:text-white transition cursor-pointer"
                         >
-                          {copiedKey === `${lead.id}-day14` ? (
+                          {copiedKey === `${lead.id}-day8` ? (
                             <>
                               <Check className="w-3 h-3 text-emerald-400" />
                               <span className="text-emerald-400">Copied!</span>
@@ -1035,7 +963,7 @@ export function FollowupScheduleSubPage({
                           className="px-4 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-purple-600/30 transition cursor-pointer"
                         >
                           <Check className="w-3.5 h-3.5" />
-                          <span>Mark Day 14 Sent</span>
+                          <span>Mark Day 8 Sent</span>
                         </button>
                       </div>
                     </div>
@@ -1045,25 +973,25 @@ export function FollowupScheduleSubPage({
             </div>
           )}
 
-          {/* Locked Day 14 Leads */}
-          {day14LockedLeads.length > 0 && (
+          {/* Locked Day 8 Leads */}
+          {day8LockedLeads.length > 0 && (
             <div className="space-y-3 pt-2">
               <div className="flex items-center justify-between text-xs font-mono text-slate-400 px-1">
                 <span className="font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5" />
-                  <span>Upcoming Day 14 Leads ({day14LockedLeads.length})</span>
+                  <span>Upcoming Day 8 Leads ({day8LockedLeads.length})</span>
                 </span>
-                <span>Unlocks on Day 14</span>
+                <span>Unlocks on Day 8</span>
               </div>
 
-              {day14LockedLeads.map((lead) => {
-                const target = lead.followup2Date || addDays(getLeadBaseContactDate(lead), 14);
+              {day8LockedLeads.map((lead) => {
+                const target = lead.followup2Date || addDays(getLeadBaseContactDate(lead), 8);
                 const diff = Math.max(1, getDayDifference(target, todayStr));
                 const templates = getCadenceMessageTemplates(lead);
 
                 return (
                   <div
-                    key={`locked-14-${lead.id}`}
+                    key={`locked-8-${lead.id}`}
                     className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 space-y-2.5 opacity-85 hover:opacity-100 transition"
                   >
                     <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -1087,17 +1015,17 @@ export function FollowupScheduleSubPage({
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => handleCopy(`${lead.id}-day14-override`, templates.day14Message)}
+                            onClick={() => handleCopy(`${lead.id}-day8-override`, templates.day14Message)}
                             className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-300 font-semibold cursor-pointer"
                           >
-                            {copiedKey === `${lead.id}-day14-override` ? 'Copied!' : 'Copy Msg'}
+                            {copiedKey === `${lead.id}-day8-override` ? 'Copied!' : 'Copy Msg'}
                           </button>
                           <button
                             type="button"
                             onClick={() => handleUpdateLeadItem(markFollowupSent(lead, 2))}
                             className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow transition cursor-pointer"
                           >
-                            ⚡ Force Send Day 14
+                            ⚡ Force Send Day 8
                           </button>
                         </div>
                       </div>
@@ -1110,16 +1038,16 @@ export function FollowupScheduleSubPage({
         </div>
       )}
 
-      {/* SUB-TAB 4: DAY 30 (Breakup / Final Audit) */}
-      {activeCadenceTab === 'day30' && (
+      {/* SUB-TAB 4: DAY 14 (Final Nudge / Breakup Loom) */}
+      {activeCadenceTab === 'day14' && (
         <div className="space-y-4">
-          {day30ActionableLeads.length === 0 ? (
-            day30LockedLeads.length === 0 ? (
+          {day14ActionableLeads.length === 0 ? (
+            day14LockedLeads.length === 0 ? (
               <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 p-12 text-center text-slate-400">
                 <Flame className="w-8 h-8 text-rose-400/50 mx-auto mb-3" />
-                <p className="text-sm font-semibold text-slate-300">No leads currently in Day 30 Cadence</p>
+                <p className="text-sm font-semibold text-slate-300">No leads currently in Day 14 Cadence</p>
                 <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                  Leads progress to Day 30 after Day 14 is dispatched.
+                  Leads progress to Day 14 after Day 8 is dispatched.
                 </p>
               </div>
             ) : (
@@ -1128,18 +1056,18 @@ export function FollowupScheduleSubPage({
                   <Lock className="w-6 h-6" />
                 </div>
                 <h3 className="text-lg font-black text-white font-['Outfit']">
-                  No Day 30 follow-ups due. Next follow-up in {nextDay30Countdown} {nextDay30Countdown === 1 ? 'day' : 'days'}.
+                  No Day 14 follow-ups due. Next follow-up in {nextDay14Countdown} {nextDay14Countdown === 1 ? 'day' : 'days'}.
                 </h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  Day 30 Breakup Loom audit is time-locked.
+                  Day 14 Breakup Loom audit is time-locked.
                 </p>
               </div>
             )
           ) : (
             <div className="space-y-3">
-              {day30ActionableLeads.map((lead) => {
+              {day14ActionableLeads.map((lead) => {
                 const templates = getCadenceMessageTemplates(lead);
-                const fu3Date = lead.followup3Date || addDays(getLeadBaseContactDate(lead), 30);
+                const fu3Date = lead.followup3Date || addDays(getLeadBaseContactDate(lead), 14);
 
                 return (
                   <div
@@ -1155,22 +1083,22 @@ export function FollowupScheduleSubPage({
                           {lead.name}
                         </h3>
                         <span className="text-[10px] font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded border border-rose-500/40 font-mono">
-                          🎯 Day 30: Breakup Loom
+                          🎯 Day 14: Breakup Loom
                         </span>
                       </div>
 
-                      {renderDispatchLinks(lead)}
+                      {renderDispatchLinks(lead, 14)}
                     </div>
 
                     <div className="rounded-xl border border-rose-500/20 bg-rose-950/30 p-2.5 space-y-1.5">
                       <div className="flex items-center justify-between text-[11px] font-bold text-rose-300">
-                        <span>Day 30 Trigger Message (60s Mobile Checkout Loom)</span>
+                        <span>Day 14 Trigger Message (60s Mobile Checkout Loom)</span>
                         <button
                           type="button"
-                          onClick={() => handleCopy(`${lead.id}-day30`, templates.day30Message)}
+                          onClick={() => handleCopy(`${lead.id}-day14`, templates.day30Message)}
                           className="flex items-center gap-1 text-xs text-rose-300 hover:text-white transition cursor-pointer"
                         >
-                          {copiedKey === `${lead.id}-day30` ? (
+                          {copiedKey === `${lead.id}-day14` ? (
                             <>
                               <Check className="w-3 h-3 text-emerald-400" />
                               <span className="text-emerald-400">Copied!</span>
@@ -1235,25 +1163,25 @@ export function FollowupScheduleSubPage({
             </div>
           )}
 
-          {/* Locked Day 30 Leads */}
-          {day30LockedLeads.length > 0 && (
+          {/* Locked Day 14 Leads */}
+          {day14LockedLeads.length > 0 && (
             <div className="space-y-3 pt-2">
               <div className="flex items-center justify-between text-xs font-mono text-slate-400 px-1">
                 <span className="font-bold uppercase tracking-wider text-rose-400 flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5" />
-                  <span>Upcoming Day 30 Leads ({day30LockedLeads.length})</span>
+                  <span>Upcoming Day 14 Leads ({day14LockedLeads.length})</span>
                 </span>
-                <span>Unlocks on Day 30</span>
+                <span>Unlocks on Day 14</span>
               </div>
 
-              {day30LockedLeads.map((lead) => {
-                const target = lead.followup3Date || addDays(getLeadBaseContactDate(lead), 30);
+              {day14LockedLeads.map((lead) => {
+                const target = lead.followup3Date || addDays(getLeadBaseContactDate(lead), 14);
                 const diff = Math.max(1, getDayDifference(target, todayStr));
                 const templates = getCadenceMessageTemplates(lead);
 
                 return (
                   <div
-                    key={`locked-30-${lead.id}`}
+                    key={`locked-14-${lead.id}`}
                     className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 space-y-2.5 opacity-85 hover:opacity-100 transition"
                   >
                     <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -1277,17 +1205,17 @@ export function FollowupScheduleSubPage({
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => handleCopy(`${lead.id}-day30-override`, templates.day30Message)}
+                            onClick={() => handleCopy(`${lead.id}-day14-override`, templates.day30Message)}
                             className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-300 font-semibold cursor-pointer"
                           >
-                            {copiedKey === `${lead.id}-day30-override` ? 'Copied!' : 'Copy Msg'}
+                            {copiedKey === `${lead.id}-day14-override` ? 'Copied!' : 'Copy Msg'}
                           </button>
                           <button
                             type="button"
                             onClick={() => handleUpdateLeadItem(markFollowupSent(lead, 3))}
                             className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow transition cursor-pointer"
                           >
-                            ⚡ Force Send Day 30
+                            ⚡ Force Send Day 14
                           </button>
                         </div>
                       </div>

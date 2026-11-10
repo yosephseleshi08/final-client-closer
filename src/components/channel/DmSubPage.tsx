@@ -15,10 +15,11 @@ import {
   Sparkles,
   ArrowRight,
   Facebook,
+  Instagram,
   Mail,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
-import { getChannelLabel, getPlatformLink, getLeadFacebook, getLeadEmail } from '../../utils/channelStorage';
+import { getChannelLabel, getPlatformLink, getLeadFacebook, getLeadEmail, getBlindRouteLink } from '../../utils/channelStorage';
 import { TestLinkButton } from '../TestLinkButton';
 import {
   getLocalTodayStr,
@@ -326,54 +327,48 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                       )}
                     </div>
 
-                    {/* Warm-Up Social Link & Test Link */}
-                    {channel === 'combined' || fbLink ? (
-                      <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-                        <a
-                          href={warmupHref}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-xs text-sky-300 hover:text-white transition-colors px-3 py-1.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 font-semibold group/fblink"
-                          title={`Warm Up via Facebook: ${warmupTargetLink}`}
-                        >
-                          <Facebook className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                          <span className="font-bold text-[10px] text-sky-300 bg-sky-500/20 px-1 py-0.2 rounded font-mono">
-                            FB Warm-Up
-                          </span>
-                          <span className="truncate max-w-xs">{warmupTargetLink}</span>
-                          <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-70 group-hover/fblink:opacity-100" />
-                        </a>
-                        <TestLinkButton lead={lead} platform="facebook" label="Test FB" />
+                    {/* Warm-Up Social Link & Test Link (Blind Route Enforcement) */}
+                    {(() => {
+                      const route = getBlindRouteLink(lead, 'warmup');
+                      if (!route) {
+                        return (
+                          <div className="flex items-center gap-2 self-start sm:self-auto">
+                            <span className="text-xs font-mono text-slate-400 bg-white/5 px-2.5 py-1 rounded-xl border border-white/10">
+                              ✉️ Email Dispatch Ready
+                            </span>
+                          </div>
+                        );
+                      }
 
-                        {emailLink && (
-                          <span
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-mono text-indigo-300/90 bg-indigo-500/10 border border-indigo-500/20"
-                            title={`Email saved for dispatch: ${emailLink}`}
+                      const isFb = route.channelType === 'facebook';
+                      return (
+                        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                          <a
+                            href={route.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`inline-flex items-center gap-1.5 text-xs transition-colors px-3 py-1.5 rounded-xl border font-semibold ${
+                              isFb
+                                ? 'text-sky-300 hover:text-white bg-sky-500/15 hover:bg-sky-500/25 border-sky-500/30'
+                                : 'text-pink-300 hover:text-white bg-pink-500/15 hover:bg-pink-500/25 border-pink-500/30'
+                            }`}
+                            title={`${route.actionLabel}: ${route.link}`}
                           >
-                            <Mail className="w-3 h-3 text-indigo-400" />
-                            <span className="truncate max-w-[150px]">Dispatch: {emailLink}</span>
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-                        <a
-                          href={
-                            lead.fb_message_restricted && !lead.link.includes('@')
-                              ? `mailto:?subject=${encodeURIComponent(`Outreach: ${lead.name}`)}`
-                              : getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)
-                          }
-                          target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition-colors px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10"
-                          title={`Open ${lead.platformLink || lead.link}`}
-                        >
-                          <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
-                          <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                        </a>
-                        <TestLinkButton lead={lead} platform={lead.channel || channel} />
-                      </div>
-                    )}
+                            {isFb ? (
+                              <Facebook className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                            ) : (
+                              <Instagram className="w-3.5 h-3.5 text-pink-400 shrink-0" />
+                            )}
+                            <span className="font-bold text-[10px] bg-white/10 px-1 py-0.2 rounded font-mono">
+                              {route.badgeLabel}
+                            </span>
+                            <span className="truncate max-w-xs">{route.link}</span>
+                            <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                          </a>
+                          <TestLinkButton lead={lead} platform={route.channelType} label={`Test ${route.badgeLabel}`} />
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Warm-Up Action Bar & Message Script Preview */}

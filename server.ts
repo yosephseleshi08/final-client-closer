@@ -152,7 +152,10 @@ async function startServer() {
 
     const { createServer } = await import('vite');
     const vite = await createServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: process.env.DISABLE_HMR === 'true' ? false : undefined,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -176,10 +179,37 @@ async function startServer() {
     });
   }
 
-  const PORT = Number(process.env.PORT) || 3000;
-  const HOST = '0.0.0.0';
-  app.listen(PORT, HOST, () => {
+  // Port resolution:
+  // 1. CLI flag --port takes precedence (e.g. server.ts --port 3000)
+  // 2. In AI Studio, the dev server must run on port 3000 (port 8080 is reserved by NGINX reverse-proxy).
+  const portArgIndex = process.argv.indexOf('--port');
+  const cliPort = portArgIndex !== -1 && process.argv[portArgIndex + 1] ? Number(process.argv[portArgIndex + 1]) : null;
+
+  let PORT = 3000;
+  if (cliPort && !isNaN(cliPort)) {
+    PORT = cliPort;
+  } else if (process.env.DEFAULT_APP_PORT && !isNaN(Number(process.env.DEFAULT_APP_PORT))) {
+    PORT = Number(process.env.DEFAULT_APP_PORT);
+  } else if (process.env.PORT && !isNaN(Number(process.env.PORT)) && Number(process.env.PORT) !== 8080) {
+    PORT = Number(process.env.PORT);
+  } else {
+    PORT = 3000;
+  }
+
+  const hostArgIndex = process.argv.indexOf('--host');
+  const cliHost = hostArgIndex !== -1 && process.argv[hostArgIndex + 1] ? process.argv[hostArgIndex + 1] : null;
+  const HOST = cliHost || process.env.HOST || '0.0.0.0';
+
+  const server = app.listen(PORT, HOST, () => {
     console.log(`Outreach Engine Pro running at http://${HOST}:${PORT}`);
+  });
+
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use.`);
+    } else {
+      console.error('Server error:', err);
+    }
   });
 }
 

@@ -793,3 +793,147 @@ export function getPlatformLink(
   return `https://${trimmed}`;
 }
 
+export interface BlindRouteResult {
+  actionLabel: string;
+  channelType: 'instagram' | 'facebook' | 'email';
+  badgeLabel: 'IG DM' | 'FB Warm-Up' | 'Email';
+  link: string;
+  href: string;
+  isMailto: boolean;
+}
+
+/**
+ * INTELLIGENT CHANNEL ROUTING (The Blind Rule)
+ * The CRM automatically hides the wrong link and only shows the correct one for the current action.
+ *
+ * Rules:
+ * - Warm-Up: Only show Instagram or Facebook links. Email-only leads are hidden (returns null).
+ * - Dispatch Day 0 & 4 (IG Leads): Show Instagram DM link only.
+ * - Dispatch Day 8 & 14 (IG Leads): If they have an email, show Email link only. If not, show IG DM link.
+ * - Dispatch All Days (FB Leads): Show Email link only. Never show Facebook DM link.
+ * - Dispatch All Days (Email-Only Leads): Show Email link only.
+ *
+ * CRITICAL RULE: You will NEVER see both links at the same time.
+ */
+export function getBlindRouteLink(
+  lead: ChannelLead,
+  action: 'warmup' | 'dispatch',
+  stage: 0 | 4 | 8 | 14 | number = 0
+): BlindRouteResult | null {
+  if (!lead) return null;
+
+  const fb = getLeadFacebook(lead);
+  const email = getLeadEmail(lead);
+
+  const isIgLead =
+    lead.channel === 'instagram' ||
+    (!fb && !email && (lead.platformLink?.startsWith('@') || lead.link?.startsWith('@') || lead.link?.includes('instagram')));
+
+  // 1. WARM-UP PHASE: Only show Instagram or Facebook links. Email-only leads are hidden.
+  if (action === 'warmup') {
+    if (isIgLead) {
+      const igLink = lead.platformLink || lead.link;
+      const href = getPlatformLink(igLink, 'instagram');
+      return {
+        actionLabel: 'Warm Up on Instagram',
+        channelType: 'instagram',
+        badgeLabel: 'IG DM',
+        link: igLink,
+        href,
+        isMailto: false,
+      };
+    }
+    if (fb) {
+      const href = getPlatformLink(fb, 'facebook');
+      return {
+        actionLabel: 'Warm Up on Facebook',
+        channelType: 'facebook',
+        badgeLabel: 'FB Warm-Up',
+        link: fb,
+        href,
+        isMailto: false,
+      };
+    }
+    // Email-only lead: hidden for warm-up
+    return null;
+  }
+
+  // 2. DISPATCH PHASE
+  if (isIgLead) {
+    // Dispatch Day 0 & 4 (IG Leads): Show Instagram DM link only
+    if (stage === 0 || stage === 4) {
+      const igLink = lead.platformLink || lead.link;
+      const href = getPlatformLink(igLink, 'instagram');
+      return {
+        actionLabel: stage === 0 ? 'Send Initial IG DM' : 'Send Day 4 IG Follow-Up',
+        channelType: 'instagram',
+        badgeLabel: 'IG DM',
+        link: igLink,
+        href,
+        isMailto: false,
+      };
+    }
+    // Dispatch Day 8 & 14 (IG Leads): If they have an email, show Email link only. If not, show IG DM link.
+    if (email) {
+      const href = getPlatformLink(email, 'email');
+      return {
+        actionLabel: stage === 8 ? 'Send Day 8 Email' : 'Send Day 14 Final Email',
+        channelType: 'email',
+        badgeLabel: 'Email',
+        link: email,
+        href,
+        isMailto: true,
+      };
+    }
+    const igLink = lead.platformLink || lead.link;
+    const href = getPlatformLink(igLink, 'instagram');
+    return {
+      actionLabel: stage === 8 ? 'Send Day 8 IG Follow-Up' : 'Send Day 14 Final IG DM',
+      channelType: 'instagram',
+      badgeLabel: 'IG DM',
+      link: igLink,
+      href,
+      isMailto: false,
+    };
+  }
+
+  // Facebook Leads: Dispatch All Days -> Show Email link only. Never show Facebook DM link.
+  if (fb || lead.channel === 'facebook' || lead.channel === 'combined') {
+    const targetEmail = email || (lead.link.includes('@') ? lead.link : undefined);
+    if (targetEmail) {
+      const href = getPlatformLink(targetEmail, 'email');
+      return {
+        actionLabel: stage === 0 ? 'Dispatch Email Pitch' : `Send Day ${stage} Email`,
+        channelType: 'email',
+        badgeLabel: 'Email',
+        link: targetEmail,
+        href,
+        isMailto: true,
+      };
+    }
+    // Fallback if no email is explicitly separated
+    const fallback = lead.platformLink || lead.link;
+    const href = getPlatformLink(fallback, 'email');
+    return {
+      actionLabel: stage === 0 ? 'Dispatch Email Pitch' : `Send Day ${stage} Email`,
+      channelType: 'email',
+      badgeLabel: 'Email',
+      link: fallback,
+      href,
+      isMailto: true,
+    };
+  }
+
+  // Email-Only Leads: Dispatch All Days -> Show Email link only.
+  const targetEmail = email || lead.platformLink || lead.link;
+  const href = getPlatformLink(targetEmail, 'email');
+  return {
+    actionLabel: stage === 0 ? 'Dispatch Email Pitch' : `Send Day ${stage} Email`,
+    channelType: 'email',
+    badgeLabel: 'Email',
+    link: targetEmail,
+    href,
+    isMailto: true,
+  };
+}
+
