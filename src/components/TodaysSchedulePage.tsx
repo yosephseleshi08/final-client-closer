@@ -483,6 +483,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       initialRemainingDue: newDueTodayCount,
       followupsSent: followupsSentTodayCount,
       followupsRemainingDue: followupsDueTodayCount,
+      warmupCompleted: warmupCompletedCount,
+      warmupTarget: warmupTotalNeeded,
+      warmupPercentage: warmupPercent,
     });
   }, [
     totalTasksCompletedToday,
@@ -491,6 +494,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     newDueTodayCount,
     followupsSentTodayCount,
     followupsDueTodayCount,
+    warmupCompletedCount,
+    warmupTotalNeeded,
+    warmupPercent,
   ]);
 
   // Dedicated Freeze Mode Screen

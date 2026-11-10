@@ -274,6 +274,10 @@ export interface DailyHistoryRecord {
   videosVerified?: number; // Count of videos verified today through the 2-second confirmation gate
   storiesPosted?: number; // Stories posted today
   reelsPosted?: number; // Reels posted today
+  // Warm-Up tracking (matches dashboard Pre-Outreach Preparation progress)
+  warmupCompleted?: number;
+  warmupTarget?: number;
+  warmupPercentage?: number;
 }
 
 export interface HistoryStreakStats {

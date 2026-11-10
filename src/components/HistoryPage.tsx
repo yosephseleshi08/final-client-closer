@@ -26,12 +26,15 @@ import {
   calculateStreaks,
   get30DayHistoryView,
   resetDailyHistory,
+  isDateStringSunday,
 } from '../utils/historyStorage';
 import {
   getLocalTodayStr,
   addDays,
   getLeadBaseContactDate,
   normalizeToLocalDateStr,
+  getTomorrowWarmupTargetDate,
+  isEmailOnlyLead,
 } from '../utils/cadenceEngine';
 import { loadChannelLeads } from '../utils/channelStorage';
 import { getVideosVerifiedTodayCount } from '../utils/videoVerification';
@@ -196,10 +199,60 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
       'Day 14 Sent',
     ];
 
+    // Calculate live warmup metrics for today from current leads
+    const warmupTargetDateStr = isDateStringSunday(todayStr)
+      ? null
+      : getTomorrowWarmupTargetDate(todayStr);
+    const warmupLeadsForTomorrow = warmupTargetDateStr
+      ? allLeads.filter(
+          (l) =>
+            !l.isCompleted &&
+            !l.initialSentDate &&
+            l.scheduledDate === warmupTargetDateStr &&
+            !isEmailOnlyLead(l)
+        )
+      : [];
+    const warmupCompletedTodayCount = warmupLeadsForTomorrow.filter(
+      (l) => l.warmupStatus === 'warmed' || l.isWarmedUp
+    ).length;
+    const warmupTotalNeededToday = warmupLeadsForTomorrow.length;
+    const liveWarmupPctToday =
+      warmupTotalNeededToday > 0
+        ? Math.min(100, Math.round((warmupCompletedTodayCount / warmupTotalNeededToday) * 100))
+        : 100;
+
     const rows = thirtyDayWindow.map((day) => {
       const tp = touchpointsByDate[day.date] || { initial: 0, d4: 0, d8: 0, d14: 0 };
-      const outreachPct = day.isSunday ? 'Rest' : day.status === 'pre_launch' ? '0%' : `${day.percentage}%`;
-      const warmupPct = day.isSunday ? 'Rest' : day.status === 'pre_launch' ? '0%' : (day.percentage > 0 ? '100%' : '0%');
+      const outreachPct =
+        day.isSunday ? 'Rest' : day.status === 'pre_launch' ? '0%' : `${day.percentage}%`;
+
+      // Accurate calculated maths for warm-up completion percentage:
+      let warmupPct: string;
+      if (day.isSunday) {
+        warmupPct = 'Rest';
+      } else if (day.status === 'pre_launch') {
+        warmupPct = '0%';
+      } else if (day.date === todayStr) {
+        // Today: match the live dashboard progress exactly (e.g. 1 / 10 -> 10%)
+        const todayPct =
+          day.warmupPercentage !== undefined ? day.warmupPercentage : liveWarmupPctToday;
+        warmupPct = `${todayPct}%`;
+      } else if (day.warmupPercentage !== undefined) {
+        warmupPct = `${day.warmupPercentage}%`;
+      } else if (day.warmupTarget !== undefined && day.warmupTarget > 0) {
+        warmupPct = `${Math.min(100, Math.round(((day.warmupCompleted || 0) / day.warmupTarget) * 100))}%`;
+      } else {
+        // For past historical days without explicit record, check leads warmed on that date
+        const warmedOnDate = allLeads.filter(
+          (l) => l.warmedUpAt && normalizeToLocalDateStr(l.warmedUpAt) === day.date
+        ).length;
+        if (warmedOnDate > 0) {
+          warmupPct = `${Math.min(100, Math.round((warmedOnDate / 10) * 100))}%`;
+        } else {
+          warmupPct = '0%';
+        }
+      }
+
       return [
         `"${day.date}"`,
         `"${outreachPct}"`,

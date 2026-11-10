@@ -160,6 +160,9 @@ export interface TodayCompletionDetails {
   videosVerified?: number;
   storiesPosted?: number;
   reelsPosted?: number;
+  warmupCompleted?: number;
+  warmupTarget?: number;
+  warmupPercentage?: number;
   notes?: string;
 }
 
@@ -186,6 +189,9 @@ export function recordTodayCompletion(
   let videosVerified: number | undefined;
   let storiesPosted: number | undefined;
   let reelsPosted: number | undefined;
+  let warmupCompleted: number | undefined;
+  let warmupTarget: number | undefined;
+  let warmupPercentage: number | undefined;
   let notes: string | undefined;
 
   if (typeof completedCountOrDetails === 'object') {
@@ -198,6 +204,9 @@ export function recordTodayCompletion(
     videosVerified = completedCountOrDetails.videosVerified ?? getVideosVerifiedTodayCount();
     storiesPosted = completedCountOrDetails.storiesPosted;
     reelsPosted = completedCountOrDetails.reelsPosted;
+    warmupCompleted = completedCountOrDetails.warmupCompleted;
+    warmupTarget = completedCountOrDetails.warmupTarget;
+    warmupPercentage = completedCountOrDetails.warmupPercentage;
     notes = completedCountOrDetails.notes;
   } else {
     totalCompleted = completedCountOrDetails;
@@ -273,6 +282,14 @@ export function recordTodayCompletion(
     videosVerified,
     storiesPosted,
     reelsPosted,
+    warmupCompleted,
+    warmupTarget,
+    warmupPercentage:
+      warmupPercentage !== undefined
+        ? warmupPercentage
+        : warmupTarget !== undefined && warmupTarget > 0
+        ? Math.min(100, Math.round(((warmupCompleted || 0) / warmupTarget) * 100))
+        : undefined,
   };
 
   if (existingIdx >= 0) {
@@ -515,6 +532,9 @@ export function get30DayHistoryView(
         status: isFrozen ? 'frozen' : existing.status,
         percentage: isFrozen ? 100 : existing.percentage,
         notes: isFrozen ? 'Pipeline Frozen (Streak Protected)' : existing.notes,
+        warmupCompleted: existing.warmupCompleted,
+        warmupTarget: existing.warmupTarget,
+        warmupPercentage: existing.warmupPercentage,
       });
     } else {
       const isPreLaunch = !earliestDate || dateStr < earliestDate;
@@ -552,6 +572,9 @@ export function get30DayHistoryView(
         status,
         notes,
         updatedAt: new Date().toISOString(),
+        warmupCompleted: existing?.warmupCompleted,
+        warmupTarget: existing?.warmupTarget,
+        warmupPercentage: existing?.warmupPercentage,
       });
     }
   }

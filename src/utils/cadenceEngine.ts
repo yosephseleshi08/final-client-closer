@@ -648,6 +648,10 @@ export function isLeadWarmedBeforeToday(lead: ChannelLead, referenceDateStr = ge
   if (!lead.isWarmedUp && lead.warmupStatus !== 'warmed') {
     return false;
   }
+  // If warmed today, it is strictly prohibited from same-day dispatch
+  if (isLeadWarmedToday(lead, referenceDateStr)) {
+    return false;
+  }
   if (lead.warmedUpAt) {
     const warmedDate = normalizeToLocalDateStr(lead.warmedUpAt);
     if (warmedDate) {
@@ -655,8 +659,14 @@ export function isLeadWarmedBeforeToday(lead: ChannelLead, referenceDateStr = ge
       return warmedDate < referenceDateStr;
     }
   }
-  // If warmedUpAt was not recorded, legacy warmed lead is permitted
-  return true;
+  // If warmedUpAt was not recorded, only permit if lead was created prior to reference date
+  if (lead.createdAt) {
+    const createdDate = normalizeToLocalDateStr(lead.createdAt);
+    if (createdDate && createdDate < referenceDateStr) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

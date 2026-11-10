@@ -45,6 +45,10 @@ import {
   isDay14FollowupDue,
   getLeadBaseContactDate,
   isLeadWarmed,
+  isLeadWarmedBeforeToday,
+  isLeadWarmedToday,
+  isEmailOnlyLead,
+  getTomorrowWarmupTargetDate,
 } from '../../utils/cadenceEngine';
 import { getChannelLabel, getBlindRouteLink } from '../../utils/channelStorage';
 import { TestLinkButton } from '../TestLinkButton';
@@ -415,8 +419,9 @@ export function FollowupScheduleSubPage({
             dueTodayLeads.map((lead) => {
               const templates = getCadenceMessageTemplates(lead);
               const isInitial = !lead.initialSentDate && !lead.dmSent;
-              const isWarmed = isLeadWarmed(lead);
-              const isDispatchLocked = isInitial && !isWarmed;
+              const isWarmedBeforeToday = isLeadWarmedBeforeToday(lead, todayStr);
+              const isWarmedToday = isLeadWarmedToday(lead, todayStr);
+              const isDispatchLocked = isInitial && !isEmailOnlyLead(lead) && !isWarmedBeforeToday;
               const isDay4 = (lead.initialSentDate || lead.dmSent) && (lead.followupCount === 0 || lead.followupCount === undefined);
               const isDay8 = lead.followupCount === 1;
               const isDay14 = lead.followupCount === 2;
@@ -473,10 +478,15 @@ export function FollowupScheduleSubPage({
                           <span className="text-[10px] font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
                             Stage A (Initial DM)
                           </span>
-                          {isWarmed ? (
+                          {isWarmedBeforeToday ? (
                             <span className="text-[10px] font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/40 font-mono flex items-center gap-1">
                               <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                               <span>🔥 Warmed &amp; Ready</span>
+                            </span>
+                          ) : isWarmedToday ? (
+                            <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40 font-mono flex items-center gap-1">
+                              <Flame className="w-3 h-3 text-amber-400" />
+                              <span>🔥 Warmed (Sends Tomorrow)</span>
                             </span>
                           ) : (
                             <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40 font-mono flex items-center gap-1 animate-pulse">
@@ -539,27 +549,47 @@ export function FollowupScheduleSubPage({
                   {isDispatchLocked && (
                     <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex items-start sm:items-center gap-2">
-                        <Lock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+                        {isWarmedToday ? (
+                          <Flame className="w-4 h-4 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+                        ) : (
+                          <Lock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
+                        )}
                         <span>
-                          <strong>Dispatch Gate:</strong> This prospect is locked because they were not warmed up yesterday. Engage their profile and click <strong>"Mark as Warmed"</strong> to enable dispatch.
+                          {isWarmedToday ? (
+                            <>
+                              <strong>Warmed Today:</strong> Profile was engaged and warmed up today for <strong>tomorrow's dispatch</strong>. Same-day initial DM is locked to protect account health.
+                            </>
+                          ) : (
+                            <>
+                              <strong>Dispatch Gate:</strong> This prospect is locked because they were not warmed up yesterday. Engage their profile and click <strong>"Mark as Warmed"</strong> to schedule for tomorrow's dispatch.
+                            </>
+                          )}
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const nowIso = new Date().toISOString();
-                          handleUpdateLeadItem({
-                            ...lead,
-                            warmupStatus: 'warmed',
-                            isWarmedUp: true,
-                            warmedUpAt: nowIso,
-                          });
-                        }}
-                        className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-950/40 shrink-0 transition cursor-pointer active:scale-95 self-end sm:self-auto"
-                      >
-                        <Flame className="w-3.5 h-3.5 fill-slate-950 text-slate-950" />
-                        <span>Mark as Warmed</span>
-                      </button>
+                      {!isWarmedToday ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nowIso = new Date().toISOString();
+                            const targetTomorrow = getTomorrowWarmupTargetDate(todayStr);
+                            handleUpdateLeadItem({
+                              ...lead,
+                              warmupStatus: 'warmed',
+                              isWarmedUp: true,
+                              warmedUpAt: nowIso,
+                              scheduledDate: targetTomorrow,
+                            });
+                          }}
+                          className="px-3.5 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-950/40 shrink-0 transition cursor-pointer active:scale-95 self-end sm:self-auto"
+                        >
+                          <Flame className="w-3.5 h-3.5 fill-slate-950 text-slate-950" />
+                          <span>Mark as Warmed</span>
+                        </button>
+                      ) : (
+                        <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono text-[11px] font-bold shrink-0">
+                          📅 Dispatches Tomorrow
+                        </span>
+                      )}
                     </div>
                   )}
 
@@ -627,12 +657,18 @@ export function FollowupScheduleSubPage({
                             ? 'px-4 py-1.5 rounded-xl bg-slate-800 text-slate-500 border border-slate-700/60 font-bold text-xs flex items-center gap-1.5 cursor-not-allowed opacity-60 shadow-none'
                             : 'px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-600/30 transition cursor-pointer'
                         }
-                        title={isDispatchLocked ? "Dispatch is locked until this lead is marked as 'warmed'" : undefined}
+                        title={
+                          isDispatchLocked
+                            ? isWarmedToday
+                              ? 'Initial DM dispatches tomorrow to satisfy the 24-hour warm-up rule'
+                              : "Dispatch is locked until this lead is marked as 'warmed' before dispatch day"
+                            : undefined
+                        }
                       >
                         {isDispatchLocked ? (
                           <>
                             <Lock className="w-3.5 h-3.5 text-amber-500" />
-                            <span>🔒 Dispatch Locked</span>
+                            <span>{isWarmedToday ? '🔒 Unlocks Tomorrow' : '🔒 Dispatch Locked'}</span>
                           </>
                         ) : (
                           <>
