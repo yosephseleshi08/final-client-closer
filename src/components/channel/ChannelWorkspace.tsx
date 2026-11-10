@@ -18,7 +18,7 @@ import { ScheduleSubPage } from './ScheduleSubPage';
 import { FollowupScheduleSubPage } from './FollowupScheduleSubPage';
 import { MockupSubPage } from './MockupSubPage';
 import { getChannelLabel } from '../../utils/channelStorage';
-import { getLocalTodayStr, getTomorrowWarmupTargetDate } from '../../utils/cadenceEngine';
+import { getLocalTodayStr, getTomorrowWarmupTargetDate, isEmailOnlyLead } from '../../utils/cadenceEngine';
 
 interface ChannelWorkspaceProps {
   channel: MultiChannelType;
@@ -98,9 +98,9 @@ export function ChannelWorkspace({
   const todayStr = getLocalTodayStr();
   const warmupTargetDate = getTomorrowWarmupTargetDate(todayStr);
 
-  // Leads scheduled for tomorrow that are not yet sent
+  // Leads scheduled for tomorrow that are not yet sent (excluding Email-only leads which require no warm-up)
   const tomorrowLeadsNeedingWarmup = leads.filter(
-    (l) => !l.isCompleted && !l.initialSentDate && l.scheduledDate === warmupTargetDate
+    (l) => !l.isCompleted && !l.initialSentDate && l.scheduledDate === warmupTargetDate && !isEmailOnlyLead(l)
   );
   const tomorrowLockedCount = tomorrowLeadsNeedingWarmup.filter(
     (l) => l.warmupStatus !== 'warmed' && !l.isWarmedUp

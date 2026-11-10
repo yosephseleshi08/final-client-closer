@@ -22,6 +22,7 @@ import {
   FileText,
   Mail,
   Facebook,
+  Instagram,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import { QuickNoteModal } from '../QuickNoteModal';
@@ -44,6 +45,11 @@ import {
   isDay30FollowupDue,
   getLeadBaseContactDate,
   isLeadWarmed,
+  isEmailOnlyLead,
+  getTouchpointChannel,
+  getTouchpointLabel,
+  getTouchpointHref,
+  CadenceStep,
 } from '../../utils/cadenceEngine';
 import { getChannelLabel, getPlatformLink, getLeadEmail, getLeadFacebook } from '../../utils/channelStorage';
 import { TestLinkButton } from '../TestLinkButton';
@@ -158,13 +164,17 @@ export function FollowupScheduleSubPage({
     </button>
   );
 
-  const renderDispatchLinks = (lead: ChannelLead) => {
+  const renderDispatchLinks = (lead: ChannelLead, step: CadenceStep = 0, messageText?: string) => {
+    const routedChannel = getTouchpointChannel(lead, step);
+    const touchpointLabel = getTouchpointLabel(lead, step);
+    const emailSubj = `Outreach: ${lead.name}`;
+    const emailBody = messageText || '';
+    const dispatchHref = getTouchpointHref(lead, step, emailSubj, emailBody);
+
     const emailLink = getLeadEmail(lead);
     const fbLink = getLeadFacebook(lead);
-    const isCombined = channel === 'combined' || Boolean(emailLink && fbLink);
 
-    if (isCombined || emailLink) {
-      const dispatchHref = getPlatformLink(emailLink || lead.link, 'email');
+    if (routedChannel === 'email') {
       return (
         <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
           <a
@@ -173,8 +183,8 @@ export function FollowupScheduleSubPage({
             title={`Click to open Email client and send pitch to: ${emailLink || lead.link}`}
           >
             <Mail className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-            <span className="font-bold text-[10px] text-indigo-300 bg-indigo-500/20 px-1 py-0.2 rounded font-mono">
-              Email Dispatch
+            <span className="font-bold text-[10px] text-indigo-300 bg-indigo-500/20 px-1.5 py-0.2 rounded font-mono">
+              {touchpointLabel}
             </span>
             <span className="truncate max-w-xs">{emailLink || lead.link}</span>
             <ExternalLink className="w-3 h-3 shrink-0 opacity-70 group-hover/emaillink:opacity-100" />
@@ -201,21 +211,58 @@ export function FollowupScheduleSubPage({
       );
     }
 
-    const defaultHref = getPlatformLink(lead.platformLink || lead.link, lead.channel || channel);
-    const isMail = defaultHref.startsWith('mailto:');
+    if (routedChannel === 'instagram') {
+      return (
+        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+          <a
+            href={dispatchHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs text-pink-300 hover:text-white transition px-3 py-1.5 rounded-xl bg-pink-500/15 hover:bg-pink-500/25 border border-pink-500/30 font-medium group/iglink"
+            title={`Open Instagram Profile / DM for ${lead.name}`}
+          >
+            <Instagram className="w-3.5 h-3.5 text-pink-400 shrink-0" />
+            <span className="font-bold text-[10px] text-pink-300 bg-pink-500/20 px-1.5 py-0.2 rounded font-mono">
+              {touchpointLabel}
+            </span>
+            <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
+            <ExternalLink className="w-3 h-3 shrink-0 opacity-70 group-hover/iglink:opacity-100" />
+          </a>
+          <TestLinkButton lead={lead} platform="instagram" label="Test IG" />
+
+          {emailLink && (
+            <a
+              href={getPlatformLink(emailLink, 'email')}
+              className="inline-flex items-center gap-1 text-[11px] text-indigo-300 hover:text-white font-mono px-2 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20"
+              title={`Email available: ${emailLink}`}
+            >
+              <Mail className="w-3 h-3 text-indigo-400 shrink-0" />
+              <span className="font-bold">Email:</span>
+              <span className="truncate max-w-[120px]">{emailLink}</span>
+            </a>
+          )}
+        </div>
+      );
+    }
+
+    // Facebook fallback
     return (
       <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
         <a
-          href={defaultHref}
-          target={isMail ? '_self' : '_blank'}
+          href={dispatchHref}
+          target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-slate-300 hover:text-white transition px-2.5 py-1 rounded bg-white/5 hover:bg-white/10"
-          title={`Open ${lead.platformLink || lead.link}`}
+          className="inline-flex items-center gap-1.5 text-xs text-sky-300 hover:text-white transition px-3 py-1.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 font-medium"
+          title={`Open Facebook Profile: ${fbLink || lead.link}`}
         >
-          <span className="truncate max-w-xs">{lead.platformLink || lead.link}</span>
+          <Facebook className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+          <span className="font-bold text-[10px] text-sky-300 bg-sky-500/20 px-1.5 py-0.2 rounded font-mono">
+            {touchpointLabel}
+          </span>
+          <span className="truncate max-w-xs">{fbLink || lead.link}</span>
           <ExternalLink className="w-3 h-3 shrink-0" />
         </a>
-        <TestLinkButton lead={lead} platform={lead.channel || channel} />
+        <TestLinkButton lead={lead} platform="facebook" label="Test FB" />
       </div>
     );
   };
@@ -451,13 +498,17 @@ export function FollowupScheduleSubPage({
               const isOverdue = targetDate < todayStr;
               const isToday = targetDate === todayStr;
 
+              const currentStep: CadenceStep = isInitial ? 0 : isDay7 ? 1 : isDay14 ? 2 : 3;
+              const touchpointLabel = getTouchpointLabel(lead, currentStep);
+              const routedChannel = getTouchpointChannel(lead, currentStep);
+
               const copyText = isInitial
-                ? templates.stageAMessage
+                ? (lead.initialDM || lead.customPitch || templates.stageAMessage)
                 : isDay7
-                ? templates.day7Message
+                ? (lead.followupDM_Day7 || lead.followup3DM || templates.day7Message)
                 : isDay14
-                ? templates.day14Message
-                : templates.day30Message;
+                ? (lead.followupDM_Day14 || lead.followup7DM || templates.day14Message)
+                : (lead.breakupDM_Day30 || templates.day30Message);
 
               return (
                 <div
@@ -487,8 +538,9 @@ export function FollowupScheduleSubPage({
                       )}
                       {isInitial ? (
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-[10px] font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
-                            Stage A (Initial DM)
+                          <span className="text-[10px] font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono flex items-center gap-1">
+                            {routedChannel === 'instagram' ? <Instagram className="w-3 h-3 text-pink-400" /> : <Mail className="w-3 h-3 text-indigo-400" />}
+                            <span>{touchpointLabel}</span>
                           </span>
                           {isWarmed ? (
                             <span className="text-[10px] font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/40 font-mono flex items-center gap-1">
@@ -503,16 +555,19 @@ export function FollowupScheduleSubPage({
                           )}
                         </div>
                       ) : isDay7 ? (
-                        <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40 font-mono">
-                          ⚡ Day 7: Value Check-In
+                        <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40 font-mono flex items-center gap-1">
+                          {routedChannel === 'instagram' ? <Instagram className="w-3 h-3 text-pink-400" /> : <Mail className="w-3 h-3 text-indigo-400" />}
+                          <span>⚡ {touchpointLabel} (Value Check-In)</span>
                         </span>
                       ) : isDay14 ? (
-                        <span className="text-[10px] font-bold text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-500/40 font-mono">
-                          📊 Day 14: Social Proof
+                        <span className="text-[10px] font-bold text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-500/40 font-mono flex items-center gap-1">
+                          {routedChannel === 'instagram' ? <Instagram className="w-3 h-3 text-pink-400" /> : <Mail className="w-3 h-3 text-indigo-400" />}
+                          <span>📊 {touchpointLabel} (Social Proof)</span>
                         </span>
                       ) : (
-                        <span className="text-[10px] font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded border border-rose-500/40 font-mono">
-                          🎯 Day 30: Breakup Loom
+                        <span className="text-[10px] font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded border border-rose-500/40 font-mono flex items-center gap-1">
+                          {routedChannel === 'instagram' ? <Instagram className="w-3 h-3 text-pink-400" /> : <Mail className="w-3 h-3 text-indigo-400" />}
+                          <span>🎯 {touchpointLabel} (Breakup Loom)</span>
                         </span>
                       )}
                       {isOverdue && (
@@ -522,7 +577,7 @@ export function FollowupScheduleSubPage({
                       )}
                     </div>
 
-                    {renderDispatchLinks(lead)}
+                    {renderDispatchLinks(lead, currentStep, copyText)}
                   </div>
 
                   {/* Pre-staged Copy Box */}

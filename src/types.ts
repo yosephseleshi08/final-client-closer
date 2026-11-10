@@ -321,12 +321,15 @@ export interface ChannelLead {
   city?: string; // e.g. location for Day 14 social proof template
   prompt?: string; // Lead Engine / AI Prompt
 
-  // Sub-page B: DM Pitch & 3-Step Sequence
+  // Sub-page B: DM Pitch & 4-Step Cadence
   customPitch?: string;
   stagedDmMiniPitch?: string;
   initialDM?: string;
-  followup3DM?: string;
-  followup7DM?: string;
+  followupDM_Day7?: string;
+  followupDM_Day14?: string;
+  breakupDM_Day30?: string;
+  followup3DM?: string; // backwards compatibility
+  followup7DM?: string; // backwards compatibility
   pitchSavedAt?: string;
 
   // Gemini Lead Analysis & Prompt Hub

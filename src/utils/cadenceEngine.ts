@@ -1,4 +1,5 @@
 import { ChannelLead, MultiChannelType } from '../types';
+import { getLeadFacebook, getLeadEmail, getPlatformLink } from './channelStorage';
 
 /**
  * Returns today's date formatted as YYYY-MM-DD strictly in user's local timezone
@@ -384,21 +385,26 @@ export function getCadenceMessageTemplates(lead: ChannelLead) {
 
   // Stage A & Stage B Video Value scripts
   const stageAMessage =
+    lead.initialDM?.trim() ||
+    lead.customPitch?.trim() ||
     `Hey ${recipient}! I just posted a quick video on my story/feed breaking down your menu design/website and how you could easily add 15-20 more covers this weekend. Tagged you guys! Mind if I send the direct link to the full breakdown here?`;
 
   const stageBMessage =
     `Here you go: ${liveLink}. Let me know what you think of the online ordering tip at 1:12! If you want the full kitchen ticket PDF I mentioned, happy to send that over too.`;
 
-  // Value-Based Timeline Triggers (Requirement #5)
+  // Value-Based Timeline Triggers (4-Step Cadence)
   const day7Message =
+    lead.followupDM_Day7?.trim() ||
     lead.followup3DM?.trim() ||
     `Hey ${recipient}, did you get a chance to see that breakdown video? We just put together a quick PDF on 3 ways to speed up kitchen ticket times on Friday nights—want me to drop it here?`;
 
   const day14Message =
+    lead.followupDM_Day14?.trim() ||
     lead.followup7DM?.trim() ||
     `Hey ${recipient}! Quick update—another spot in ${city} implemented that online ordering tweak from the video we tagged you in and saw a 12% jump in takeout orders last week. Thought of you guys!`;
 
   const day30Message =
+    lead.breakupDM_Day30?.trim() ||
     `Hey ${recipient}, I know you're super busy running service. I'm archiving our video breakdown this week, but I recorded a quick 60-second Loom showing the #1 leak on your mobile checkout. Should I send the Loom or would you rather I close your file?`;
 
   return {
@@ -629,14 +635,170 @@ export function getTomorrowWarmupTargetDate(referenceDateStr = getLocalTodayStr(
 }
 
 /**
+ * Checks if a lead belongs to Instagram channel:
+ * - Lead channel is 'instagram'
+ * - Or explicit instagram field is set
+ * - Or link / platformLink contains instagram.com or instagr.am
+ * - Or link starts with @ (and is not an email)
+ */
+export function isInstagramLead(lead?: ChannelLead | null): boolean {
+  if (!lead) return false;
+  if (lead.channel === 'instagram') return true;
+  if (lead.instagram && typeof lead.instagram === 'string' && lead.instagram.trim()) return true;
+  const link = (lead.platformLink || lead.link || '').trim().toLowerCase();
+  if (link.includes('instagram.com') || link.includes('instagr.am')) return true;
+  if (link.startsWith('@') && !link.includes('.') && !link.includes('facebook')) return true;
+  return false;
+}
+
+/**
+ * Checks if a lead has Facebook presence:
+ * - Not an Instagram lead
+ * - Has explicit facebook field/url or link includes facebook.com/fb.com/fb.me
+ * - Or lead.channel === 'facebook'
+ */
+export function isFacebookLead(lead?: ChannelLead | null): boolean {
+  if (!lead) return false;
+  if (isInstagramLead(lead)) return false;
+  const fb = getLeadFacebook(lead);
+  if (fb && fb.trim()) return true;
+  const link = (lead.platformLink || lead.link || '').trim().toLowerCase();
+  if (link.includes('facebook.com') || link.includes('fb.com') || link.includes('fb.me')) return true;
+  if (lead.channel === 'facebook') return true;
+  return false;
+}
+
+/**
+ * Checks if a lead is Email-Only:
+ * - Neither Instagram nor Facebook
+ * - Has email or lead.channel === 'email'
+ */
+export function isEmailOnlyLead(lead?: ChannelLead | null): boolean {
+  if (!lead) return false;
+  if (isInstagramLead(lead)) return false;
+  if (isFacebookLead(lead)) return false;
+  const email = getLeadEmail(lead);
+  return Boolean(email && email.trim()) || lead.channel === 'email';
+}
+
+export type CadenceStep = 'initial' | 'day7' | 'day14' | 'day30' | 0 | 1 | 2 | 3;
+export type TouchpointChannel = 'instagram' | 'email' | 'facebook';
+
+/**
+ * Intelligent Channel Routing:
+ * 1. Instagram Leads (With or Without Email):
+ *    - Warm-Up: Instagram.
+ *    - Initial Outreach (Day 0): Instagram DM.
+ *    - Follow-Up 1 (Day 7): Instagram DM.
+ *    - Follow-Up 2 (Day 14): If they have an email, route to Email. If not, Instagram DM.
+ *    - Follow-Up 3 (Day 30): If they have an email, route to Email. If not, Instagram DM.
+ * 2. Facebook Leads (With Email):
+ *    - Warm-Up: Facebook (like/comment/follow).
+ *    - All Outreach (Day 0, 7, 14, 30): Must route to Email. Do NOT schedule any Facebook DMs.
+ * 3. Email-Only Leads:
+ *    - Warm-Up: None required (auto-warmed).
+ *    - All Outreach (Day 0, 7, 14, 30): Route to Email immediately.
+ */
+export function getTouchpointChannel(
+  lead: ChannelLead,
+  step: CadenceStep
+): TouchpointChannel {
+  const stepKey: 'initial' | 'day7' | 'day14' | 'day30' =
+    step === 0 ? 'initial' : step === 1 ? 'day7' : step === 2 ? 'day14' : step === 3 ? 'day30' : step;
+
+  const hasEmail = Boolean(getLeadEmail(lead));
+
+  // 1. Instagram Leads (With or Without Email)
+  if (isInstagramLead(lead)) {
+    if (stepKey === 'initial' || stepKey === 'day7') {
+      return 'instagram';
+    }
+    // Day 14 and Day 30: If they have an email, route to Email. If not, Instagram DM.
+    return hasEmail ? 'email' : 'instagram';
+  }
+
+  // 2. Facebook Leads (With Email)
+  if (isFacebookLead(lead)) {
+    if (hasEmail) {
+      return 'email';
+    }
+    return 'facebook';
+  }
+
+  // 3. Email-Only Leads
+  if (isEmailOnlyLead(lead) || hasEmail) {
+    return 'email';
+  }
+
+  return lead.channel === 'instagram' ? 'instagram' : 'email';
+}
+
+/**
+ * Returns user-facing label for the touchpoint cadence day and routed channel.
+ * e.g. "Day 0 - Instagram", "Day 7 - Instagram", "Day 14 - Email", "Day 30 - Email"
+ */
+export function getTouchpointLabel(lead: ChannelLead, step: CadenceStep): string {
+  const stepKey: 'initial' | 'day7' | 'day14' | 'day30' =
+    step === 0 ? 'initial' : step === 1 ? 'day7' : step === 2 ? 'day14' : step === 3 ? 'day30' : step;
+  const channel = getTouchpointChannel(lead, step);
+  const chLabel = channel === 'instagram' ? 'Instagram' : channel === 'email' ? 'Email' : 'Facebook';
+
+  switch (stepKey) {
+    case 'initial':
+      return `Day 0 - ${chLabel}`;
+    case 'day7':
+      return `Day 7 - ${chLabel}`;
+    case 'day14':
+      return `Day 14 - ${chLabel}`;
+    case 'day30':
+      return `Day 30 - ${chLabel}`;
+  }
+}
+
+/**
+ * Resolves the destination dispatch URL for the given touchpoint step.
+ */
+export function getTouchpointHref(
+  lead: ChannelLead,
+  step: CadenceStep,
+  subject?: string,
+  body?: string
+): string {
+  const routedChannel = getTouchpointChannel(lead, step);
+
+  if (routedChannel === 'email') {
+    const email = getLeadEmail(lead) || (lead.link.includes('@') ? lead.link : '');
+    const cleanEmail = email.replace(/^mailto:/i, '').trim();
+    const queryParts: string[] = [];
+    if (subject) queryParts.push(`subject=${encodeURIComponent(subject)}`);
+    if (body) queryParts.push(`body=${encodeURIComponent(body)}`);
+    const qs = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
+    return cleanEmail ? `mailto:${cleanEmail}${qs}` : (lead.link.startsWith('http') ? lead.link : `mailto:${lead.link}`);
+  }
+
+  if (routedChannel === 'instagram') {
+    const igTarget = lead.instagram || (lead.channel === 'instagram' ? lead.link : undefined);
+    return getPlatformLink(igTarget || lead.link, 'instagram');
+  }
+
+  const fbTarget = getLeadFacebook(lead) || lead.link;
+  return getPlatformLink(fbTarget, 'facebook');
+}
+
+/**
  * Checks if a lead has been marked as warmed up.
+ * Email-only leads never require warm-up and are always considered warmed.
  */
 export function isLeadWarmed(lead: ChannelLead): boolean {
+  if (isEmailOnlyLead(lead)) {
+    return true;
+  }
   return lead.warmupStatus === 'warmed' || Boolean(lead.isWarmedUp);
 }
 
 /**
  * Checks if a lead's dispatch is locked (warm-up required).
+ * Email-only leads are never locked.
  */
 export function isLeadDispatchLocked(lead: ChannelLead): boolean {
   return !isLeadWarmed(lead);
@@ -644,12 +806,16 @@ export function isLeadDispatchLocked(lead: ChannelLead): boolean {
 
 /**
  * Smart Warm-Up Alert Logic:
+ * - If email-only: false (no warm-up needed)
  * - If already warmed up: false
  * - If Saturday: do NOT show warm-up alerts for Sunday (rest day)
  * - If Sunday: show warm-up alerts for Monday's leads (to prep for Monday launch)
  * - On normal weekdays: show warm-up alert for leads scheduled for today or overdue
  */
 export function shouldShowWarmupAlert(lead: ChannelLead): boolean {
+  if (isEmailOnlyLead(lead)) {
+    return false;
+  }
   if (lead.isWarmedUp || lead.warmupStatus === 'warmed' || lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') {
     return false;
   }
@@ -740,10 +906,12 @@ export function autoScheduleLeads(
 
   return leads.map((lead) => {
     if (assignments[lead.id]) {
+      const isEmailOnly = isEmailOnlyLead(lead);
       return {
         ...lead,
         scheduledDate: assignments[lead.id],
-        warmupStatus: lead.warmupStatus || (lead.isWarmedUp ? 'warmed' : 'locked'),
+        warmupStatus: isEmailOnly ? 'warmed' : (lead.warmupStatus || (lead.isWarmedUp ? 'warmed' : 'locked')),
+        isWarmedUp: isEmailOnly ? true : (lead.isWarmedUp || lead.warmupStatus === 'warmed'),
         dismissedDate: undefined,
       };
     }

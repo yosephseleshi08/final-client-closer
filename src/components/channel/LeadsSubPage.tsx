@@ -59,6 +59,7 @@ import {
   isDateToday,
   autoScheduleLeads,
   getNextAvailableScheduleDate,
+  isEmailOnlyLead,
 } from '../../utils/cadenceEngine';
 import { playWarningChime } from '../../utils/soundEffects';
 
@@ -501,7 +502,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       const nextIdData = getNextLeadId(channel, currentList);
       const businessName = customName || extractSuggestedName(rawUrl);
 
-      const newLead: ChannelLead = {
+      const draftLead: ChannelLead = {
         id: nextIdData.id,
         numericId: nextIdData.numericId,
         name: businessName,
@@ -512,8 +513,12 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         channel,
         sortOrder: currentList.length,
         createdAt: new Date().toISOString(),
-        warmupStatus: 'locked',
-        isWarmedUp: false,
+      };
+      const emailOnly = isEmailOnlyLead(draftLead);
+      const newLead: ChannelLead = {
+        ...draftLead,
+        warmupStatus: emailOnly ? 'warmed' : 'locked',
+        isWarmedUp: emailOnly,
       };
 
       currentList.push(newLead);
@@ -639,7 +644,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     const businessName = pendingName.trim() || extractSuggestedName(leadLinkToValidate);
     const assignedDate = getNextAvailableScheduleDate(leads, channel);
 
-    const newLead: ChannelLead = {
+    const draftLead: ChannelLead = {
       id: nextIdData.id,
       numericId: nextIdData.numericId,
       name: businessName,
@@ -651,8 +656,12 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       sortOrder: leads.length,
       createdAt: new Date().toISOString(),
       scheduledDate: assignedDate,
-      warmupStatus: 'locked',
-      isWarmedUp: false,
+    };
+    const emailOnly = isEmailOnlyLead(draftLead);
+    const newLead: ChannelLead = {
+      ...draftLead,
+      warmupStatus: emailOnly ? 'warmed' : 'locked',
+      isWarmedUp: emailOnly,
     };
 
     const nextLeads = [...leads, newLead];
@@ -747,7 +756,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     const nextIdData = getNextLeadId(channel, leads);
     const assignedDate = getNextAvailableScheduleDate(leads, channel);
 
-    const newLead: ChannelLead = {
+    const draftLead: ChannelLead = {
       id: nextIdData.id,
       numericId: nextIdData.numericId,
       name: businessName,
@@ -759,8 +768,12 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       sortOrder: leads.length,
       createdAt: new Date().toISOString(),
       scheduledDate: assignedDate,
-      warmupStatus: 'locked',
-      isWarmedUp: false,
+    };
+    const emailOnly = isEmailOnlyLead(draftLead);
+    const newLead: ChannelLead = {
+      ...draftLead,
+      warmupStatus: emailOnly ? 'warmed' : 'locked',
+      isWarmedUp: emailOnly,
     };
 
     onUpdateLeads([...leads, newLead]);

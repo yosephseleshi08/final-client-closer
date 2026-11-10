@@ -57,6 +57,7 @@ import {
   getCadenceMessageTemplates,
   getTomorrowWarmupTargetDate,
   isLeadWarmed,
+  isEmailOnlyLead,
 } from '../utils/cadenceEngine';
 
 interface TodaysSchedulePageProps {
@@ -313,6 +314,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     ? []
     : filteredAllLeads.filter((l) => {
         if (l.isCompleted || l.initialSentDate) return false;
+        if (isEmailOnlyLead(l)) return false; // Strict: Email-only leads require no warm-up
         return l.scheduledDate === warmupTargetDateStr;
       });
 

@@ -24,6 +24,9 @@ import {
   getLocalTodayStr,
   getTomorrowWarmupTargetDate,
   isLeadWarmed,
+  isEmailOnlyLead,
+  getTouchpointChannel,
+  getTouchpointLabel,
 } from '../../utils/cadenceEngine';
 import { LeadAnalysisModal } from './LeadAnalysisModal';
 
@@ -37,11 +40,12 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [promptModalLeadId, setPromptModalLeadId] = useState<string | null>(null);
 
-  // 3-Step Sequence States (Manual Writing & Storage)
+  // 4-Step Cadence States (Manual Writing & Storage)
   const [initialDraft, setInitialDraft] = useState('');
-  const [followup3Draft, setFollowup3Draft] = useState('');
   const [followup7Draft, setFollowup7Draft] = useState('');
-  const [activeStepTab, setActiveStepTab] = useState<'all' | 'step1' | 'step2' | 'step3'>('all');
+  const [followup14Draft, setFollowup14Draft] = useState('');
+  const [breakup30Draft, setBreakup30Draft] = useState('');
+  const [activeStepTab, setActiveStepTab] = useState<'all' | 'step1' | 'step2' | 'step3' | 'step4'>('all');
   const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
   const [copiedLeadId, setCopiedLeadId] = useState<string | null>(null);
 
@@ -55,9 +59,10 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const isSunday = todayDayOfWeek === 0;
 
   // STRICT RULE: This tab must ONLY display leads scheduled for TOMORROW.
-  // Leads scheduled for Wednesday, Thursday, etc. are NOT shown and cannot be accessed here.
+  // Email-only leads do NOT require warm-up and must NOT be displayed here.
   const tomorrowLeads = leads.filter((l) => {
     if (l.isCompleted || l.initialSentDate) return false;
+    if (isEmailOnlyLead(l)) return false; // Strict: Warm-Up Tab must ONLY display Instagram & Facebook leads
     return l.scheduledDate === warmupTargetDate;
   });
 
@@ -68,8 +73,9 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const handleOpenPitchEditor = (lead: ChannelLead) => {
     setSelectedLeadId(lead.id);
     setInitialDraft(lead.initialDM || lead.customPitch || '');
-    setFollowup3Draft(lead.followup3DM || '');
-    setFollowup7Draft(lead.followup7DM || '');
+    setFollowup7Draft(lead.followupDM_Day7 || lead.followup3DM || '');
+    setFollowup14Draft(lead.followupDM_Day14 || lead.followup7DM || '');
+    setBreakup30Draft(lead.breakupDM_Day30 || '');
     setActiveStepTab('all');
   };
 
@@ -77,16 +83,20 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
     if (!selectedLeadId) return;
 
     const trimmedInitial = initialDraft.trim();
-    const trimmedFollowup3 = followup3Draft.trim();
-    const trimmedFollowup7 = followup7Draft.trim();
+    const trimmed7 = followup7Draft.trim();
+    const trimmed14 = followup14Draft.trim();
+    const trimmed30 = breakup30Draft.trim();
 
     const updated = leads.map((l) => {
       if (l.id === selectedLeadId) {
         return {
           ...l,
           initialDM: trimmedInitial || undefined,
-          followup3DM: trimmedFollowup3 || undefined,
-          followup7DM: trimmedFollowup7 || undefined,
+          followupDM_Day7: trimmed7 || undefined,
+          followupDM_Day14: trimmed14 || undefined,
+          breakupDM_Day30: trimmed30 || undefined,
+          followup3DM: trimmed7 || undefined,
+          followup7DM: trimmed14 || undefined,
           customPitch: trimmedInitial || l.customPitch,
           pitchSavedAt: new Date().toISOString(),
         };
@@ -143,23 +153,27 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
     setTimeout(() => setCopiedLeadId(null), 2000);
   };
 
-  const insertToken = (token: string, targetStep?: '1' | '2' | '3') => {
+  const insertToken = (token: string, targetStep?: '1' | '2' | '3' | '4') => {
     if (!targetStep || targetStep === '1') {
       setInitialDraft((prev) => (prev ? `${prev} ${token}` : token));
     }
     if (targetStep === '2') {
-      setFollowup3Draft((prev) => (prev ? `${prev} ${token}` : token));
+      setFollowup7Draft((prev) => (prev ? `${prev} ${token}` : token));
     }
     if (targetStep === '3') {
-      setFollowup7Draft((prev) => (prev ? `${prev} ${token}` : token));
+      setFollowup14Draft((prev) => (prev ? `${prev} ${token}` : token));
+    }
+    if (targetStep === '4') {
+      setBreakup30Draft((prev) => (prev ? `${prev} ${token}` : token));
     }
   };
 
   const getSequenceStepCount = (lead: ChannelLead) => {
     let count = 0;
     if (lead.initialDM || lead.customPitch) count++;
-    if (lead.followup3DM) count++;
-    if (lead.followup7DM) count++;
+    if (lead.followupDM_Day7 || lead.followup3DM) count++;
+    if (lead.followupDM_Day14 || lead.followup7DM) count++;
+    if (lead.breakupDM_Day30) count++;
     return count;
   };
 
@@ -367,18 +381,18 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                     <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-slate-300 font-mono text-[11px]">
-                          Sequence Status:
+                          Cadence Status:
                         </span>
                         <span
                           className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
-                            stepCount === 3
+                            stepCount === 4
                               ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                               : stepCount > 0
                               ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
                               : 'bg-white/5 text-slate-400 border-white/10'
                           }`}
                         >
-                          {stepCount === 3 ? '✓ 3/3 Steps Ready' : `${stepCount}/3 Steps Set`}
+                          {stepCount === 4 ? '✓ 4/4 Steps Ready' : `${stepCount}/4 Steps Set`}
                         </span>
                       </div>
 
@@ -432,14 +446,14 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                     </div>
 
                     <div className="flex items-center gap-2 flex-wrap self-end sm:self-auto">
-                      {/* Write/Edit 3-Step Sequence */}
+                      {/* Write/Edit 4-Step Cadence */}
                       <button
                         type="button"
                         onClick={() => handleOpenPitchEditor(lead)}
                         className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 border border-white/10"
                       >
                         <Edit3 className="w-3.5 h-3.5 text-slate-400" />
-                        <span>{stepCount > 0 ? 'Edit 3-Step' : 'Write 3-Step'}</span>
+                        <span>{stepCount > 0 ? 'Edit 4-Step' : 'Write 4-Step'}</span>
                       </button>
 
                       {/* Prompt Hub */}
@@ -478,7 +492,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
 
                   {isSavedJustNow && (
                     <div className="text-[11px] text-emerald-400 font-semibold">
-                      ✓ Sequence Saved Successfully!
+                      ✓ 4-Step Cadence Saved Successfully!
                     </div>
                   )}
                 </div>
@@ -488,7 +502,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
         </div>
       )}
 
-      {/* 3-Step Sequence Editor Modal */}
+      {/* 4-Step Cadence Editor Modal */}
       {selectedLead && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in overflow-y-auto">
           <div className="w-full max-w-2xl rounded-2xl bg-slate-900 border border-white/10 p-5 sm:p-6 shadow-2xl space-y-4 my-8 max-h-[92vh] overflow-y-auto">
@@ -500,11 +514,11 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                     {selectedLead.id}
                   </span>
                   <h3 className="text-base sm:text-lg font-bold text-white font-['Outfit']">
-                    3-Step Sequence: {selectedLead.name}
+                    4-Step Cadence: {selectedLead.name}
                   </h3>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
-                  Draft the 3 sequential messages sent across the outreach cadence for {getChannelLabel(channel)}.
+                  Draft all 4 touchpoints across the cadence for {getChannelLabel(channel)}. Each message is intelligently routed based on prospect channels.
                 </p>
               </div>
               <button
@@ -518,10 +532,10 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
 
             {/* Quick Helper Tokens */}
             <div className="flex items-center gap-2 text-xs text-slate-400 flex-wrap">
-              <span className="text-[11px] font-semibold text-slate-500">Insert token into active step:</span>
+              <span className="text-[11px] font-semibold text-slate-500">Insert token:</span>
               <button
                 type="button"
-                onClick={() => insertToken(selectedLead.name, '1')}
+                onClick={() => insertToken(selectedLead.name, activeStepTab === 'step2' ? '2' : activeStepTab === 'step3' ? '3' : activeStepTab === 'step4' ? '4' : '1')}
                 className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] text-indigo-300 cursor-pointer"
               >
                 Lead Name
@@ -529,7 +543,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
               {selectedLead.city && (
                 <button
                   type="button"
-                  onClick={() => insertToken(selectedLead.city!, '1')}
+                  onClick={() => insertToken(selectedLead.city!, activeStepTab === 'step2' ? '2' : activeStepTab === 'step3' ? '3' : activeStepTab === 'step4' ? '4' : '1')}
                   className="px-2 py-1 rounded bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] text-indigo-300 cursor-pointer"
                 >
                   City
@@ -537,121 +551,202 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
               )}
             </div>
 
-            {/* Sequence Steps Navigation Tabs */}
-            <div className="flex border-b border-white/10 gap-2">
+            {/* Cadence Steps Navigation Tabs */}
+            <div className="flex border-b border-white/10 gap-1.5 overflow-x-auto no-scrollbar">
               <button
                 type="button"
                 onClick={() => setActiveStepTab('all')}
-                className={`pb-2 px-3 text-xs font-semibold border-b-2 transition ${
+                className={`pb-2 px-3 text-xs font-semibold border-b-2 whitespace-nowrap transition ${
                   activeStepTab === 'all'
                     ? 'border-indigo-500 text-indigo-300'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
-                All 3 Steps (Full View)
+                All 4 Steps
               </button>
               <button
                 type="button"
                 onClick={() => setActiveStepTab('step1')}
-                className={`pb-2 px-3 text-xs font-semibold border-b-2 transition ${
+                className={`pb-2 px-2.5 text-xs font-semibold border-b-2 whitespace-nowrap transition flex items-center gap-1 ${
                   activeStepTab === 'step1'
                     ? 'border-indigo-500 text-indigo-300'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
-                1. Initial DM
+                <span>1. Initial DM (Day 0)</span>
               </button>
               <button
                 type="button"
                 onClick={() => setActiveStepTab('step2')}
-                className={`pb-2 px-3 text-xs font-semibold border-b-2 transition ${
+                className={`pb-2 px-2.5 text-xs font-semibold border-b-2 whitespace-nowrap transition flex items-center gap-1 ${
                   activeStepTab === 'step2'
-                    ? 'border-indigo-500 text-indigo-300'
+                    ? 'border-amber-500 text-amber-300'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
-                2. 3-Day Bump
+                <span>2. Day 7 Follow-Up</span>
               </button>
               <button
                 type="button"
                 onClick={() => setActiveStepTab('step3')}
-                className={`pb-2 px-3 text-xs font-semibold border-b-2 transition ${
+                className={`pb-2 px-2.5 text-xs font-semibold border-b-2 whitespace-nowrap transition flex items-center gap-1 ${
                   activeStepTab === 'step3'
-                    ? 'border-indigo-500 text-indigo-300'
+                    ? 'border-purple-500 text-purple-300'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
-                3. 7-Day Breakup
+                <span>3. Day 14 Follow-Up</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveStepTab('step4')}
+                className={`pb-2 px-2.5 text-xs font-semibold border-b-2 whitespace-nowrap transition flex items-center gap-1 ${
+                  activeStepTab === 'step4'
+                    ? 'border-rose-500 text-rose-300'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span>4. Day 30 Breakup</span>
               </button>
             </div>
 
-            {/* Editor Forms */}
+            {/* Editor Forms with Limits */}
             <div className="space-y-4">
-              {/* Step 1: Initial DM */}
-              {(activeStepTab === 'all' || activeStepTab === 'step1') && (
-                <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/10 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
-                      <span>1. Initial Outreach DM (Day 1)</span>
-                      <span className="text-[10px] text-slate-500 font-normal">Under 75 words</span>
-                    </label>
-                    <span className="text-[10px] text-slate-500 font-mono">
-                      {initialDraft.trim().split(/\s+/).filter(Boolean).length} words
-                    </span>
+              {/* Step 1: Initial DM (Day 0) - Limit: under 280 characters */}
+              {(activeStepTab === 'all' || activeStepTab === 'step1') && (() => {
+                const charCount = initialDraft.length;
+                const isOverLimit = charCount > 280;
+                const channelLabel = getTouchpointLabel(selectedLead, 0);
+                return (
+                  <div className={`p-3.5 rounded-xl bg-slate-950/60 border space-y-1.5 transition ${
+                    isOverLimit ? 'border-rose-500/60 ring-1 ring-rose-500/40' : 'border-white/10'
+                  }`}>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <label className="text-xs font-bold text-indigo-300 flex items-center gap-2">
+                        <span>1. Initial DM (Day 0)</span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                          {channelLabel}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-normal">Max 280 characters</span>
+                      </label>
+                      <span className={`text-[10px] font-mono font-bold ${isOverLimit ? 'text-rose-400' : 'text-slate-400'}`}>
+                        {charCount} / 280 chars {isOverLimit && '⚠️ OVER LIMIT'}
+                      </span>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={initialDraft}
+                      onChange={(e) => setInitialDraft(e.target.value)}
+                      placeholder={`Hey ${selectedLead.name} team! I just posted a quick video on my story/feed breaking down your menu design/website. Mind if I send the direct link here?`}
+                      className={`w-full p-2.5 bg-slate-900 border rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none font-sans ${
+                        isOverLimit ? 'border-rose-500 focus:border-rose-400' : 'border-white/10 focus:border-indigo-500'
+                      }`}
+                    />
                   </div>
-                  <textarea
-                    rows={3}
-                    value={initialDraft}
-                    onChange={(e) => setInitialDraft(e.target.value)}
-                    placeholder={`Hey ${selectedLead.name} team, noticed your online ordering link leads to a 404 on mobile. Made a quick clean mockup solving this. Mind if I send the live link?`}
-                    className="w-full p-2.5 bg-slate-900 border border-white/10 rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-sans"
-                  />
-                </div>
-              )}
+                );
+              })()}
 
-              {/* Step 2: 3-Day Bump */}
-              {(activeStepTab === 'all' || activeStepTab === 'step2') && (
-                <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/10 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                      <span>2. 3-Day Value Follow-Up</span>
-                      <span className="text-[10px] text-slate-500 font-normal">Under 60 words</span>
-                    </label>
-                    <span className="text-[10px] text-slate-500 font-mono">
-                      {followup3Draft.trim().split(/\s+/).filter(Boolean).length} words
-                    </span>
+              {/* Step 2: Day 7 Follow-Up - Limit: under 60 words */}
+              {(activeStepTab === 'all' || activeStepTab === 'step2') && (() => {
+                const words = followup7Draft.trim().split(/\s+/).filter(Boolean).length;
+                const isOverLimit = words > 60;
+                const channelLabel = getTouchpointLabel(selectedLead, 1);
+                return (
+                  <div className={`p-3.5 rounded-xl bg-slate-950/60 border space-y-1.5 transition ${
+                    isOverLimit ? 'border-rose-500/60 ring-1 ring-rose-500/40' : 'border-white/10'
+                  }`}>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <label className="text-xs font-bold text-amber-300 flex items-center gap-2">
+                        <span>2. Day 7 Follow-Up</span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          {channelLabel}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-normal">Max 60 words</span>
+                      </label>
+                      <span className={`text-[10px] font-mono font-bold ${isOverLimit ? 'text-rose-400' : 'text-slate-400'}`}>
+                        {words} / 60 words {isOverLimit && '⚠️ OVER LIMIT'}
+                      </span>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={followup7Draft}
+                      onChange={(e) => setFollowup7Draft(e.target.value)}
+                      placeholder={`Hey ${selectedLead.name}, did you get a chance to see that breakdown video? We just put together a quick PDF on 3 ways to speed up kitchen ticket times on Friday nights—want me to drop it here?`}
+                      className={`w-full p-2.5 bg-slate-900 border rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none font-sans ${
+                        isOverLimit ? 'border-rose-500 focus:border-rose-400' : 'border-white/10 focus:border-amber-500'
+                      }`}
+                    />
                   </div>
-                  <textarea
-                    rows={3}
-                    value={followup3Draft}
-                    onChange={(e) => setFollowup3Draft(e.target.value)}
-                    placeholder={`Hey ${selectedLead.name}, put together a 30-sec video breakdown of how the checkout flow is leaking table reservations. Would that be helpful to see?`}
-                    className="w-full p-2.5 bg-slate-900 border border-white/10 rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-sans"
-                  />
-                </div>
-              )}
+                );
+              })()}
 
-              {/* Step 3: 7-Day Breakup */}
-              {(activeStepTab === 'all' || activeStepTab === 'step3') && (
-                <div className="p-3.5 rounded-xl bg-slate-950/60 border border-white/10 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
-                      <span>3. 7-Day Breakup Message</span>
-                      <span className="text-[10px] text-slate-500 font-normal">Under 45 words</span>
-                    </label>
-                    <span className="text-[10px] text-slate-500 font-mono">
-                      {followup7Draft.trim().split(/\s+/).filter(Boolean).length} words
-                    </span>
+              {/* Step 3: Day 14 Follow-Up - Limit: under 60 words */}
+              {(activeStepTab === 'all' || activeStepTab === 'step3') && (() => {
+                const words = followup14Draft.trim().split(/\s+/).filter(Boolean).length;
+                const isOverLimit = words > 60;
+                const channelLabel = getTouchpointLabel(selectedLead, 2);
+                return (
+                  <div className={`p-3.5 rounded-xl bg-slate-950/60 border space-y-1.5 transition ${
+                    isOverLimit ? 'border-rose-500/60 ring-1 ring-rose-500/40' : 'border-white/10'
+                  }`}>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <label className="text-xs font-bold text-purple-300 flex items-center gap-2">
+                        <span>3. Day 14 Follow-Up</span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          {channelLabel}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-normal">Max 60 words</span>
+                      </label>
+                      <span className={`text-[10px] font-mono font-bold ${isOverLimit ? 'text-rose-400' : 'text-slate-400'}`}>
+                        {words} / 60 words {isOverLimit && '⚠️ OVER LIMIT'}
+                      </span>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={followup14Draft}
+                      onChange={(e) => setFollowup14Draft(e.target.value)}
+                      placeholder={`Hey ${selectedLead.name}! Quick update—another spot in ${selectedLead.city || 'your area'} implemented that online ordering tweak from the video and saw a 12% jump in takeout orders last week. Thought of you guys!`}
+                      className={`w-full p-2.5 bg-slate-900 border rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none font-sans ${
+                        isOverLimit ? 'border-rose-500 focus:border-rose-400' : 'border-white/10 focus:border-purple-500'
+                      }`}
+                    />
                   </div>
-                  <textarea
-                    rows={3}
-                    value={followup7Draft}
-                    onChange={(e) => setFollowup7Draft(e.target.value)}
-                    placeholder={`Assume this isn't a priority right now, ${selectedLead.name}. I'll archive the mockup on Friday. If you ever want to fix the booking leak, just reach out!`}
-                    className="w-full p-2.5 bg-slate-900 border border-white/10 rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-rose-500 font-sans"
-                  />
-                </div>
-              )}
+                );
+              })()}
+
+              {/* Step 4: Day 30 Breakup - Limit: under 60 words */}
+              {(activeStepTab === 'all' || activeStepTab === 'step4') && (() => {
+                const words = breakup30Draft.trim().split(/\s+/).filter(Boolean).length;
+                const isOverLimit = words > 60;
+                const channelLabel = getTouchpointLabel(selectedLead, 3);
+                return (
+                  <div className={`p-3.5 rounded-xl bg-slate-950/60 border space-y-1.5 transition ${
+                    isOverLimit ? 'border-rose-500/60 ring-1 ring-rose-500/40' : 'border-white/10'
+                  }`}>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <label className="text-xs font-bold text-rose-300 flex items-center gap-2">
+                        <span>4. Day 30 Breakup</span>
+                        <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                          {channelLabel}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-normal">Max 60 words</span>
+                      </label>
+                      <span className={`text-[10px] font-mono font-bold ${isOverLimit ? 'text-rose-400' : 'text-slate-400'}`}>
+                        {words} / 60 words {isOverLimit && '⚠️ OVER LIMIT'}
+                      </span>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={breakup30Draft}
+                      onChange={(e) => setBreakup30Draft(e.target.value)}
+                      placeholder={`Hey ${selectedLead.name}, I know you're super busy running service. I'm archiving our video breakdown this week, but I recorded a quick 60-second Loom showing the #1 leak on your mobile checkout. Should I send the Loom or close your file?`}
+                      className={`w-full p-2.5 bg-slate-900 border rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none font-sans ${
+                        isOverLimit ? 'border-rose-500 focus:border-rose-400' : 'border-white/10 focus:border-rose-500'
+                      }`}
+                    />
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Modal Actions */}
@@ -668,7 +763,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                 onClick={handleSavePitch}
                 className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-lg shadow-indigo-600/30 flex items-center gap-1.5 cursor-pointer"
               >
-                <span>Save 3-Step Sequence</span>
+                <span>Save 4-Step Cadence</span>
               </button>
             </div>
           </div>
