@@ -123,22 +123,10 @@ export function ChannelWorkspace({
       badge: leads.length,
     },
     {
-      id: 'dm',
-      label: '🔥 Warm-Up Today',
-      icon: <Flame className="w-4 h-4 text-amber-400" />,
-      badge: tomorrowLockedCount > 0 ? tomorrowLockedCount : tomorrowLeadsNeedingWarmup.length > 0 ? tomorrowLeadsNeedingWarmup.length : undefined,
-    },
-    {
       id: 'schedule',
       label: 'Schedule',
       icon: <Calendar className="w-4 h-4" />,
       badge: leads.filter((l) => !!l.scheduledDate).length,
-    },
-    {
-      id: 'followup',
-      label: 'Follow-Up Schedule',
-      icon: <Clock className="w-4 h-4" />,
-      badge: urgentCount > 0 ? urgentCount : undefined,
     },
     {
       id: 'mockup',

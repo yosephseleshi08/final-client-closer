@@ -640,10 +640,47 @@ export function isLeadWarmed(lead: ChannelLead): boolean {
 }
 
 /**
- * Checks if a lead's dispatch is locked (warm-up required).
+ * Checks if a lead was warmed up strictly BEFORE today (e.g. yesterday or earlier).
+ * A lead can ONLY be dispatched if it was warmed up before today.
+ * Warming up a lead today is strictly for tomorrow's dispatch. Same-day send is prohibited.
  */
-export function isLeadDispatchLocked(lead: ChannelLead): boolean {
-  return !isLeadWarmed(lead);
+export function isLeadWarmedBeforeToday(lead: ChannelLead, referenceDateStr = getLocalTodayStr()): boolean {
+  if (!lead.isWarmedUp && lead.warmupStatus !== 'warmed') {
+    return false;
+  }
+  if (lead.warmedUpAt) {
+    const warmedDate = normalizeToLocalDateStr(lead.warmedUpAt);
+    if (warmedDate) {
+      // Must be strictly earlier than reference date (yesterday or older)
+      return warmedDate < referenceDateStr;
+    }
+  }
+  // If warmedUpAt was not recorded, legacy warmed lead is permitted
+  return true;
+}
+
+/**
+ * Checks if a lead was warmed up TODAY.
+ * If warmed today, it CANNOT be sent today; it is scheduled for tomorrow.
+ */
+export function isLeadWarmedToday(lead: ChannelLead, referenceDateStr = getLocalTodayStr()): boolean {
+  if (!lead.isWarmedUp && lead.warmupStatus !== 'warmed') {
+    return false;
+  }
+  if (!lead.warmedUpAt) return false;
+  const warmedDate = normalizeToLocalDateStr(lead.warmedUpAt);
+  return warmedDate === referenceDateStr;
+}
+
+/**
+ * Checks if a lead's dispatch is locked (warm-up required).
+ * A lead is locked if not warmed up, or if only warmed up today (same-day dispatch prohibited).
+ */
+export function isLeadDispatchLocked(lead: ChannelLead, referenceDateStr = getLocalTodayStr()): boolean {
+  if (isEmailOnlyLead(lead)) {
+    return false;
+  }
+  return !isLeadWarmedBeforeToday(lead, referenceDateStr);
 }
 
 /**

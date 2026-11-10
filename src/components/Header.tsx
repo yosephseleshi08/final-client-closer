@@ -81,12 +81,6 @@ export const Header: React.FC<HeaderProps> = ({
       colorClass: 'text-purple-400',
     },
     {
-      id: 'insights',
-      label: 'Insights & Analysis',
-      icon: <LineChart className="w-4 h-4" />,
-      colorClass: 'text-emerald-400',
-    },
-    {
       id: 'history',
       label: '📊 History',
       icon: <History className="w-4 h-4" />,

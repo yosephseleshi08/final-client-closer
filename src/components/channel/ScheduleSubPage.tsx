@@ -1,23 +1,21 @@
 import React, { useState } from 'react';
 import {
   Calendar,
-  ExternalLink,
   RotateCcw,
-  Sparkles,
   Rocket,
   CheckCircle2,
-  Facebook,
-  Mail,
+  X,
+  Flame,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
-import { getChannelLabel, getPlatformLink, getLeadFacebook, getLeadEmail } from '../../utils/channelStorage';
-import { TestLinkButton } from '../TestLinkButton';
+import { getChannelLabel } from '../../utils/channelStorage';
 import {
   getLocalTodayStr,
   normalizeToLocalDateStr,
   isDateToday,
   autoScheduleLeads,
   getScheduleDayStyle,
+  addDays,
 } from '../../utils/cadenceEngine';
 import { formatDisplayDate } from '../../utils/historyStorage';
 
@@ -28,8 +26,8 @@ interface ScheduleSubPageProps {
 }
 
 export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPageProps) {
-  const todayStr = getLocalTodayStr();
   const [scheduledBannerMsg, setScheduledBannerMsg] = useState<string | null>(null);
+  const [showAutoScheduleModal, setShowAutoScheduleModal] = useState(false);
 
   const handleDateChange = (leadId: string, newDate: string) => {
     const normalized = normalizeToLocalDateStr(newDate);
@@ -39,7 +37,7 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
           ...l,
           scheduledDate: normalized || undefined,
           warmupStatus: normalized ? (l.warmupStatus || (l.isWarmedUp ? 'warmed' : 'locked')) : undefined,
-          dismissedDate: undefined, // Clear any prior dismissal when rescheduling
+          dismissedDate: undefined,
         };
       }
       return l;
@@ -48,33 +46,45 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
   };
 
   /**
-   * Auto-Schedule Algorithm: Flat Capacity Model
-   * Strictly enforces daily quotas and protects Sunday rest:
-   * - Instagram: 6 leads / day
-   * - Combined Outreach (Email/Facebook): 4 leads / day
-   * - Sunday Rule: SKIPS Sundays entirely. If today is Sunday, first scheduled date is Monday!
-   * - Staggers all 27+ leads across Mon, Tue, Wed, Thu, Fri, Sat, (skip Sun), Mon...
+   * Auto-Schedule Execution
+   * Starts from Today or Tomorrow as selected by the user.
    */
-  const handleAutoSchedule = () => {
-    if (leads.length === 0) {
-      setScheduledBannerMsg('No leads available in this workspace.');
-      setTimeout(() => setScheduledBannerMsg(null), 3500);
-      return;
-    }
+  const handleExecuteAutoSchedule = (startMode: 'today' | 'tomorrow') => {
+    setShowAutoScheduleModal(false);
+    if (leads.length === 0) return;
 
+    const todayStr = getLocalTodayStr();
+    const startDate = startMode === 'today' ? todayStr : addDays(todayStr, 1);
     const dailyQuota = channel === 'instagram' ? 6 : 4;
-    const updated = autoScheduleLeads(leads, channel);
+
+    const updated = autoScheduleLeads(leads, channel, startDate);
     onUpdateLeads(updated);
 
     const unsentCount = updated.filter((l) => !l.initialSentDate && l.scheduledDate).length;
     setScheduledBannerMsg(
-      `🚀 Auto-scheduled ${unsentCount} leads: strictly ${dailyQuota}/day, Sundays skipped (staggered across weekdays starting Monday)!`
+      `🚀 Auto-scheduled ${unsentCount} leads starting ${startMode === 'today' ? 'Today' : 'Tomorrow'} (${dailyQuota}/day, Sundays skipped)!`
     );
     setTimeout(() => setScheduledBannerMsg(null), 4500);
   };
 
   const scheduledCount = leads.filter((l) => !!l.scheduledDate).length;
   const unscheduledCount = leads.length - scheduledCount;
+
+  // Format date helper: e.g. "Wed, Nov 11, 2026"
+  const formatDateDisplay = (dateStr?: string) => {
+    if (!dateStr) return 'Unscheduled';
+    const normalized = normalizeToLocalDateStr(dateStr);
+    if (!normalized) return 'Unscheduled';
+    const [y, m, d] = normalized.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    if (isNaN(dateObj.getTime())) return dateStr;
+    return dateObj.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -85,7 +95,7 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
             <span>{getChannelLabel(channel)} Dispatch Planner</span>
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Flat Capacity Model: {channel === 'instagram' ? 'Target 6 leads/day' : 'Target 4 leads/day'} from Day 1 · Global Quota: 10 Combined Touchpoints/Day (Sundays rest).
+            Flat Capacity Model: {channel === 'instagram' ? 'Target 6 leads/day' : 'Target 4 leads/day'} · Global Quota: 10 Combined Touchpoints/Day (Sundays rest).
           </p>
         </div>
 
@@ -99,10 +109,10 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
 
           <button
             type="button"
-            onClick={handleAutoSchedule}
+            onClick={() => setShowAutoScheduleModal(true)}
             disabled={leads.length === 0}
             className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-indigo-600/30 cursor-pointer active:scale-95"
-            title="Auto-schedule all unscheduled leads along the growth curve (skips Sundays)"
+            title="Auto-schedule all unscheduled leads"
           >
             <Rocket className="w-4 h-4 text-amber-300" />
             <span>🚀 Auto-Schedule</span>
@@ -132,19 +142,26 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-4 text-left w-32">Lead ID</th>
+                  <th className="py-3 px-4 text-left w-28">Lead ID</th>
                   <th className="py-3 px-4 text-left">Prospect Name</th>
-                  <th className="py-3 px-4 text-left">Profile Link</th>
-                  <th className="py-3 px-4 text-right w-64">Assigned Date</th>
+                  {/* Requirement 4: Replaced Profile Link with Date column */}
+                  <th className="py-3 px-4 text-left w-56">Scheduled Date</th>
+                  <th className="py-3 px-4 text-right w-64">Edit Date</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
                 {leads.map((lead) => {
                   const hasDate = Boolean(lead.scheduledDate);
                   const isToday = isDateToday(lead.scheduledDate);
+                  const dayStyle = getScheduleDayStyle(lead.scheduledDate);
 
                   return (
-                    <tr key={lead.id} className="hover:bg-white/[0.02] transition-colors">
+                    <tr
+                      key={lead.id}
+                      className={`hover:bg-white/[0.02] transition-colors ${dayStyle.tintClass} ${
+                        isToday ? 'ring-1 ring-emerald-500/40 bg-emerald-950/20' : ''
+                      }`}
+                    >
                       {/* ID */}
                       <td className="py-3.5 px-4 text-left font-mono text-xs tabular-nums">
                         <span className="font-semibold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20">
@@ -159,83 +176,31 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
                         </div>
                       </td>
 
-                      {/* Link */}
-                      <td className="py-3.5 px-4 text-left text-xs text-slate-400">
-                        {channel === 'combined' ? (
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {getLeadFacebook(lead) && (
-                              <div className="inline-flex items-center gap-1 p-1 px-1.5 rounded bg-sky-950/40 border border-sky-500/30 text-[11px]">
-                                <a
-                                  href={getPlatformLink(getLeadFacebook(lead), 'facebook')}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-sky-300 hover:text-white flex items-center gap-1 font-mono"
-                                  title={`Open FB: ${getLeadFacebook(lead)}`}
-                                >
-                                  <Facebook className="w-3 h-3 text-sky-400" />
-                                  <span className="font-bold">FB</span>
-                                  <ExternalLink className="w-2.5 h-2.5 opacity-60" />
-                                </a>
-                                <TestLinkButton lead={lead} platform="facebook" label="Test FB" />
-                              </div>
-                            )}
-                            {getLeadEmail(lead) && (
-                              <div className="inline-flex items-center gap-1 p-1 px-1.5 rounded bg-indigo-950/40 border border-indigo-500/30 text-[11px]">
-                                <a
-                                  href={getPlatformLink(getLeadEmail(lead), 'email')}
-                                  className="text-indigo-300 hover:text-white flex items-center gap-1 font-mono"
-                                  title={`Send Email: ${getLeadEmail(lead)}`}
-                                >
-                                  <Mail className="w-3 h-3 text-indigo-400" />
-                                  <span className="font-bold">Email</span>
-                                  <ExternalLink className="w-2.5 h-2.5 opacity-60" />
-                                </a>
-                                <TestLinkButton lead={lead} platform="email" label="Test Email" />
-                              </div>
-                            )}
-                            {!getLeadFacebook(lead) && !getLeadEmail(lead) && (
-                              <div className="flex items-center gap-2">
-                                <a
-                                  href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-[11px] text-slate-400 hover:text-indigo-400 truncate max-w-xs"
-                                >
-                                  <span className="truncate">{lead.platformLink || lead.link}</span>
-                                </a>
-                                <TestLinkButton lead={lead} platform={lead.channel || channel} />
-                              </div>
+                      {/* Requirement 4: Date Column (e.g. Wed, Nov 11, 2026) */}
+                      <td className="py-3.5 px-4 text-left">
+                        {hasDate ? (
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold font-mono border ${dayStyle.badgeClass}`}
+                            >
+                              <span>{formatDateDisplay(lead.scheduledDate)}</span>
+                            </span>
+                            {isToday && (
+                              <span className="text-[10px] font-black uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
+                                TODAY
+                              </span>
                             )}
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <a
-                              href={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel)}
-                              target={getPlatformLink(lead.platformLink || lead.link, lead.channel || channel).startsWith('mailto:') ? '_self' : '_blank'}
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-400 transition-colors truncate max-w-xs"
-                              title={`Open ${lead.platformLink || lead.link}`}
-                            >
-                              <span className="truncate">{lead.platformLink || lead.link}</span>
-                              <ExternalLink className="w-3 h-3 shrink-0" />
-                            </a>
-                            <TestLinkButton lead={lead} platform={lead.channel || channel} />
-                          </div>
+                          <span className="text-xs font-mono text-slate-500 italic">
+                            Unscheduled
+                          </span>
                         )}
                       </td>
 
-                      {/* Date Picker Input & Staggered Day Badge */}
+                      {/* Date Picker Input & Actions */}
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-2.5">
-                          {hasDate && (
-                            <span
-                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold font-mono border ${getScheduleDayStyle(lead.scheduledDate).badgeClass}`}
-                              title={`Scheduled for ${getScheduleDayStyle(lead.scheduledDate).dayName} (${lead.scheduledDate})`}
-                            >
-                              <span>{getScheduleDayStyle(lead.scheduledDate).dayShort}</span>
-                              <span className="opacity-75">· {formatDisplayDate(lead.scheduledDate!)}</span>
-                            </span>
-                          )}
                           <input
                             type="date"
                             value={lead.scheduledDate || ''}
@@ -256,7 +221,7 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
                               title="Clear date"
                               aria-label={`Clear date for ${lead.id}`}
                             >
-                              <RotateCcw className="w-3 h-3" />
+                              <RotateCcw className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
@@ -266,6 +231,85 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Requirement 4: Auto-Schedule Modal: Today vs Tomorrow */}
+      {showAutoScheduleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-white/10 p-6 shadow-2xl space-y-5 text-slate-100">
+            <div className="flex items-start justify-between">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 font-mono">
+                  Auto-Schedule Pacer
+                </span>
+                <h3 className="text-xl font-black text-white font-['Outfit'] mt-0.5">
+                  Start Scheduling Date
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAutoScheduleModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Start scheduling from <strong>Today</strong> or <strong>Tomorrow</strong>?
+            </p>
+
+            <div className="space-y-3">
+              {/* Option 1: Tomorrow (Recommended) */}
+              <button
+                type="button"
+                onClick={() => handleExecuteAutoSchedule('tomorrow')}
+                className="w-full p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-left transition flex items-start gap-3 cursor-pointer group active:scale-98"
+              >
+                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0 mt-0.5">
+                  <Flame className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-white group-hover:text-amber-200">
+                    🌅 Start Tomorrow (Recommended)
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                    Warms them up today so prospects recognize your account before you dispatch outreach tomorrow. Sundays are automatically skipped.
+                  </p>
+                </div>
+              </button>
+
+              {/* Option 2: Today */}
+              <button
+                type="button"
+                onClick={() => handleExecuteAutoSchedule('today')}
+                className="w-full p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 text-left transition flex items-start gap-3 cursor-pointer group active:scale-98"
+              >
+                <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shrink-0 mt-0.5">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-white group-hover:text-indigo-200">
+                    📅 Start Today
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                    Immediately fills today's open quota slots ({channel === 'instagram' ? '6' : '4'} leads) and staggers remaining leads across upcoming weekdays.
+                  </p>
+                </div>
+              </button>
+            </div>
+
+            <div className="flex justify-end pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setShowAutoScheduleModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white rounded-lg transition"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

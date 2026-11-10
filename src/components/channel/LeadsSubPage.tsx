@@ -1,23 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import {
-  GripVertical,
   Trash2,
   Download,
   Search,
@@ -31,9 +13,9 @@ import {
   Copy,
   Check,
   Sparkles,
-  Shuffle,
   ShieldCheck,
   Save,
+  MessageSquare,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import {
@@ -49,6 +31,7 @@ import {
   getScheduleDayStyle,
   isDateToday,
   getNextAvailableScheduleDate,
+  getCadenceMessageTemplates,
 } from '../../utils/cadenceEngine';
 import { playWarningChime } from '../../utils/soundEffects';
 
@@ -57,163 +40,6 @@ interface LeadsSubPageProps {
   leads: ChannelLead[];
   onUpdateLeads: (leads: ChannelLead[]) => void;
   onNavigateToChannel?: (channel: MultiChannelType) => void;
-}
-
-interface SortableLeadRowProps {
-  lead: ChannelLead;
-  channel: MultiChannelType;
-  onDelete: (id: string) => void;
-  onOpenPrompt: (lead: ChannelLead) => void;
-  isJustAdded?: boolean;
-}
-
-/**
- * Spintax Generator Helper
- * Replaces any {option1|option2|option3} block with a random choice.
- */
-export function spinSpintax(template: string): string {
-  if (!template) return '';
-  return template.replace(/\{([^{}]+)\}/g, (_, group) => {
-    const choices = group.split('|');
-    const chosen = choices[Math.floor(Math.random() * choices.length)];
-    return chosen.trim();
-  });
-}
-
-/**
- * Row component for the Closed-System Leads Table
- * Rules enforced:
- * - Anti-Cheat: Profile link is strictly PLAIN TEXT (unclickable, no href).
- * - "Warm Up" badge replaced with "Prompt" button that opens analysis & Spintax editor.
- * - Action column contains ONLY the Delete button.
- */
-function SortableLeadRow({
-  lead,
-  channel,
-  onDelete,
-  onOpenPrompt,
-  isJustAdded,
-}: SortableLeadRowProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: lead.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-  };
-
-  const dayStyle = getScheduleDayStyle(lead.scheduledDate);
-  const isDueToday = isDateToday(lead.scheduledDate);
-  const plainLink = lead.platformLink || lead.link;
-
-  return (
-    <tr
-      ref={setNodeRef}
-      style={style}
-      className={`border-b border-white/[0.06] transition-all duration-200 group ${
-        dayStyle.borderClass
-      } ${dayStyle.tintClass} ${
-        isDragging
-          ? 'bg-indigo-950/60 shadow-xl border-indigo-500/40 opacity-95'
-          : isJustAdded
-          ? 'bg-indigo-950/50 ring-2 ring-indigo-500/70 border-indigo-500/40'
-          : isDueToday
-          ? 'ring-2 ring-emerald-500/50 bg-emerald-950/20 shadow-[0_0_15px_rgba(16,185,129,0.12)]'
-          : ''
-      }`}
-    >
-      {/* 1. Drag Handle & ID */}
-      <td className="py-3.5 px-4 text-left font-mono text-xs tabular-nums text-slate-300">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            {...attributes}
-            {...listeners}
-            className="cursor-grab active:cursor-grabbing text-slate-500 hover:text-slate-300 transition-colors p-1 rounded hover:bg-white/5"
-            title="Drag to reorder priority"
-            aria-label={`Reorder lead ${lead.id}`}
-          >
-            <GripVertical className="w-4 h-4" />
-          </button>
-          <span className="font-semibold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-            {lead.id}
-          </span>
-          {isDueToday && (
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm animate-pulse">
-              TODAY
-            </span>
-          )}
-          {isJustAdded && (
-            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
-              NEW
-            </span>
-          )}
-        </div>
-      </td>
-
-      {/* 2. Prospect Name & Scheduled Day */}
-      <td className="py-3.5 px-4 text-left">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-medium text-slate-100 font-['Outfit'] truncate max-w-xs">
-            {lead.name}
-          </span>
-          {lead.scheduledDate && (
-            <span
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold font-mono border ${dayStyle.badgeClass}`}
-              title={`Scheduled for ${dayStyle.dayName} (${lead.scheduledDate})`}
-            >
-              <span>{dayStyle.dayShort}</span>
-              <span className="opacity-75">· {lead.scheduledDate.split('-').slice(1).join('/')}</span>
-            </span>
-          )}
-          {lead.fb_message_restricted && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
-              ✉️ Email Default
-            </span>
-          )}
-        </div>
-      </td>
-
-      {/* 3. Profile Link: STRICTLY PLAIN TEXT (Requirement 2 Anti-Cheat) */}
-      <td className="py-3.5 px-4 text-left text-xs font-mono text-slate-300 select-all">
-        <span
-          className="truncate max-w-sm block text-slate-300 font-mono tracking-tight"
-          title={`Plain-text handle/link: ${plainLink} (Direct links are locked in Leads table to enforce Warm-Up discipline)`}
-        >
-          {plainLink}
-        </span>
-      </td>
-
-      {/* 4. Strategy Prompt Button (Requirement 3: Replaces Warm-Up badge) */}
-      <td className="py-3.5 px-4 text-left">
-        <button
-          type="button"
-          onClick={() => onOpenPrompt(lead)}
-          className="px-3 py-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border border-indigo-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-sm"
-          title="Inspect saved Gemini/DeepSeek prompt & write pitch with Spintax generator"
-        >
-          <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-          <span>Prompt</span>
-        </button>
-      </td>
-
-      {/* 5. Action: ONLY Delete Button (🗑️) */}
-      <td className="py-3.5 px-4 text-right">
-        <div className="flex items-center justify-end">
-          <button
-            type="button"
-            onClick={() => onDelete(lead.id)}
-            className="p-2 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-            title="Delete lead (remaining IDs will re-sequence)"
-            aria-label={`Delete ${lead.name}`}
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      </td>
-    </tr>
-  );
 }
 
 export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChannel }: LeadsSubPageProps) {
@@ -230,14 +56,14 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   const [batchInputText, setBatchInputText] = useState('');
   const [batchError, setBatchError] = useState<string | null>(null);
 
-  // Prompt & Spintax Modal State (Requirement 3)
-  const [selectedPromptLead, setSelectedPromptLead] = useState<ChannelLead | null>(null);
-  const [isPitchEditorOpen, setIsPitchEditorOpen] = useState(false);
-  const [spintaxTemplate, setSpintaxTemplate] = useState('');
-  const [spunPitchResult, setSpunPitchResult] = useState('');
+  // Edit Sequence Modal State (Requirement 4)
+  const [editingLead, setEditingLead] = useState<ChannelLead | null>(null);
+  const [initialDmText, setInitialDmText] = useState('');
+  const [day4Text, setDay4Text] = useState('');
+  const [day8Text, setDay8Text] = useState('');
+  const [day14Text, setDay14Text] = useState('');
   const [copiedPrompt, setCopiedPrompt] = useState(false);
-  const [copiedPitch, setCopiedPitch] = useState(false);
-  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
     if (!duplicateAlert) return;
@@ -247,73 +73,77 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     return () => clearTimeout(timer);
   }, [duplicateAlert]);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 5,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
+  // Requirement 4: Always order leads by ID from least to highest (1, 2, 3...)
+  const sortedLeads = useMemo(() => {
+    return [...leads].sort((a, b) => (a.numericId || 0) - (b.numericId || 0));
+  }, [leads]);
 
-  // Open Prompt & Spintax Modal
-  const handleOpenPromptModal = (lead: ChannelLead) => {
-    setSelectedPromptLead(lead);
-    setIsPitchEditorOpen(false);
+  const filteredLeads = useMemo(() => {
+    if (!searchQuery.trim()) return sortedLeads;
+    const q = searchQuery.toLowerCase();
+    return sortedLeads.filter(
+      (l) =>
+        l.id.toLowerCase().includes(q) ||
+        l.name.toLowerCase().includes(q) ||
+        (l.link && l.link.toLowerCase().includes(q))
+    );
+  }, [sortedLeads, searchQuery]);
+
+  // Open Edit Sequence Modal
+  const handleOpenEditSequence = (lead: ChannelLead) => {
+    const defaultTemplates = getCadenceMessageTemplates(lead);
+    setEditingLead(lead);
+    setInitialDmText(lead.initialDM || lead.customPitch || defaultTemplates.stageAMessage);
+    setDay4Text(lead.followupDM_Day7 || lead.followup3DM || defaultTemplates.day4Message);
+    setDay8Text(lead.followupDM_Day14 || lead.followup7DM || defaultTemplates.day8Message);
+    setDay14Text(lead.breakupDM_Day30 || defaultTemplates.day14Message);
     setCopiedPrompt(false);
-    setCopiedPitch(false);
-    setSaveSuccessMessage(null);
-
-    // Initialize Spintax Template with existing lead pitch or standard high-converting Spintax
-    const defaultTemplate =
-      lead.initialDM ||
-      lead.customPitch ||
-      `{Hey|Hi|Hello} there, loved what you're doing at ${lead.name}! Built a quick 0.3s prototype showing {how to convert 15 extra weekend covers|how to eliminate third-party commission leaks}. Mind if I send the 30s link?`;
-
-    setSpintaxTemplate(defaultTemplate);
-    setSpunPitchResult(spinSpintax(defaultTemplate));
+    setSaveSuccess(false);
   };
 
-  const handleSpinVariation = () => {
-    if (!spintaxTemplate.trim()) return;
-    const spun = spinSpintax(spintaxTemplate);
-    setSpunPitchResult(spun);
-    setSaveSuccessMessage(null);
+  const handleSaveSequence = () => {
+    if (!editingLead) return;
+
+    const updated = leads.map((l) => {
+      if (l.id === editingLead.id) {
+        return {
+          ...l,
+          initialDM: initialDmText.trim(),
+          customPitch: initialDmText.trim(),
+          stagedDmMiniPitch: initialDmText.trim(),
+          followupDM_Day7: day4Text.trim(),
+          followup3DM: day4Text.trim(),
+          followupDM_Day14: day8Text.trim(),
+          followup7DM: day8Text.trim(),
+          breakupDM_Day30: day14Text.trim(),
+          pitchSavedAt: new Date().toISOString(),
+        };
+      }
+      return l;
+    });
+
+    onUpdateLeads(updated);
+    setSaveSuccess(true);
+    setTimeout(() => {
+      setSaveSuccess(false);
+      setEditingLead(null);
+    }, 1200);
   };
 
-  const handleCopyText = (text: string, type: 'prompt' | 'pitch') => {
+  const handleDeleteLead = (id: string) => {
+    const filtered = leads.filter((l) => l.id !== id);
+    const resequenced = resequenceLeadIds(filtered, channel);
+    onUpdateLeads(resequenced);
+  };
+
+  const handleCopyPrompt = (text: string) => {
     if (!text) return;
     navigator.clipboard.writeText(text);
-    if (type === 'prompt') {
-      setCopiedPrompt(true);
-      setTimeout(() => setCopiedPrompt(false), 2000);
-    } else {
-      setCopiedPitch(true);
-      setTimeout(() => setCopiedPitch(false), 2000);
-    }
+    setCopiedPrompt(true);
+    setTimeout(() => setCopiedPrompt(false), 2000);
   };
 
-  const handleSavePitchToLead = () => {
-    if (!selectedPromptLead) return;
-    const pitchToSave = spunPitchResult || spintaxTemplate;
-    const updated = leads.map((l) =>
-      l.id === selectedPromptLead.id
-        ? {
-            ...l,
-            initialDM: pitchToSave,
-            customPitch: pitchToSave,
-            stagedDmMiniPitch: pitchToSave,
-          }
-        : l
-    );
-    onUpdateLeads(updated);
-    setSaveSuccessMessage('✅ Pitch saved to lead successfully!');
-    setTimeout(() => setSaveSuccessMessage(null), 3000);
-  };
-
-  // Batch import handler (Requirement 1: Imports only via Batch/Inbox flow)
+  // Batch import handler
   const handleBatchImportText = (rawText: string) => {
     const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
     if (lines.length === 0) {
@@ -357,7 +187,6 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         customName = parts[1] || '';
       }
 
-      // Strict duplicate check with full URL normalization
       const duplicateFb = detectedFb ? findDuplicateLead(detectedFb, currentList) : undefined;
       const duplicateEmail = detectedEmail ? findDuplicateLead(detectedEmail, currentList) : undefined;
       const duplicateUrl = findDuplicateLead(rawUrl, currentList);
@@ -369,7 +198,6 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
 
       const nextIdData = getNextLeadId(channel, currentList);
       const businessName = customName || extractSuggestedName(rawUrl);
-      // Auto-schedule enforces start tomorrow!
       const assignedScheduleDate = getNextAvailableScheduleDate(currentList, channel);
 
       const newLead: ChannelLead = {
@@ -410,38 +238,6 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     }
   };
 
-  const handleDeleteLead = (id: string) => {
-    const filtered = leads.filter((l) => l.id !== id);
-    const resequenced = resequenceLeadIds(filtered, channel);
-    onUpdateLeads(resequenced);
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-
-    const oldIndex = leads.findIndex((item) => item.id === active.id);
-    const newIndex = leads.findIndex((item) => item.id === over.id);
-
-    if (oldIndex !== -1 && newIndex !== -1) {
-      const reordered = arrayMove(leads, oldIndex, newIndex).map((item, index) => ({
-        ...item,
-        sortOrder: index,
-      }));
-      onUpdateLeads(reordered);
-    }
-  };
-
-  const filteredLeads = leads.filter((l) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      l.id.toLowerCase().includes(q) ||
-      l.name.toLowerCase().includes(q) ||
-      l.link.toLowerCase().includes(q)
-    );
-  });
-
   return (
     <div className="space-y-6">
       {/* Toast Alert */}
@@ -479,14 +275,13 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         </div>
       )}
 
-      {/* Closed-System Notice & Search / Batch Bar (Manual "+" removed completely) */}
+      {/* Toolbar: Closed-System Notice & Batch / Search Bar */}
       <div className="rounded-2xl border border-white/[0.08] bg-slate-900/60 p-4 sm:p-5 backdrop-blur-sm shadow-xl space-y-4">
-        {/* Closed-System CRM Banner */}
         <div className="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2.5">
             <ShieldCheck className="w-4 h-4 text-indigo-400 shrink-0" />
             <span className="text-slate-300 font-medium">
-              <strong className="text-indigo-200">Closed-System CRM:</strong> Manual single-lead entry is disabled. All prospects enter verified through the <strong>Lead Inbox</strong> or <strong>Batch Import</strong> with prompts &amp; routing data.
+              <strong className="text-indigo-200">Closed-System CRM:</strong> Leads ordered chronologically by ID (1, 2, 3...). Profile links are hidden to enforce Warm-Up discipline. Write and configure your 4-step sequence below.
             </span>
           </div>
           <button
@@ -499,11 +294,11 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
             className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-indigo-600/30 text-xs shrink-0"
           >
             <Upload className="w-3.5 h-3.5" />
-            <span>Batch Import JSON / CSV</span>
+            <span>Batch Import</span>
           </button>
         </div>
 
-        {/* Search & Export Toolbar */}
+        {/* Search & Export */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1">
           <div className="relative flex-1 max-w-sm">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
@@ -513,12 +308,11 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search leads by name, ID, or handle..."
+              placeholder="Search leads by name or ID..."
               className="w-full pl-9 pr-3 py-1.5 bg-slate-950/50 border border-white/10 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
             />
           </div>
 
-          {/* Export Dropdown */}
           <div className="relative self-end sm:self-auto">
             <button
               type="button"
@@ -566,102 +360,163 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         </div>
       </div>
 
-      {/* Closed-System Table: ID, Name, Profile Link (Plain Text), Prompt, Delete */}
+      {/* Simplified Clean Table: ID, Name, Prompt / Edit Sequence, Delete */}
       <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 backdrop-blur-sm overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-4 text-left w-32">ID</th>
-                  <th className="py-3 px-4 text-left">Prospect Name</th>
-                  <th className="py-3 px-4 text-left">Profile Link (Locked)</th>
-                  <th className="py-3 px-4 text-left w-28">Prompt</th>
-                  <th className="py-3 px-4 text-right w-20">Action</th>
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                <th className="py-3 px-4 text-left w-28">ID</th>
+                <th className="py-3 px-4 text-left">Prospect Name</th>
+                <th className="py-3 px-4 text-left w-64">Sequence Configuration</th>
+                <th className="py-3 px-4 text-right w-20">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.04]">
+              {filteredLeads.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="py-12 text-center">
+                    <div className="max-w-sm mx-auto space-y-2">
+                      <p className="text-sm font-medium text-slate-400">No leads in {getChannelLabel(channel)} yet</p>
+                      <p className="text-xs text-slate-500">
+                        Upload leads through the <strong>📥 Lead Inbox</strong> or <strong>Batch Import</strong> to intake prospects.
+                      </p>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.04]">
-                {filteredLeads.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-12 text-center">
-                      <div className="max-w-sm mx-auto space-y-2">
-                        <p className="text-sm font-medium text-slate-400">No leads in {getChannelLabel(channel)} yet</p>
-                        <p className="text-xs text-slate-500">
-                          Import leads through the <strong>📥 Lead Inbox</strong> or <strong>Batch Import</strong> to intake prospects.
-                        </p>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  <SortableContext
-                    items={filteredLeads.map((l) => l.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    {filteredLeads.map((lead) => (
-                      <SortableLeadRow
-                        key={lead.id}
-                        lead={lead}
-                        channel={channel}
-                        onDelete={handleDeleteLead}
-                        onOpenPrompt={handleOpenPromptModal}
-                      />
-                    ))}
-                  </SortableContext>
-                )}
-              </tbody>
-            </table>
-          </DndContext>
+              ) : (
+                filteredLeads.map((lead) => {
+                  const dayStyle = getScheduleDayStyle(lead.scheduledDate);
+                  const isDueToday = isDateToday(lead.scheduledDate);
+
+                  return (
+                    <tr
+                      key={lead.id}
+                      className={`border-b border-white/[0.06] transition-colors hover:bg-white/[0.02] ${
+                        dayStyle.borderClass
+                      } ${dayStyle.tintClass} ${
+                        isDueToday ? 'ring-1 ring-emerald-500/40 bg-emerald-950/20' : ''
+                      }`}
+                    >
+                      {/* 1. ID */}
+                      <td className="py-3.5 px-4 text-left font-mono text-xs tabular-nums text-slate-300">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded border border-indigo-500/20">
+                            {lead.id}
+                          </span>
+                          {isDueToday && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm animate-pulse">
+                              TODAY
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* 2. Prospect Name */}
+                      <td className="py-3.5 px-4 text-left">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-slate-100 font-['Outfit'] truncate max-w-xs">
+                            {lead.name}
+                          </span>
+                          {lead.scheduledDate && (
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold font-mono border ${dayStyle.badgeClass}`}
+                              title={`Scheduled for ${dayStyle.dayName} (${lead.scheduledDate})`}
+                            >
+                              <span>{dayStyle.dayShort}</span>
+                              <span className="opacity-75">· {lead.scheduledDate.split('-').slice(1).join('/')}</span>
+                            </span>
+                          )}
+                          {lead.fb_message_restricted && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
+                              ✉️ Email Default
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* 3. Prompt / Edit Sequence Button (Requirement 4) */}
+                      <td className="py-3.5 px-4 text-left">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditSequence(lead)}
+                          className="px-3.5 py-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border border-indigo-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-sm"
+                          title="Open Lead Analysis and edit 4-step sequence (Initial, Day 4, Day 8, Day 14)"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>Prompt / Edit Sequence</span>
+                        </button>
+                      </td>
+
+                      {/* 4. Action: ONLY Delete Button (🗑️) */}
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="flex items-center justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteLead(lead.id)}
+                            className="p-2 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                            title="Delete lead (remaining IDs will re-sequence)"
+                            aria-label={`Delete ${lead.name}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      {/* Requirement 3: Prompt & Spintax Generator Modal */}
-      {selectedPromptLead && (
+      {/* Requirement 4: Prompt / Edit Sequence Modal */}
+      {editingLead && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
-          <div className="w-full max-w-2xl rounded-3xl bg-slate-900 border border-white/10 p-6 sm:p-7 shadow-2xl space-y-5 text-slate-100 max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-3xl rounded-3xl bg-slate-900 border border-white/10 p-6 sm:p-7 shadow-2xl space-y-5 text-slate-100 max-h-[92vh] overflow-y-auto">
             {/* Header */}
             <div className="flex items-start justify-between border-b border-white/10 pb-4">
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2.5 py-0.5 rounded border border-indigo-500/20">
-                    {selectedPromptLead.id}
+                    {editingLead.id}
                   </span>
                   <span className="text-xs text-slate-400 font-mono">
-                    {getChannelLabel(selectedPromptLead.channel)}
+                    {getChannelLabel(editingLead.channel)} Workspace
                   </span>
                 </div>
                 <h3 className="text-xl font-black text-white font-['Outfit'] mt-1">
-                  Strategy Prompt: {selectedPromptLead.name}
+                  Cadence Writer &amp; Analysis: {editingLead.name}
                 </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Write and customize the 4 cadence messages for this lead. When the scheduled dispatch day arrives, the CRM will automatically serve the saved message.
+                </p>
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedPromptLead(null)}
+                onClick={() => setEditingLead(null)}
                 className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Saved Gemini / DeepSeek Strategy Analysis Text */}
+            {/* Lead Analysis / Prompt Viewer */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono flex items-center gap-1.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-indigo-300 font-mono flex items-center gap-1.5">
                   <FileText className="w-4 h-4 text-indigo-400" />
-                  <span>Saved Lead Qualification Prompt</span>
+                  <span>Lead Engine Analysis &amp; Sourced Prompt</span>
                 </span>
                 <button
                   type="button"
                   onClick={() =>
-                    handleCopyText(
-                      selectedPromptLead.prompt ||
-                        selectedPromptLead.leadAnalysis ||
-                        selectedPromptLead.customPitch ||
-                        '',
-                      'prompt'
+                    handleCopyPrompt(
+                      editingLead.prompt ||
+                        editingLead.leadAnalysis ||
+                        editingLead.customPitch ||
+                        ''
                     )
                   }
                   className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-300 hover:text-white border border-white/10 flex items-center gap-1 transition cursor-pointer"
@@ -674,103 +529,130 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                   ) : (
                     <>
                       <Copy className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Copy Prompt</span>
+                      <span>Copy Analysis</span>
                     </>
                   )}
                 </button>
               </div>
 
-              <div className="p-4 rounded-2xl bg-slate-950/80 border border-white/10 text-xs text-slate-200 font-mono whitespace-pre-wrap leading-relaxed max-h-56 overflow-y-auto">
-                {selectedPromptLead.prompt ||
-                  selectedPromptLead.leadAnalysis ||
-                  selectedPromptLead.customPitch ||
-                  'No strategy prompt analysis found in lead record.'}
+              <div className="p-3.5 rounded-xl bg-slate-950/80 border border-white/10 text-xs text-slate-200 font-mono whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto">
+                {editingLead.prompt ||
+                  editingLead.leadAnalysis ||
+                  editingLead.customPitch ||
+                  'No strategy prompt attached to this lead.'}
               </div>
             </div>
 
-            {/* Write a Pitch & Spintax Generator Toggle */}
+            {/* The 4 Sequence Messages */}
             <div className="border-t border-white/10 pt-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-bold text-white font-['Outfit'] flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-amber-400" />
-                    <span>Spintax Pitch Generator</span>
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    Use <code className="text-amber-300 font-mono">{`{Hey|Hi|Hello}`}</code> syntax to generate high-converting variations.
-                  </p>
+              <h4 className="text-sm font-bold text-white font-['Outfit'] flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-indigo-400" />
+                <span>4-Step Multi-Channel Sequence</span>
+              </h4>
+
+              {/* Step 1: Initial DM (Day 0) */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs font-mono font-semibold text-slate-300">
+                  <span className="flex items-center gap-1.5 text-indigo-300">
+                    <span className="w-2 h-2 rounded-full bg-indigo-400" />
+                    <span>Step 1: Initial DM (Day 0 Pitch Hook)</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500">Under 75 words</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsPitchEditorOpen(!isPitchEditorOpen)}
-                  className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-bold transition cursor-pointer"
-                >
-                  {isPitchEditorOpen ? 'Hide Generator' : '✍️ Write a Pitch'}
-                </button>
+                <textarea
+                  rows={3}
+                  value={initialDmText}
+                  onChange={(e) => setInitialDmText(e.target.value)}
+                  placeholder="Hey team! I just posted a quick video breaking down your website..."
+                  className="w-full p-3 bg-slate-950 border border-white/10 rounded-xl text-xs font-sans text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 leading-relaxed"
+                />
               </div>
 
-              {isPitchEditorOpen && (
-                <div className="space-y-3.5 p-4 rounded-2xl bg-slate-950/90 border border-indigo-500/20 animate-fade-in">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1.5 font-mono">
-                      Spintax Template:
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={spintaxTemplate}
-                      onChange={(e) => setSpintaxTemplate(e.target.value)}
-                      placeholder="{Hey|Hi|Hello} there! Loved what you're doing at {lead.name}..."
-                      className="w-full p-3 bg-slate-900 border border-white/10 rounded-xl text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 leading-relaxed"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3">
-                    <button
-                      type="button"
-                      onClick={handleSpinVariation}
-                      className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-orange-950/40 active:scale-95"
-                    >
-                      <Shuffle className="w-3.5 h-3.5" />
-                      <span>🎲 Spin Variation</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleSavePitchToLead}
-                      className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-indigo-950/40 active:scale-95"
-                    >
-                      <Save className="w-3.5 h-3.5" />
-                      <span>Save Pitch to Lead</span>
-                    </button>
-                  </div>
-
-                  {saveSuccessMessage && (
-                    <p className="text-xs text-emerald-400 font-semibold font-mono animate-fade-in">
-                      {saveSuccessMessage}
-                    </p>
-                  )}
-
-                  {/* Spun Output Preview */}
-                  {spunPitchResult && (
-                    <div className="p-3.5 rounded-xl bg-slate-900/90 border border-emerald-500/30 space-y-2">
-                      <div className="flex items-center justify-between text-[11px] text-emerald-400 font-mono font-bold">
-                        <span>✨ Spun Pitch Preview</span>
-                        <button
-                          type="button"
-                          onClick={() => handleCopyText(spunPitchResult, 'pitch')}
-                          className="px-2 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-[10px] flex items-center gap-1 transition"
-                        >
-                          {copiedPitch ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                          <span>{copiedPitch ? 'Copied' : 'Copy'}</span>
-                        </button>
-                      </div>
-                      <p className="text-xs text-slate-100 font-sans leading-relaxed whitespace-pre-wrap">
-                        {spunPitchResult}
-                      </p>
-                    </div>
-                  )}
+              {/* Step 2: Day 4 Follow-Up */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs font-mono font-semibold text-slate-300">
+                  <span className="flex items-center gap-1.5 text-purple-300">
+                    <span className="w-2 h-2 rounded-full bg-purple-400" />
+                    <span>Step 2: Day 4 Follow-Up (Value Check-In)</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500">Kitchen Ticket PDF</span>
                 </div>
+                <textarea
+                  rows={3}
+                  value={day4Text}
+                  onChange={(e) => setDay4Text(e.target.value)}
+                  placeholder="Hey there, did you get a chance to see that breakdown video? We just put together a quick PDF..."
+                  className="w-full p-3 bg-slate-950 border border-white/10 rounded-xl text-xs font-sans text-slate-100 placeholder-slate-600 focus:outline-none focus:border-purple-500 leading-relaxed"
+                />
+              </div>
+
+              {/* Step 3: Day 8 Follow-Up */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs font-mono font-semibold text-slate-300">
+                  <span className="flex items-center gap-1.5 text-amber-300">
+                    <span className="w-2 h-2 rounded-full bg-amber-400" />
+                    <span>Step 3: Day 8 Follow-Up (Social Proof / Case Study)</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500">12% Takeout Surge</span>
+                </div>
+                <textarea
+                  rows={3}
+                  value={day8Text}
+                  onChange={(e) => setDay8Text(e.target.value)}
+                  placeholder="Quick update—another spot in your area implemented that online ordering tweak and saw a 12% jump..."
+                  className="w-full p-3 bg-slate-950 border border-white/10 rounded-xl text-xs font-sans text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 leading-relaxed"
+                />
+              </div>
+
+              {/* Step 4: Day 14 Final Breakup */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs font-mono font-semibold text-slate-300">
+                  <span className="flex items-center gap-1.5 text-rose-300">
+                    <span className="w-2 h-2 rounded-full bg-rose-400" />
+                    <span>Step 4: Day 14 Breakup (Final Nudge / 60s Loom)</span>
+                  </span>
+                  <span className="text-[10px] text-slate-500">Close File or Loom</span>
+                </div>
+                <textarea
+                  rows={3}
+                  value={day14Text}
+                  onChange={(e) => setDay14Text(e.target.value)}
+                  placeholder="I know you're super busy running service. I'm archiving our video breakdown this week, but I recorded a quick 60-second Loom..."
+                  className="w-full p-3 bg-slate-950 border border-white/10 rounded-xl text-xs font-sans text-slate-100 placeholder-slate-600 focus:outline-none focus:border-rose-500 leading-relaxed"
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between pt-4 border-t border-white/10">
+              {saveSuccess ? (
+                <span className="text-xs text-emerald-400 font-bold font-mono flex items-center gap-1.5 animate-in fade-in">
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  <span>All 4 sequence messages saved to lead!</span>
+                </span>
+              ) : (
+                <span className="text-[11px] text-slate-500">
+                  Messages auto-serve in Today's Schedule on their respective dispatch days.
+                </span>
               )}
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingLead(null)}
+                  className="px-4 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSequence}
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-indigo-600/30 cursor-pointer active:scale-95"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Save Sequence to Lead</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -790,7 +672,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
                   Paste links line-by-line (format: <code className="text-indigo-300">URL</code> or <code className="text-indigo-300">URL, Business Name</code>).
-                  Duplicates are strictly blocked, and new leads are auto-scheduled starting tomorrow skipping Sundays.
+                  Duplicates are strictly blocked, and new leads are auto-scheduled.
                 </p>
               </div>
               <button
@@ -824,14 +706,6 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                 }
                 className="w-full p-3.5 bg-slate-950 border border-white/10 rounded-xl text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 leading-relaxed"
               />
-
-              <div className="p-3 rounded-xl bg-slate-950/60 border border-white/5 text-[11px] text-slate-400 space-y-1">
-                <p className="font-semibold text-slate-300">⚡ Closed-System Rules Enforced:</p>
-                <p>• {channel === 'instagram' ? 'Daily quota: 6 leads / day' : 'Daily quota: 4 leads / day'}</p>
-                <p>• Starts TOMORROW (today is reserved for warm-up)</p>
-                <p>• Sundays skipped completely (first date starts Monday if start is Sunday)</p>
-                <p>• Strict duplicate check prevents duplicate imports</p>
-              </div>
 
               <div className="flex items-center justify-end gap-3 pt-2">
                 <button

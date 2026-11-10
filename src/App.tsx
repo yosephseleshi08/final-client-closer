@@ -3,7 +3,6 @@ import { Header } from './components/Header';
 import { ChannelWorkspace } from './components/channel/ChannelWorkspace';
 import { TodaysSchedulePage } from './components/TodaysSchedulePage';
 import { ExecutiveDashboard } from './components/ExecutiveDashboard';
-import { AnalyticsView } from './components/AnalyticsView';
 import { HistoryPage } from './components/HistoryPage';
 import { LeadInboxView } from './components/LeadInboxView';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -23,6 +22,8 @@ import {
   isDateOverdue,
   isLeadDismissedToday,
   isTodaySunday,
+  isLeadWarmedBeforeToday,
+  isEmailOnlyLead,
 } from './utils/cadenceEngine';
 import { isPipelineFrozenNow, togglePipelineFreeze } from './utils/pipelineFreeze';
 
@@ -81,9 +82,10 @@ export default function App() {
       if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
       if (isLeadDismissedToday(l)) return false;
 
-      // 1. Initial outreach due today or overdue
-      if (!l.initialSentDate && l.scheduledDate && (isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate))) {
-        return true;
+      // 1. Initial outreach due today: MUST be scheduled for today and warmed before today (or email-only)
+      if (!l.initialSentDate && l.scheduledDate && isDateToday(l.scheduledDate)) {
+        if (isEmailOnlyLead(l)) return true;
+        return isLeadWarmedBeforeToday(l, todayStr);
       }
 
       // 2. Follow-Up #1 due today or overdue
@@ -150,6 +152,10 @@ export default function App() {
                   handleUpdateInstagramLeads(updatedLeads);
                 }
               }}
+              onBatchAccepted={(cLeads, igLeads) => {
+                handleUpdateCombinedLeads(cLeads);
+                handleUpdateInstagramLeads(igLeads);
+              }}
               onNavigateToChannel={(channel) => {
                 if (channel === 'email' || channel === 'facebook') {
                   setActiveNavTab('combined');
@@ -193,13 +199,6 @@ export default function App() {
               onNavigateToToday={() => setActiveNavTab('today')}
               isFrozen={isFrozen}
               onToggleFreeze={handleToggleFreeze}
-            />
-          )}
-
-          {activeNavTab === 'insights' && (
-            <AnalyticsView
-              combinedLeads={combinedLeads}
-              instagramLeads={instagramLeads}
             />
           )}
 

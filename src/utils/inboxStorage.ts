@@ -381,3 +381,132 @@ export function acceptInboxLeadIntoCrm(
     isDuplicate: false,
   };
 }
+
+/**
+ * Batch Accepts All Pending Leads from Inbox into CRM:
+ * 1. Iterates through all inbox leads.
+ * 2. Determines target channel ('instagram' or 'combined' for FB/Email).
+ * 3. Assigns IDs and auto-scheduled dates based on quotas (IG: 6, Combined: 4) skipping Sundays.
+ * 4. Checks duplicates to avoid duplicating any lead already in pipeline or already added in batch.
+ * 5. Saves to persistent storage for both channels.
+ * 6. Clears the inbox completely.
+ * 7. Returns updated leads for combined and instagram channels, along with acceptedCount and duplicateCount.
+ */
+export function acceptAllInboxLeadsIntoCrm(
+  leadsToAccept: InboxLead[],
+  existingChannelLeads?: {
+    combined?: ChannelLead[];
+    instagram?: ChannelLead[];
+  }
+): {
+  updatedCombined: ChannelLead[];
+  updatedInstagram: ChannelLead[];
+  acceptedCount: number;
+  duplicateCount: number;
+} {
+  let combinedList = [...(existingChannelLeads?.combined ?? loadChannelLeads('combined'))];
+  let instagramList = [...(existingChannelLeads?.instagram ?? loadChannelLeads('instagram'))];
+
+  let acceptedCount = 0;
+  let duplicateCount = 0;
+  const nowIso = new Date().toISOString();
+
+  for (const lead of leadsToAccept) {
+    let targetChannel: MultiChannelType = 'instagram';
+    if (lead.platform === 'Facebook' || lead.platform === 'Email') {
+      targetChannel = 'combined';
+    } else {
+      targetChannel = 'instagram';
+    }
+
+    const currentTargetList = targetChannel === 'combined' ? combinedList : instagramList;
+
+    const rawPlatformLink =
+      (typeof lead.platformLink === 'string' && lead.platformLink.trim()) ||
+      (typeof lead.profileLink === 'string' && lead.profileLink.trim()) ||
+      extractRawPlatformLink(lead.rawDetails) ||
+      '';
+
+    const storedLink = rawPlatformLink;
+
+    if (storedLink) {
+      const duplicate = findDuplicateLead(storedLink, currentTargetList);
+      if (duplicate) {
+        duplicateCount++;
+        continue;
+      }
+    }
+
+    const { id, numericId } = getNextLeadId(targetChannel, currentTargetList);
+    const assignedScheduleDate = getNextAvailableScheduleDate(currentTargetList, targetChannel);
+    const isFbRestricted = Boolean(lead.rawDetails?.fb_message_restricted || lead.rawDetails?.restricted);
+
+    const extractedFb =
+      lead.facebook ||
+      lead.rawDetails?.facebook ||
+      lead.rawDetails?.Facebook ||
+      lead.rawDetails?.facebookUrl ||
+      lead.rawDetails?.facebook_url ||
+      lead.rawDetails?.fb ||
+      lead.rawDetails?.socialLinks?.facebook ||
+      (rawPlatformLink.includes('facebook.com') || rawPlatformLink.includes('fb.com') ? rawPlatformLink : undefined);
+
+    const extractedEmail =
+      lead.email ||
+      lead.rawDetails?.email ||
+      lead.rawDetails?.Email ||
+      lead.rawDetails?.emailAddress ||
+      lead.rawDetails?.contactEmail ||
+      lead.rawDetails?.socialLinks?.email ||
+      (rawPlatformLink.includes('@') && !rawPlatformLink.includes('facebook.com') && !rawPlatformLink.includes('instagram.com') ? rawPlatformLink : undefined);
+
+    const newChannelLead: ChannelLead = {
+      id,
+      numericId,
+      name: lead.name,
+      link: storedLink,
+      platformLink: storedLink,
+      facebook: extractedFb || undefined,
+      email: extractedEmail || undefined,
+      channel: targetChannel,
+      sortOrder: currentTargetList.length,
+      createdAt: nowIso,
+      scheduledDate: assignedScheduleDate,
+      warmupStatus: 'locked',
+      isWarmedUp: false,
+      fb_message_restricted: isFbRestricted || undefined,
+      prompt: lead.prompt || undefined,
+      customPitch: lead.prompt || undefined,
+      initialDM: lead.prompt || undefined,
+      leadAnalysis: lead.prompt || undefined,
+      analysisSavedAt: lead.prompt ? nowIso : undefined,
+      stagedDmMiniPitch: lead.prompt || undefined,
+      rawDetails: lead.rawDetails,
+    };
+
+    if (targetChannel === 'combined') {
+      combinedList.push(newChannelLead);
+    } else {
+      instagramList.push(newChannelLead);
+    }
+    acceptedCount++;
+  }
+
+  // Resequence sort orders
+  combinedList = combinedList.map((l, idx) => ({ ...l, sortOrder: idx }));
+  instagramList = instagramList.map((l, idx) => ({ ...l, sortOrder: idx }));
+
+  // Save both channels
+  saveChannelLeads('combined', combinedList);
+  saveChannelLeads('instagram', instagramList);
+
+  // Clear all accepted from Inbox
+  clearAllInboxLeads();
+
+  return {
+    updatedCombined: combinedList,
+    updatedInstagram: instagramList,
+    acceptedCount,
+    duplicateCount,
+  };
+}

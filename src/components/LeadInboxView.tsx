@@ -22,6 +22,7 @@ import {
   saveInboxLeads,
   parseQualifiedLeadsJson,
   acceptInboxLeadIntoCrm,
+  acceptAllInboxLeadsIntoCrm,
   removeInboxLead,
   clearAllInboxLeads,
 } from '../utils/inboxStorage';
@@ -30,6 +31,7 @@ import { TestLinkButton } from './TestLinkButton';
 
 interface LeadInboxViewProps {
   onLeadAccepted?: (targetChannel: MultiChannelType, updatedLeads: ChannelLead[]) => void;
+  onBatchAccepted?: (combinedLeads: ChannelLead[], instagramLeads: ChannelLead[]) => void;
   onNavigateToChannel?: (channel: MultiChannelType) => void;
   // Optional preloaded channel leads
   channelLeads?: {
@@ -48,6 +50,7 @@ interface ToastMessage {
 
 export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
   onLeadAccepted,
+  onBatchAccepted,
   onNavigateToChannel,
   channelLeads,
 }) => {
@@ -191,34 +194,27 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
     showToast(`❌ Lead ${lead.name} rejected.`, 'reject');
   };
 
-  // Batch Accept All
+  // Batch Accept All - Iterates and moves all leads to correct workspaces with assigned dates
   const handleAcceptAll = () => {
     if (inboxLeads.length === 0) return;
-    let acceptedCount = 0;
-    let duplicateCount = 0;
+    try {
+      const result = acceptAllInboxLeadsIntoCrm(inboxLeads, channelLeads);
+      setInboxLeads([]);
 
-    const remaining: InboxLead[] = [];
-
-    [...inboxLeads].forEach((lead) => {
-      const result = acceptInboxLeadIntoCrm(lead, channelLeads);
-      if (result.isDuplicate) {
-        duplicateCount++;
-        remaining.push(lead);
-      } else {
-        acceptedCount++;
-        if (onLeadAccepted) {
-          onLeadAccepted(result.targetChannel, result.updatedLeads);
-        }
+      if (onBatchAccepted) {
+        onBatchAccepted(result.updatedCombined, result.updatedInstagram);
+      } else if (onLeadAccepted) {
+        onLeadAccepted('combined', result.updatedCombined);
+        onLeadAccepted('instagram', result.updatedInstagram);
       }
-    });
 
-    setInboxLeads(remaining);
-
-    if (duplicateCount > 0) {
-      showToast('Lead already exists in the pipeline.', 'error');
-    }
-    if (acceptedCount > 0) {
-      showToast(`✅ Accepted ${acceptedCount} leads into CRM!`, 'accept');
+      if (result.duplicateCount > 0) {
+        showToast(`${result.duplicateCount} duplicate leads skipped.`, 'info');
+      }
+      showToast(`✅ Accepted ${result.acceptedCount} leads into CRM!`, 'accept');
+    } catch (err) {
+      console.error('Failed to accept all leads:', err);
+      showToast('Error accepting leads into CRM.', 'error');
     }
   };
 

@@ -16,6 +16,9 @@ import {
   Info,
   Layers,
   ArrowRight,
+  Download,
+  X,
+  Send,
 } from 'lucide-react';
 import { DailyHistoryRecord, DailyHistoryStatus, ChannelLead } from '../types';
 import {
@@ -54,6 +57,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
   );
   const [filterStatus, setFilterStatus] = useState<'all' | 'full' | 'sunday' | 'partial_zero'>('all');
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [inspectedDate, setInspectedDate] = useState<string | null>(null);
   const [showResetModal, setShowResetModal] = useState<boolean>(false);
 
   const todayStr = getLocalTodayStr();
@@ -177,6 +181,61 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
     setShowResetModal(false);
   };
 
+  /**
+   * Requirement 3: Download History CSV
+   * Columns: Date, Completion % (Outreach), Completion % (Warm-Up), Initial DMs Sent, Day 4 Sent, Day 8 Sent, Day 14 Sent
+   */
+  const handleDownloadCsv = () => {
+    const headers = [
+      'Date',
+      'Completion % (Outreach)',
+      'Completion % (Warm-Up)',
+      'Initial DMs Sent',
+      'Day 4 Sent',
+      'Day 8 Sent',
+      'Day 14 Sent',
+    ];
+
+    const rows = thirtyDayWindow.map((day) => {
+      const tp = touchpointsByDate[day.date] || { initial: 0, d4: 0, d8: 0, d14: 0 };
+      const outreachPct = day.isSunday ? 'Rest' : day.status === 'pre_launch' ? '0%' : `${day.percentage}%`;
+      const warmupPct = day.isSunday ? 'Rest' : day.status === 'pre_launch' ? '0%' : (day.percentage > 0 ? '100%' : '0%');
+      return [
+        `"${day.date}"`,
+        `"${outreachPct}"`,
+        `"${warmupPct}"`,
+        tp.initial,
+        tp.d4,
+        tp.d8,
+        tp.d14,
+      ].join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `outreach-history-${todayStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const getLeadsSentOnDate = (targetDate?: string | null) => {
+    if (!targetDate) return { initial: [], d4: [], d8: [], d14: [] };
+    const normalized = normalizeToLocalDateStr(targetDate);
+    if (!normalized) return { initial: [], d4: [], d8: [], d14: [] };
+
+    return {
+      initial: allLeads.filter((l) => normalizeToLocalDateStr(l.initialSentDate) === normalized),
+      d4: allLeads.filter((l) => normalizeToLocalDateStr(l.followup1SentDate) === normalized),
+      d8: allLeads.filter((l) => normalizeToLocalDateStr(l.followup2SentDate) === normalized),
+      d14: allLeads.filter((l) => normalizeToLocalDateStr(l.followup3SentDate) === normalized),
+    };
+  };
+
   // Helper for status styling & icons
   const getStatusDisplay = (record: DailyHistoryRecord) => {
     if (record.status === 'frozen' || record.isFrozen) {
@@ -260,7 +319,15 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5 self-start md:self-auto">
+        <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
+          <button
+            onClick={handleDownloadCsv}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-emerald-300 hover:text-white bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 rounded-lg transition-colors cursor-pointer shadow-sm active:scale-95"
+            title="Download complete 30-day history ledger as CSV"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Download History CSV</span>
+          </button>
           <button
             onClick={onNavigateToToday}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-800/80 hover:bg-slate-800 border border-white/10 rounded-lg transition-colors"
@@ -460,7 +527,10 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
               <button
                 key={day.date}
                 type="button"
-                onClick={() => setSelectedDate(isSelected ? null : day.date)}
+                onClick={() => {
+                  setInspectedDate(day.date);
+                  setSelectedDate(day.date);
+                }}
                 title={
                   day.isSunday
                     ? 'Sunday Rest Day'
@@ -678,6 +748,175 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
           )}
         </div>
       </div>
+
+      {/* Requirement 3: Click to Inspect Date Modal */}
+      {inspectedDate && (() => {
+        const inspectedRecord = thirtyDayWindow.find((d) => d.date === inspectedDate);
+        const statusMeta = inspectedRecord ? getStatusDisplay(inspectedRecord) : null;
+        const leadsSent = getLeadsSentOnDate(inspectedDate);
+        const totalSent =
+          leadsSent.initial.length +
+          leadsSent.d4.length +
+          leadsSent.d8.length +
+          leadsSent.d14.length;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
+            <div className="w-full max-w-2xl rounded-3xl bg-slate-900 border border-white/10 p-6 sm:p-7 shadow-2xl space-y-5 text-slate-100 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-start justify-between border-b border-white/10 pb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold text-orange-400 bg-orange-500/10 px-2.5 py-0.5 rounded border border-orange-500/20">
+                      Audit Inspection
+                    </span>
+                    {statusMeta && (
+                      <span className={`px-2.5 py-0.5 rounded text-xs font-bold border ${statusMeta.badgeBg}`}>
+                        {statusMeta.label}
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="text-xl font-black text-white font-['Outfit'] mt-1">
+                    {inspectedRecord?.displayDate || inspectedDate}
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {statusMeta?.desc || 'Audit breakdown for this date'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInspectedDate(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Stats Breakdown Summary */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3.5 rounded-2xl bg-blue-500/10 border border-blue-500/20">
+                  <span className="text-[10px] font-mono font-bold text-blue-300 uppercase">🔵 Initial DMs</span>
+                  <div className="text-2xl font-black text-white font-mono mt-1">{leadsSent.initial.length}</div>
+                </div>
+                <div className="p-3.5 rounded-2xl bg-purple-500/10 border border-purple-500/20">
+                  <span className="text-[10px] font-mono font-bold text-purple-300 uppercase">🟣 Day 4 Sent</span>
+                  <div className="text-2xl font-black text-white font-mono mt-1">{leadsSent.d4.length}</div>
+                </div>
+                <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+                  <span className="text-[10px] font-mono font-bold text-amber-300 uppercase">🟡 Day 8 Sent</span>
+                  <div className="text-2xl font-black text-white font-mono mt-1">{leadsSent.d8.length}</div>
+                </div>
+                <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/20">
+                  <span className="text-[10px] font-mono font-bold text-rose-300 uppercase">🔴 Day 14 Sent</span>
+                  <div className="text-2xl font-black text-white font-mono mt-1">{leadsSent.d14.length}</div>
+                </div>
+              </div>
+
+              {/* Detailed Lead Lists */}
+              {totalSent === 0 ? (
+                <div className="py-8 text-center text-slate-500 text-xs">
+                  No outreach dispatches were recorded as sent on this date.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {leadsSent.initial.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-bold text-blue-300 uppercase font-mono tracking-wider flex items-center gap-1.5">
+                        <span>🔵 Initial DMs Dispatched ({leadsSent.initial.length})</span>
+                      </h4>
+                      <div className="divide-y divide-white/5 rounded-xl border border-white/5 bg-slate-950/60 p-2">
+                        {leadsSent.initial.map((lead) => (
+                          <div key={lead.id} className="py-2 px-2 flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded">
+                                {lead.id}
+                              </span>
+                              <span className="text-slate-100 font-semibold">{lead.name}</span>
+                            </div>
+                            <span className="text-[11px] text-slate-400 font-mono capitalize">{lead.channel}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {leadsSent.d4.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-bold text-purple-300 uppercase font-mono tracking-wider flex items-center gap-1.5">
+                        <span>🟣 Day 4 Follow-Ups (Kitchen Ticket PDF) ({leadsSent.d4.length})</span>
+                      </h4>
+                      <div className="divide-y divide-white/5 rounded-xl border border-white/5 bg-slate-950/60 p-2">
+                        {leadsSent.d4.map((lead) => (
+                          <div key={lead.id} className="py-2 px-2 flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded">
+                                {lead.id}
+                              </span>
+                              <span className="text-slate-100 font-semibold">{lead.name}</span>
+                            </div>
+                            <span className="text-[11px] text-slate-400 font-mono capitalize">{lead.channel}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {leadsSent.d8.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-bold text-amber-300 uppercase font-mono tracking-wider flex items-center gap-1.5">
+                        <span>🟡 Day 8 Follow-Ups (Social Proof) ({leadsSent.d8.length})</span>
+                      </h4>
+                      <div className="divide-y divide-white/5 rounded-xl border border-white/5 bg-slate-950/60 p-2">
+                        {leadsSent.d8.map((lead) => (
+                          <div key={lead.id} className="py-2 px-2 flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                                {lead.id}
+                              </span>
+                              <span className="text-slate-100 font-semibold">{lead.name}</span>
+                            </div>
+                            <span className="text-[11px] text-slate-400 font-mono capitalize">{lead.channel}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {leadsSent.d14.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-bold text-rose-300 uppercase font-mono tracking-wider flex items-center gap-1.5">
+                        <span>🔴 Day 14 Breakup (60s Loom) ({leadsSent.d14.length})</span>
+                      </h4>
+                      <div className="divide-y divide-white/5 rounded-xl border border-white/5 bg-slate-950/60 p-2">
+                        {leadsSent.d14.map((lead) => (
+                          <div key={lead.id} className="py-2 px-2 flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded">
+                                {lead.id}
+                              </span>
+                              <span className="text-slate-100 font-semibold">{lead.name}</span>
+                            </div>
+                            <span className="text-[11px] text-slate-400 font-mono capitalize">{lead.channel}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end pt-3 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setInspectedDate(null)}
+                  className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition cursor-pointer"
+                >
+                  Close Inspection
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Reset History Confirmation Modal */}
       {showResetModal && (

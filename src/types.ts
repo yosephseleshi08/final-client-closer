@@ -251,7 +251,7 @@ export interface WeeklyAnalysisSummary {
 
 export type MultiChannelType = 'combined' | 'instagram' | 'email' | 'facebook';
 
-export type GlobalNavTab = 'combined' | 'instagram' | 'inbox' | 'today' | 'dashboard' | 'insights' | 'history';
+export type GlobalNavTab = 'combined' | 'instagram' | 'inbox' | 'today' | 'dashboard' | 'history';
 
 export type DailyHistoryStatus = 'full' | 'partial' | 'zero' | 'sunday' | 'frozen' | 'pre_launch';
 
