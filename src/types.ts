@@ -300,6 +300,7 @@ export interface InboxLead {
   rawPlatform?: string;
   profileLink: string;
   platformLink?: string;
+  instagram?: string;
   facebook?: string;
   email?: string;
   prompt: string;
@@ -315,6 +316,7 @@ export interface ChannelLead {
   name: string; // Business or contact name
   link: string; // Raw platform link / social handle / website / mailto:
   platformLink?: string; // Explicit raw platformLink value from Lead Qualification JSON
+  instagram?: string; // Explicit Instagram handle or link
   facebook?: string; // Explicit Facebook page link or handle for dual-channel workflow
   instagram?: string; // Explicit Instagram handle or link
   email?: string; // Explicit Email address for dual-channel workflow
