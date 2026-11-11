@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Edit3,
   ExternalLink,
@@ -17,6 +17,7 @@ import {
   Facebook,
   Instagram,
   Mail,
+  Timer,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import { getChannelLabel, getPlatformLink, getLeadFacebook, getLeadEmail, getBlindRouteLink } from '../../utils/channelStorage';
@@ -29,6 +30,12 @@ import {
   getTouchpointChannel,
   getTouchpointLabel,
 } from '../../utils/cadenceEngine';
+import {
+  getWarmupCooldownRemaining,
+  startWarmupCooldown,
+  getLeadWarmupPlatform,
+  formatCooldownTime,
+} from '../../utils/antiSpamLock';
 import { LeadAnalysisModal } from './LeadAnalysisModal';
 
 interface DmSubPageProps {
@@ -40,6 +47,36 @@ interface DmSubPageProps {
 export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [promptModalLeadId, setPromptModalLeadId] = useState<string | null>(null);
+
+  // 8-Minute Platform-Independent Warm-Up Cooling Breaks
+  const [igWarmupCooldownMs, setIgWarmupCooldownMs] = useState<number>(() => getWarmupCooldownRemaining('instagram'));
+  const [fbWarmupCooldownMs, setFbWarmupCooldownMs] = useState<number>(() => getWarmupCooldownRemaining('facebook'));
+  const [coolingToast, setCoolingToast] = useState<{
+    platform: 'Instagram' | 'Facebook';
+    remainingTime: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!coolingToast) return;
+    const timer = setTimeout(() => setCoolingToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [coolingToast]);
+
+  useEffect(() => {
+    const updateTimers = () => {
+      setIgWarmupCooldownMs(getWarmupCooldownRemaining('instagram'));
+      setFbWarmupCooldownMs(getWarmupCooldownRemaining('facebook'));
+    };
+
+    const timer = setInterval(updateTimers, 1000);
+    const handleCooldownChange = () => updateTimers();
+
+    window.addEventListener('outreach_warmup_cooldown_changed', handleCooldownChange);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('outreach_warmup_cooldown_changed', handleCooldownChange);
+    };
+  }, []);
 
   // 4-Step Cadence States (Manual Writing & Storage)
   const [initialDraft, setInitialDraft] = useState('');
@@ -128,6 +165,18 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   // Warm-Up Gate Toggle: Strictly sets warmupStatus to 'warmed' or 'locked'
   const handleToggleWarmup = (lead: ChannelLead) => {
     const isCurrentlyWarmed = isLeadWarmed(lead);
+    const platform = getLeadWarmupPlatform(lead);
+    const currentCooldown = platform === 'instagram' ? igWarmupCooldownMs : fbWarmupCooldownMs;
+
+    // If attempting to warm up during active cooling:
+    if (!isCurrentlyWarmed && currentCooldown > 0) {
+      setCoolingToast({
+        platform: platform === 'instagram' ? 'Instagram' : 'Facebook',
+        remainingTime: formatCooldownTime(currentCooldown),
+      });
+      return;
+    }
+
     const nextVal = !isCurrentlyWarmed;
     const nowIso = new Date().toISOString();
     const updated = leads.map((l) => {
@@ -142,6 +191,15 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
       return l;
     });
     onUpdateLeads(updated);
+
+    if (nextVal) {
+      startWarmupCooldown(platform);
+      if (platform === 'instagram') {
+        setIgWarmupCooldownMs(8 * 60 * 1000);
+      } else {
+        setFbWarmupCooldownMs(8 * 60 * 1000);
+      }
+    }
   };
 
   const handleCopyDm = (lead: ChannelLead) => {
@@ -180,6 +238,36 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
 
   return (
     <div className="space-y-6">
+      {/* Friendly Cooling Break Toast Banner */}
+      {coolingToast && (
+        <div className="p-4 rounded-2xl border border-amber-500/50 bg-gradient-to-r from-amber-950/95 via-slate-900/95 to-slate-900/95 text-amber-200 shadow-2xl flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center justify-center shrink-0 shadow-lg shadow-amber-950/50">
+              <Timer className="w-5 h-5 text-amber-400 animate-spin" />
+            </div>
+            <div>
+              <div className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
+                <span>⏱️ {coolingToast.platform} Cooling Break Active</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                  {coolingToast.remainingTime} remaining
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                8-minute anti-spam guardrail running to protect account health against burst engagement flags.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCoolingToast(null)}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
+            title="Dismiss notification"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Header Deck: Daily Warm-Up Cycle Notice */}
       <div className="rounded-3xl border border-amber-500/30 bg-gradient-to-r from-amber-950/40 via-slate-900/95 to-slate-900/95 p-5 sm:p-6 backdrop-blur-xl shadow-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1">
@@ -217,6 +305,19 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
             <div className="bg-amber-500/10 border border-amber-500/30 px-3.5 py-2 rounded-xl flex items-center gap-2 text-amber-300 font-bold animate-pulse">
               <span>🔒 Need Warm-Up:</span>
               <span>{lockedCount}</span>
+            </div>
+          )}
+          {(igWarmupCooldownMs > 0 || fbWarmupCooldownMs > 0) && (
+            <div className="bg-amber-500/15 border border-amber-500/30 px-3.5 py-2 rounded-xl flex items-center gap-2 text-amber-200 font-bold">
+              <Timer className="w-3.5 h-3.5 text-amber-400 animate-spin shrink-0" />
+              <span>
+                Cooling:{' '}
+                {channel === 'instagram'
+                  ? formatCooldownTime(igWarmupCooldownMs)
+                  : fbWarmupCooldownMs > 0
+                  ? `FB (${formatCooldownTime(fbWarmupCooldownMs)})`
+                  : `IG (${formatCooldownTime(igWarmupCooldownMs)})`}
+              </span>
             </div>
           )}
         </div>
@@ -470,18 +571,50 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                       </button>
 
                       {/* THE PRIMARY GATE: Toggle Warm-Up Status */}
-                      <button
-                        type="button"
-                        onClick={() => handleToggleWarmup(lead)}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 ${
-                          isWarmed
-                            ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 shadow-emerald-950/40'
-                            : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-950/50 ring-2 ring-amber-400/50 animate-pulse'
-                        }`}
-                      >
-                        <Flame className={`w-4 h-4 ${isWarmed ? 'text-emerald-400' : 'fill-slate-950 text-slate-950'}`} />
-                        <span>{isWarmed ? '✓ Warmed (Click to Lock)' : '🔥 Mark as Warmed'}</span>
-                      </button>
+                      {(() => {
+                        const leadPlat = getLeadWarmupPlatform(lead);
+                        const leadCooldown = leadPlat === 'instagram' ? igWarmupCooldownMs : fbWarmupCooldownMs;
+                        const isCooling = !isWarmed && leadCooldown > 0;
+
+                        if (isWarmed) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleWarmup(lead)}
+                              className="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 shadow-emerald-950/40"
+                              title="Profile Warmed Up (Click to toggle)"
+                            >
+                              <Flame className="w-4 h-4 text-emerald-400" />
+                              <span>✓ Warmed (Click to Lock)</span>
+                            </button>
+                          );
+                        }
+
+                        if (isCooling) {
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleWarmup(lead)}
+                              className="px-4 py-2 rounded-xl text-xs font-bold font-mono transition flex items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40"
+                              title={`${leadPlat === 'instagram' ? 'Instagram' : 'Facebook'} cooling break active (${formatCooldownTime(leadCooldown)} remaining). Click for details.`}
+                            >
+                              <Timer className="w-4 h-4 text-amber-400 animate-spin shrink-0" />
+                              <span>⏱️ {formatCooldownTime(leadCooldown)}</span>
+                            </button>
+                          );
+                        }
+
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleWarmup(lead)}
+                            className="px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-950/50 ring-2 ring-amber-400/50 animate-pulse"
+                          >
+                            <Flame className="w-4 h-4 fill-slate-950 text-slate-950" />
+                            <span>🔥 Mark as Warmed</span>
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
 

@@ -318,7 +318,6 @@ export interface ChannelLead {
   platformLink?: string; // Explicit raw platformLink value from Lead Qualification JSON
   instagram?: string; // Explicit Instagram handle or link
   facebook?: string; // Explicit Facebook page link or handle for dual-channel workflow
-  instagram?: string; // Explicit Instagram handle or link
   email?: string; // Explicit Email address for dual-channel workflow
   rawDetails?: Record<string, any>; // Underlying extracted details from lead qualification
   channel: MultiChannelType;

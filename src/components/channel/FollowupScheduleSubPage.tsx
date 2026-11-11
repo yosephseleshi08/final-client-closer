@@ -51,6 +51,7 @@ import {
   getTomorrowWarmupTargetDate,
 } from '../../utils/cadenceEngine';
 import { getChannelLabel, getBlindRouteLink } from '../../utils/channelStorage';
+import { startWarmupCooldown, getLeadWarmupPlatform } from '../../utils/antiSpamLock';
 import { TestLinkButton } from '../TestLinkButton';
 
 interface FollowupScheduleSubPageProps {
@@ -572,6 +573,8 @@ export function FollowupScheduleSubPage({
                           onClick={() => {
                             const nowIso = new Date().toISOString();
                             const targetTomorrow = getTomorrowWarmupTargetDate(todayStr);
+                            const platform = getLeadWarmupPlatform(lead);
+                            startWarmupCooldown(platform);
                             handleUpdateLeadItem({
                               ...lead,
                               warmupStatus: 'warmed',

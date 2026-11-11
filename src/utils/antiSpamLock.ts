@@ -49,3 +49,58 @@ export function formatCooldownTime(msRemaining: number): string {
   const seconds = totalSeconds % 60;
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
+
+/**
+ * 8-Minute Platform-Independent Warm-Up Cooling Break
+ * Tracks independent timers for Instagram and Facebook warm-up actions.
+ */
+export const WARMUP_COOLDOWN_MS = 8 * 60 * 1000; // 8 minutes
+
+export function getWarmupCooldownStorageKey(platform: 'instagram' | 'facebook'): string {
+  return `outreach_warmup_cooldown_${platform}`;
+}
+
+/**
+ * Returns remaining warm-up cooldown in milliseconds for the given platform.
+ */
+export function getWarmupCooldownRemaining(platform: 'instagram' | 'facebook'): number {
+  try {
+    const raw = localStorage.getItem(getWarmupCooldownStorageKey(platform));
+    if (!raw) return 0;
+    const expiresAt = parseInt(raw, 10);
+    if (isNaN(expiresAt)) return 0;
+    const remaining = expiresAt - Date.now();
+    return remaining > 0 ? remaining : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Sets an 8-minute cooling break strictly for the specified platform.
+ */
+export function startWarmupCooldown(platform: 'instagram' | 'facebook'): void {
+  try {
+    const expiresAt = Date.now() + WARMUP_COOLDOWN_MS;
+    localStorage.setItem(getWarmupCooldownStorageKey(platform), expiresAt.toString());
+    window.dispatchEvent(
+      new CustomEvent('outreach_warmup_cooldown_changed', { detail: { platform } })
+    );
+  } catch (err) {
+    console.error('Failed to set warm-up cooldown:', err);
+  }
+}
+
+/**
+ * Helper to identify which platform warm-up channel applies to a lead.
+ */
+export function getLeadWarmupPlatform(lead?: { channel?: string; facebook?: string; instagram?: string; link?: string; platformLink?: string } | null): 'instagram' | 'facebook' {
+  if (!lead) return 'instagram';
+  if (lead.channel === 'instagram') return 'instagram';
+  if (lead.facebook || lead.channel === 'facebook') return 'facebook';
+  const raw = (lead.platformLink || lead.link || '').toLowerCase();
+  if (raw.includes('facebook') || raw.includes('fb.com') || raw.includes('fb.me')) {
+    return 'facebook';
+  }
+  return 'instagram';
+}

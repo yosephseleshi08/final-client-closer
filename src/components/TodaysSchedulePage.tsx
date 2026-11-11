@@ -69,6 +69,9 @@ import {
   getChannelCooldownRemaining,
   startChannelCooldown,
   formatCooldownTime,
+  getWarmupCooldownRemaining,
+  startWarmupCooldown,
+  getLeadWarmupPlatform,
 } from '../utils/antiSpamLock';
 
 interface TodaysSchedulePageProps {
@@ -113,36 +116,61 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     action: 'warmed' | 'locked';
     channel: string;
     timestamp: string;
+    notice?: string;
+  } | null>(null);
+
+  // Friendly Feedback Toast when user clicks a button during an 8-minute cooling break
+  const [coolingToast, setCoolingToast] = useState<{
+    platform: 'Instagram' | 'Facebook';
+    remainingTime: string;
+    timestamp: string;
   } | null>(null);
 
   useEffect(() => {
     if (!warmupToast) return;
     const timer = setTimeout(() => {
       setWarmupToast(null);
-    }, 4000);
+    }, 4500);
     return () => clearTimeout(timer);
   }, [warmupToast]);
 
-  // Anti-Spam 12-Minute Countdown Cooldown Timers (Requirement 5)
+  useEffect(() => {
+    if (!coolingToast) return;
+    const timer = setTimeout(() => {
+      setCoolingToast(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [coolingToast]);
+
+  // Anti-Spam 12-Minute Countdown Cooldown Timers (Direct Messages)
   const [igCooldownMs, setIgCooldownMs] = useState<number>(() => getChannelCooldownRemaining('instagram'));
   const [combinedCooldownMs, setCombinedCooldownMs] = useState<number>(() => getChannelCooldownRemaining('combined'));
 
-  // Ticking cooldown timer
+  // 8-Minute Platform-Independent Warm-Up Cooling Breaks
+  const [igWarmupCooldownMs, setIgWarmupCooldownMs] = useState<number>(() => getWarmupCooldownRemaining('instagram'));
+  const [fbWarmupCooldownMs, setFbWarmupCooldownMs] = useState<number>(() => getWarmupCooldownRemaining('facebook'));
+
+  // Ticking cooldown timer for both DM spacing and Warm-Up cooling breaks
   useEffect(() => {
-    const timer = setInterval(() => {
+    const updateAllTimers = () => {
       setIgCooldownMs(getChannelCooldownRemaining('instagram'));
       setCombinedCooldownMs(getChannelCooldownRemaining('combined'));
-    }, 1000);
+      setIgWarmupCooldownMs(getWarmupCooldownRemaining('instagram'));
+      setFbWarmupCooldownMs(getWarmupCooldownRemaining('facebook'));
+    };
+
+    const timer = setInterval(updateAllTimers, 1000);
 
     const handleCooldownChange = () => {
-      setIgCooldownMs(getChannelCooldownRemaining('instagram'));
-      setCombinedCooldownMs(getChannelCooldownRemaining('combined'));
+      updateAllTimers();
     };
 
     window.addEventListener('outreach_cooldown_changed', handleCooldownChange);
+    window.addEventListener('outreach_warmup_cooldown_changed', handleCooldownChange);
     return () => {
       clearInterval(timer);
       window.removeEventListener('outreach_cooldown_changed', handleCooldownChange);
+      window.removeEventListener('outreach_warmup_cooldown_changed', handleCooldownChange);
     };
   }, []);
 
@@ -364,6 +392,21 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
 
   const handleToggleLeadWarmup = (lead: ChannelLead) => {
     const isCurrentlyWarmed = lead.warmupStatus === 'warmed' || Boolean(lead.isWarmedUp);
+    const platform = getLeadWarmupPlatform(lead);
+    const currentCooldown = platform === 'instagram' ? igWarmupCooldownMs : fbWarmupCooldownMs;
+
+    // If attempting to warm up a lead while this platform is in an active cooling break:
+    if (!isCurrentlyWarmed && currentCooldown > 0) {
+      const platLabel = platform === 'instagram' ? 'Instagram' : 'Facebook';
+      setCoolingToast({
+        platform: platLabel,
+        remainingTime: formatCooldownTime(currentCooldown),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      });
+      playNotificationChime();
+      return;
+    }
+
     const nextVal = !isCurrentlyWarmed;
     const targetTomorrow = getTomorrowWarmupTargetDate(todayStr);
 
@@ -380,6 +423,14 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     handleUpdateLead(updated);
 
     if (nextVal) {
+      // Start 8-minute cooling break strictly for this platform
+      startWarmupCooldown(platform);
+      if (platform === 'instagram') {
+        setIgWarmupCooldownMs(8 * 60 * 1000);
+      } else {
+        setFbWarmupCooldownMs(8 * 60 * 1000);
+      }
+
       if (warmupCompletedCount + 1 >= warmupTotalNeeded && warmupTotalNeeded > 0) {
         playGoalAccomplishedFanfare();
       } else {
@@ -389,12 +440,14 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       playNotificationChime();
     }
 
+    const platName = platform === 'instagram' ? 'Instagram' : 'Facebook';
     setWarmupToast({
       id: lead.id,
       leadName: lead.name,
       action: nextVal ? 'warmed' : 'locked',
       channel: lead.channel,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      notice: nextVal ? `${platName} 8-minute cooling break active to protect account.` : undefined,
     });
   };
 
@@ -662,11 +715,50 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                   </>
                 )}
               </p>
+              {warmupToast.notice && (
+                <div className="mt-1 text-[11px] font-mono text-emerald-300/90 font-semibold flex items-center gap-1">
+                  <span>⏱️</span>
+                  <span>{warmupToast.notice}</span>
+                </div>
+              )}
             </div>
           </div>
           <button
             type="button"
             onClick={() => setWarmupToast(null)}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
+            title="Dismiss notification"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Friendly Cooling Break Toast Banner */}
+      {coolingToast && (
+        <div className="p-4 rounded-2xl border border-amber-500/50 bg-gradient-to-r from-amber-950/95 via-slate-900/95 to-slate-900/95 text-amber-200 shadow-2xl flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 flex items-center justify-center shrink-0 shadow-lg shadow-amber-950/50">
+              <Timer className="w-5 h-5 text-amber-400 animate-spin" />
+            </div>
+            <div>
+              <div className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
+                <span>⏱️ {coolingToast.platform} Cooling Break Active</span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                  {coolingToast.remainingTime} remaining
+                </span>
+                <span className="text-[10px] font-mono text-slate-400">
+                  {coolingToast.timestamp}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                8-minute anti-spam guardrail running to protect account health. Other platform remains ready to engage!
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCoolingToast(null)}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
             title="Dismiss notification"
           >
@@ -1111,6 +1203,24 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
               </p>
             </div>
           </div>
+
+          {/* 8-Minute Platform Cooling Break Status Banners */}
+          {(igWarmupCooldownMs > 0 || fbWarmupCooldownMs > 0) && (
+            <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+              {igWarmupCooldownMs > 0 && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-pink-500/15 border border-pink-500/30 text-pink-200 text-xs font-mono font-bold shadow-sm">
+                  <Timer className="w-3.5 h-3.5 text-pink-400 animate-spin shrink-0" />
+                  <span>IG Cooling: {formatCooldownTime(igWarmupCooldownMs)}</span>
+                </div>
+              )}
+              {fbWarmupCooldownMs > 0 && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-200 text-xs font-mono font-bold shadow-sm">
+                  <Timer className="w-3.5 h-3.5 text-sky-400 animate-spin shrink-0" />
+                  <span>FB Cooling: {formatCooldownTime(fbWarmupCooldownMs)}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {warmupTotalNeeded === 0 ? (
@@ -1124,73 +1234,104 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {warmupForTomorrowLeads.map((lead) => (
-              <div
-                key={`warmup-${lead.channel}-${lead.id}`}
-                className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
-                  lead.isWarmedUp
-                    ? 'border-emerald-500/40 bg-emerald-950/20 shadow-sm'
-                    : 'border-amber-500/50 bg-amber-950/20 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500/30'
-                }`}
-              >
-                <div className="space-y-1 min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
-                      {lead.id}
-                    </span>
-                    <span className="text-[10px] uppercase font-mono font-bold text-slate-400">{lead.channel}</span>
-                  </div>
-                  <div className="font-semibold text-sm text-slate-100 truncate font-['Outfit']">
-                    {lead.name}
-                  </div>
-                  {(() => {
-                    const route = getBlindRouteLink(lead, 'warmup');
-                    if (!route) return null;
+            {warmupForTomorrowLeads.map((lead) => {
+              const leadPlat = getLeadWarmupPlatform(lead);
+              const leadCooldown = leadPlat === 'instagram' ? igWarmupCooldownMs : fbWarmupCooldownMs;
+              const isCooling = !lead.isWarmedUp && leadCooldown > 0;
 
-                    const isFb = route.channelType === 'facebook';
-                    return (
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <a
-                          href={route.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`inline-flex items-center gap-1 text-[11px] truncate max-w-full font-medium ${
-                            isFb ? 'text-sky-400 hover:text-sky-300' : 'text-pink-400 hover:text-pink-300'
-                          }`}
-                          title={`${route.actionLabel}: ${route.link}`}
-                        >
-                          {isFb ? (
-                            <Facebook className="w-3 h-3 text-sky-400 shrink-0" />
-                          ) : (
-                            <Instagram className="w-3 h-3 text-pink-400 shrink-0" />
-                          )}
-                          <span className="font-bold text-[10px] bg-white/10 px-1 rounded font-mono">
-                            {route.badgeLabel}
-                          </span>
-                          <span className="truncate max-w-[130px]">{route.link}</span>
-                          <ExternalLink className="w-3 h-3 shrink-0" />
-                        </a>
-                        <TestLinkButton lead={lead} platform={route.channelType} label={`Test ${route.badgeLabel}`} />
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleToggleLeadWarmup(lead)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 shrink-0 ${
+              return (
+                <div
+                  key={`warmup-${lead.channel}-${lead.id}`}
+                  className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
                     lead.isWarmedUp
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                      : 'bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/50 shadow-amber-950/40 animate-pulse'
+                      ? 'border-emerald-500/40 bg-emerald-950/20 shadow-sm'
+                      : isCooling
+                      ? 'border-amber-500/40 bg-amber-950/15'
+                      : 'border-amber-500/50 bg-amber-950/20 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500/30'
                   }`}
-                  title={lead.isWarmedUp ? 'Profile Warmed Up (Click to toggle)' : 'Mark profile as Warmed Up'}
                 >
-                  <span>🔥</span>
-                  <span>{lead.isWarmedUp ? 'Warmed' : 'Warm Up'}</span>
-                </button>
-              </div>
-            ))}
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                        {lead.id}
+                      </span>
+                      <span className="text-[10px] uppercase font-mono font-bold text-slate-400">{lead.channel}</span>
+                      {isCooling && (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          Cooling
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-semibold text-sm text-slate-100 truncate font-['Outfit']">
+                      {lead.name}
+                    </div>
+                    {(() => {
+                      const route = getBlindRouteLink(lead, 'warmup');
+                      if (!route) return null;
+
+                      const isFb = route.channelType === 'facebook';
+                      return (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <a
+                            href={route.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`inline-flex items-center gap-1 text-[11px] truncate max-w-full font-medium ${
+                              isFb ? 'text-sky-400 hover:text-sky-300' : 'text-pink-400 hover:text-pink-300'
+                            }`}
+                            title={`${route.actionLabel}: ${route.link}`}
+                          >
+                            {isFb ? (
+                              <Facebook className="w-3 h-3 text-sky-400 shrink-0" />
+                            ) : (
+                              <Instagram className="w-3 h-3 text-pink-400 shrink-0" />
+                            )}
+                            <span className="font-bold text-[10px] bg-white/10 px-1 rounded font-mono">
+                              {route.badgeLabel}
+                            </span>
+                            <span className="truncate max-w-[130px]">{route.link}</span>
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                          </a>
+                          <TestLinkButton lead={lead} platform={route.channelType} label={`Test ${route.badgeLabel}`} />
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {lead.isWarmedUp ? (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleLeadWarmup(lead)}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 shrink-0 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                      title="Profile Warmed Up (Click to toggle)"
+                    >
+                      <span>✅</span>
+                      <span>Warmed</span>
+                    </button>
+                  ) : isCooling ? (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleLeadWarmup(lead)}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold font-mono transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 shrink-0 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40"
+                      title={`${leadPlat === 'instagram' ? 'Instagram' : 'Facebook'} cooling break active (${formatCooldownTime(leadCooldown)} remaining). Click for details.`}
+                    >
+                      <Timer className="w-3.5 h-3.5 text-amber-400 animate-spin shrink-0" />
+                      <span>{formatCooldownTime(leadCooldown)}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleLeadWarmup(lead)}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 shrink-0 bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/50 shadow-amber-950/40 animate-pulse"
+                      title="Mark profile as Warmed Up"
+                    >
+                      <span>🔥</span>
+                      <span>Warm Up</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -1667,9 +1808,17 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
               <div className="space-y-6">
                 {/* 1. Instagram Warm-Up Section */}
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-pink-300 font-bold text-sm font-['Outfit'] border-b border-white/5 pb-1">
-                    <Instagram className="w-4 h-4" />
-                    <span>Instagram Leads (for Tomorrow)</span>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-1">
+                    <div className="flex items-center gap-2 text-pink-300 font-bold text-sm font-['Outfit']">
+                      <Instagram className="w-4 h-4" />
+                      <span>Instagram Leads (for Tomorrow)</span>
+                    </div>
+                    {igWarmupCooldownMs > 0 && (
+                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-pink-500/15 border border-pink-500/30 text-pink-200 text-xs font-mono font-bold shadow-sm">
+                        <Timer className="w-3.5 h-3.5 text-pink-400 animate-spin shrink-0" />
+                        <span>IG Cooling: {formatCooldownTime(igWarmupCooldownMs)}</span>
+                      </div>
+                    )}
                   </div>
                   {warmupForTomorrowLeads.filter((l) => l.channel === 'instagram').length === 0 ? (
                     <p className="text-xs text-slate-500 italic pl-1">No Instagram leads scheduled for tomorrow.</p>
@@ -1679,12 +1828,15 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         .filter((l) => l.channel === 'instagram')
                         .map((lead) => {
                           const route = getBlindRouteLink(lead, 'warmup');
+                          const isCooling = !lead.isWarmedUp && igWarmupCooldownMs > 0;
                           return (
                             <div
                               key={lead.id}
                               className={`p-4 rounded-2xl border flex items-center justify-between gap-3 ${
                                 lead.isWarmedUp
                                   ? 'border-emerald-500/40 bg-emerald-950/20'
+                                  : isCooling
+                                  ? 'border-pink-500/30 bg-pink-950/15'
                                   : 'border-pink-500/40 bg-pink-950/20 shadow-md'
                               }`}
                             >
@@ -1696,6 +1848,11 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                                   <span className="text-sm font-bold text-white truncate font-['Outfit']">
                                     {lead.name}
                                   </span>
+                                  {isCooling && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                                      Cooling
+                                    </span>
+                                  )}
                                 </div>
                                 {route && (
                                   <a
@@ -1710,17 +1867,33 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                                   </a>
                                 )}
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleLeadWarmup(lead)}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
-                                  lead.isWarmedUp
-                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                                    : 'bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/50'
-                                }`}
-                              >
-                                {lead.isWarmedUp ? '✅ Warmed' : '🔥 Warm Up'}
-                              </button>
+                              {lead.isWarmedUp ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleLeadWarmup(lead)}
+                                  className="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                                >
+                                  ✅ Warmed
+                                </button>
+                              ) : isCooling ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleLeadWarmup(lead)}
+                                  className="px-3 py-1.5 rounded-xl text-xs font-bold font-mono transition flex items-center gap-1.5 cursor-pointer shrink-0 bg-pink-500/15 hover:bg-pink-500/25 text-pink-300 border border-pink-500/40"
+                                  title={`Instagram cooling break active (${formatCooldownTime(igWarmupCooldownMs)} remaining). Click for details.`}
+                                >
+                                  <Timer className="w-3.5 h-3.5 text-pink-400 animate-spin shrink-0" />
+                                  <span>{formatCooldownTime(igWarmupCooldownMs)}</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleLeadWarmup(lead)}
+                                  className="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/50"
+                                >
+                                  🔥 Warm Up
+                                </button>
+                              )}
                             </div>
                           );
                         })}
@@ -1730,9 +1903,17 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
 
                 {/* 2. Combined (Facebook) Warm-Up Section */}
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-sky-300 font-bold text-sm font-['Outfit'] border-b border-white/5 pb-1">
-                    <Facebook className="w-4 h-4" />
-                    <span>Combined Outreach (Facebook - for Tomorrow)</span>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-1">
+                    <div className="flex items-center gap-2 text-sky-300 font-bold text-sm font-['Outfit']">
+                      <Facebook className="w-4 h-4" />
+                      <span>Combined Outreach (Facebook - for Tomorrow)</span>
+                    </div>
+                    {fbWarmupCooldownMs > 0 && (
+                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-200 text-xs font-mono font-bold shadow-sm">
+                        <Timer className="w-3.5 h-3.5 text-sky-400 animate-spin shrink-0" />
+                        <span>FB Cooling: {formatCooldownTime(fbWarmupCooldownMs)}</span>
+                      </div>
+                    )}
                   </div>
                   {warmupForTomorrowLeads.filter((l) => l.channel !== 'instagram').length === 0 ? (
                     <p className="text-xs text-slate-500 italic pl-1">No Facebook leads scheduled for tomorrow.</p>
@@ -1742,12 +1923,15 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         .filter((l) => l.channel !== 'instagram')
                         .map((lead) => {
                           const route = getBlindRouteLink(lead, 'warmup');
+                          const isCooling = !lead.isWarmedUp && fbWarmupCooldownMs > 0;
                           return (
                             <div
                               key={lead.id}
                               className={`p-4 rounded-2xl border flex items-center justify-between gap-3 ${
                                 lead.isWarmedUp
                                   ? 'border-emerald-500/40 bg-emerald-950/20'
+                                  : isCooling
+                                  ? 'border-sky-500/30 bg-sky-950/15'
                                   : 'border-sky-500/40 bg-sky-950/20 shadow-md'
                               }`}
                             >
@@ -1759,6 +1943,11 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                                   <span className="text-sm font-bold text-white truncate font-['Outfit']">
                                     {lead.name}
                                   </span>
+                                  {isCooling && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                                      Cooling
+                                    </span>
+                                  )}
                                 </div>
                                 {route && (
                                   <a
@@ -1773,17 +1962,33 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                                   </a>
                                 )}
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleLeadWarmup(lead)}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
-                                  lead.isWarmedUp
-                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                                    : 'bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/50'
-                                }`}
-                              >
-                                {lead.isWarmedUp ? '✅ Warmed' : '🔥 Warm Up'}
-                              </button>
+                              {lead.isWarmedUp ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleLeadWarmup(lead)}
+                                  className="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                                >
+                                  ✅ Warmed
+                                </button>
+                              ) : isCooling ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleLeadWarmup(lead)}
+                                  className="px-3 py-1.5 rounded-xl text-xs font-bold font-mono transition flex items-center gap-1.5 cursor-pointer shrink-0 bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/40"
+                                  title={`Facebook cooling break active (${formatCooldownTime(fbWarmupCooldownMs)} remaining). Click for details.`}
+                                >
+                                  <Timer className="w-3.5 h-3.5 text-sky-400 animate-spin shrink-0" />
+                                  <span>{formatCooldownTime(fbWarmupCooldownMs)}</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleLeadWarmup(lead)}
+                                  className="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/50"
+                                >
+                                  🔥 Warm Up
+                                </button>
+                              )}
                             </div>
                           );
                         })}
