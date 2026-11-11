@@ -353,14 +353,20 @@ export function acceptInboxLeadIntoCrm(
     scheduledDate: assignedScheduleDate,
     warmupStatus: 'locked',
     isWarmedUp: false,
-    fb_message_restricted: isFbRestricted || undefined,
-    // Save prompt to lead data as requested
+    // Save prompt & analysis to lead data as requested (prompts untouched)
     prompt: lead.prompt || undefined,
-    customPitch: lead.prompt || undefined,
-    initialDM: lead.prompt || undefined,
     leadAnalysis: lead.prompt || undefined,
     analysisSavedAt: lead.prompt ? nowIso : undefined,
-    stagedDmMiniPitch: lead.prompt || undefined,
+    // 4-step sequence messages start empty until operator writes them:
+    initialDM: '',
+    customPitch: '',
+    stagedDmMiniPitch: '',
+    followupDM_Day7: '',
+    followup3DM: '',
+    followupDM_Day14: '',
+    followup7DM: '',
+    breakupDM_Day30: '',
+    isSequenceConfigured: false,
     rawDetails: lead.rawDetails,
   };
 
@@ -477,13 +483,18 @@ export function acceptAllInboxLeadsIntoCrm(
       scheduledDate: assignedScheduleDate,
       warmupStatus: 'locked',
       isWarmedUp: false,
-      fb_message_restricted: isFbRestricted || undefined,
       prompt: lead.prompt || undefined,
-      customPitch: lead.prompt || undefined,
-      initialDM: lead.prompt || undefined,
       leadAnalysis: lead.prompt || undefined,
       analysisSavedAt: lead.prompt ? nowIso : undefined,
-      stagedDmMiniPitch: lead.prompt || undefined,
+      initialDM: '',
+      customPitch: '',
+      stagedDmMiniPitch: '',
+      followupDM_Day7: '',
+      followup3DM: '',
+      followupDM_Day14: '',
+      followup7DM: '',
+      breakupDM_Day30: '',
+      isSequenceConfigured: false,
       rawDetails: lead.rawDetails,
     };
 

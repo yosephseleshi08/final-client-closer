@@ -28,10 +28,20 @@
    - Clicking the badge opens a dropdown allowing the operator to manually override the type in 1 click (setting `isVoiceTypeOverridden: true`).
    - Clean UI without horizontal scrolling.
 
-4. **Visual Completion Indicator: "Prompt / Edit Sequence" Turns Green**
-   - **Default State (Unconfigured):** Renders with the original blue/indigo theme (`bg-indigo-500/15`, `border-indigo-500/30`, `text-indigo-300`, `Sparkles` icon).
-   - **Saved / Configured State:** Once the operator writes/saves the 4-step sequence (setting `isSequenceConfigured: true` and `pitchSavedAt`), the button turns **emerald green** (`bg-emerald-500/20`, `border-emerald-500/40`, `text-emerald-200`, `CheckCircle2` green checkmark icon, and an emerald pulse dot).
-   - The operator can still click the green button at any time to inspect the lead analysis or adjust the copy.
+4. **Strict 4-Step Sequence Completion & Green Button Engine**
+   - **Preserved Existing Edited Leads:**
+     - First 6 Instagram leads (`ID 1, ID 2, ID 3, ID 4, ID 5, ID 6`) and first 4 Combined/Email leads (`CM 1, CM 2, CM 3, CM 4`) are preserved intact and marked with a **Green** button.
+   - **Empty Sequences for All Other Leads:**
+     - All other leads have their 4-step sequence messages (`initialDM`, `followupDM_Day7`, `followupDM_Day14`, `breakupDM_Day30`) set to empty by default.
+     - Their button starts as **Blue**.
+   - **Prompts & Analysis Untouched:**
+     - Sourced prompts (`lead.prompt`) and deep analysis (`lead.leadAnalysis`) are preserved 100% intact across all leads.
+   - **Strict All-4-Required Green Rule:**
+     - The button turns **Green** ONLY if the operator writes content into **all 4 sequence steps** (Initial, Day 4, Day 8, Day 14).
+     - If the operator writes 1, 2, or 3 messages and leaves even one step empty (e.g. Day 14), the button remains **Blue**.
+   - **Clean Writer Modal:**
+     - Textareas no longer pre-fill generic templates; they remain empty until the operator types.
+     - Live progress badge inside the modal indicates: `"X / 4 Written (Fill all 4 to turn Green)"` or `"All 4 Sequences Ready (Button will be Green)"`.
 
 5. **History Warm-Up CSV Export Calculation**
    - Corrected live warm-up percentage calculation in the CSV export so it reflects the actual real-time status (100% when all leads are warmed) rather than stale partial records.

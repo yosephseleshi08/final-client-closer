@@ -39,6 +39,7 @@ import {
 import {
   getRoundRobinVoiceType,
   getStrictVoiceTypeForId,
+  extractLeadNumericId,
   ensureVoiceTypeAssignments,
   getVoiceTypeBadgeStyle,
   getWorkspaceVoiceTypes,
@@ -87,6 +88,55 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       onUpdateLeads(updatedLeads);
     }
   }, [leads, channel]);
+
+  // One-time sanitization:
+  // 1. Keep the first 6 Instagram leads (ID 1..6) and first 4 Combined/Email leads (ID 1..4) green & untouched.
+  // 2. Empty all 4 sequence messages for remaining leads (ID 7+ in IG, ID 5+ in Combined), but leave prompts intact!
+  useEffect(() => {
+    if (leads.length === 0) return;
+    const sanitizationKey = `crm_sequence_v4_sanitized_${channel}`;
+    if (localStorage.getItem(sanitizationKey)) return;
+
+    let modified = false;
+    const updated = leads.map((lead, idx) => {
+      const numId = lead.numericId ?? extractLeadNumericId(lead, idx);
+      const isProtected =
+        (channel === 'instagram' && numId <= 6) ||
+        (channel === 'combined' && numId <= 4);
+
+      if (isProtected) {
+        if (!lead.isSequenceConfigured) {
+          modified = true;
+          return {
+            ...lead,
+            isSequenceConfigured: true,
+          };
+        }
+        return lead;
+      }
+
+      // For all other leads: empty the 4 sequence messages, but KEEP prompt and leadAnalysis untouched!
+      modified = true;
+      return {
+        ...lead,
+        initialDM: '',
+        customPitch: '',
+        stagedDmMiniPitch: '',
+        followupDM_Day7: '',
+        followup3DM: '',
+        followupDM_Day14: '',
+        followup7DM: '',
+        breakupDM_Day30: '',
+        isSequenceConfigured: false,
+        pitchSavedAt: undefined,
+      };
+    });
+
+    localStorage.setItem(sanitizationKey, 'true');
+    if (modified) {
+      onUpdateLeads(updated);
+    }
+  }, [leads, channel, onUpdateLeads]);
 
   // Edit Sequence Modal State (Requirement 4)
   const [editingLead, setEditingLead] = useState<ChannelLead | null>(null);
@@ -166,14 +216,13 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     setOpenVoiceDropdownLeadId(null);
   };
 
-  // Open Edit Sequence Modal
+  // Open Edit Sequence Modal (starts empty unless operator has written text)
   const handleOpenEditSequence = (lead: ChannelLead) => {
-    const defaultTemplates = getCadenceMessageTemplates(lead);
     setEditingLead(lead);
-    setInitialDmText(lead.initialDM || lead.customPitch || defaultTemplates.stageAMessage);
-    setDay4Text(lead.followupDM_Day7 || lead.followup3DM || defaultTemplates.day4Message);
-    setDay8Text(lead.followupDM_Day14 || lead.followup7DM || defaultTemplates.day8Message);
-    setDay14Text(lead.breakupDM_Day30 || defaultTemplates.day14Message);
+    setInitialDmText(lead.initialDM || '');
+    setDay4Text(lead.followupDM_Day7 || lead.followup3DM || '');
+    setDay8Text(lead.followupDM_Day14 || lead.followup7DM || '');
+    setDay14Text(lead.breakupDM_Day30 || '');
     setCopiedPrompt(false);
     setSaveSuccess(false);
   };
@@ -181,20 +230,39 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   const handleSaveSequence = () => {
     if (!editingLead) return;
 
+    const trimmedInitial = initialDmText.trim();
+    const trimmedDay4 = day4Text.trim();
+    const trimmedDay8 = day8Text.trim();
+    const trimmedDay14 = day14Text.trim();
+
+    const numId = editingLead.numericId ?? extractLeadNumericId(editingLead, 0);
+    const isProtectedLead =
+      (channel === 'instagram' && numId <= 6) ||
+      (channel === 'combined' && numId <= 4);
+
+    // STRICT: Green finish button turns on ONLY if all 4 sequence steps have content!
+    const isAll4Written =
+      trimmedInitial.length > 0 &&
+      trimmedDay4.length > 0 &&
+      trimmedDay8.length > 0 &&
+      trimmedDay14.length > 0;
+
+    const isComplete = isProtectedLead || isAll4Written;
+
     const updated = leads.map((l) => {
       if (l.id === editingLead.id) {
         return {
           ...l,
-          initialDM: initialDmText.trim(),
-          customPitch: initialDmText.trim(),
-          stagedDmMiniPitch: initialDmText.trim(),
-          followupDM_Day7: day4Text.trim(),
-          followup3DM: day4Text.trim(),
-          followupDM_Day14: day8Text.trim(),
-          followup7DM: day8Text.trim(),
-          breakupDM_Day30: day14Text.trim(),
-          pitchSavedAt: new Date().toISOString(),
-          isSequenceConfigured: true,
+          initialDM: trimmedInitial,
+          customPitch: trimmedInitial,
+          stagedDmMiniPitch: trimmedInitial,
+          followupDM_Day7: trimmedDay4,
+          followup3DM: trimmedDay4,
+          followupDM_Day14: trimmedDay8,
+          followup7DM: trimmedDay8,
+          breakupDM_Day30: trimmedDay14,
+          pitchSavedAt: isComplete ? (l.pitchSavedAt || new Date().toISOString()) : undefined,
+          isSequenceConfigured: isComplete,
         };
       }
       return l;
@@ -650,37 +718,51 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                         </div>
                       </td>
 
-                      {/* 3. Prompt / Edit Sequence Button (Turns green when configured) */}
+                      {/* 3. Prompt / Edit Sequence Button (Turns green ONLY when all 4 sequences are written) */}
                       <td className="py-3.5 px-4 text-left">
                         {(() => {
-                          const isConfigured = Boolean(
-                            lead.isSequenceConfigured ||
-                            lead.pitchSavedAt ||
-                            (lead.initialDM && lead.initialDM.trim().length > 0)
-                          );
+                          const numId = lead.numericId ?? extractLeadNumericId(lead, 0);
+                          const isProtectedLead =
+                            (channel === 'instagram' && numId <= 6) ||
+                            (channel === 'combined' && numId <= 4);
+
+                          const initial = (lead.initialDM || lead.customPitch || '').trim();
+                          const d4 = (lead.followupDM_Day7 || lead.followup3DM || '').trim();
+                          const d8 = (lead.followupDM_Day14 || lead.followup7DM || '').trim();
+                          const d14 = (lead.breakupDM_Day30 || '').trim();
+
+                          // STRICT: All 4 sequence messages must have at least one sentence/text!
+                          // Even if 3 are written and 1 is missing (e.g. D14), it does NOT turn green.
+                          const hasAll4Sequences =
+                            initial.length > 0 &&
+                            d4.length > 0 &&
+                            d8.length > 0 &&
+                            d14.length > 0;
+
+                          const isGreen = isProtectedLead || (Boolean(lead.isSequenceConfigured) && hasAll4Sequences);
 
                           return (
                             <button
                               type="button"
                               onClick={() => handleOpenEditSequence(lead)}
                               className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-sm ${
-                                isConfigured
+                                isGreen
                                   ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 hover:text-white border border-emerald-500/40 shadow-emerald-500/10'
                                   : 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border border-indigo-500/30 shadow-indigo-500/10'
                               }`}
                               title={
-                                isConfigured
-                                  ? 'Sequence edited & saved! Click to review or adjust.'
-                                  : 'Open Lead Analysis and write/edit 4-step sequence (Initial, Day 4, Day 8, Day 14)'
+                                isGreen
+                                  ? 'All 4 sequences written & configured! Click to review or adjust.'
+                                  : 'Sequence incomplete. Write all 4 messages (Initial, Day 4, Day 8, Day 14) to turn button green.'
                               }
                             >
-                              {isConfigured ? (
+                              {isGreen ? (
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                               ) : (
                                 <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                               )}
                               <span>Prompt / Edit Sequence</span>
-                              {isConfigured && (
+                              {isGreen && (
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                               )}
                             </button>
@@ -785,10 +867,41 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
 
             {/* The 4 Sequence Messages */}
             <div className="border-t border-white/10 pt-4 space-y-4">
-              <h4 className="text-sm font-bold text-white font-['Outfit'] flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-indigo-400" />
-                <span>4-Step Multi-Channel Sequence</span>
-              </h4>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h4 className="text-sm font-bold text-white font-['Outfit'] flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-indigo-400" />
+                  <span>4-Step Multi-Channel Sequence</span>
+                </h4>
+                {(() => {
+                  const numId = editingLead.numericId ?? extractLeadNumericId(editingLead, 0);
+                  const isProtected =
+                    (channel === 'instagram' && numId <= 6) ||
+                    (channel === 'combined' && numId <= 4);
+
+                  const filled = [initialDmText.trim(), day4Text.trim(), day8Text.trim(), day14Text.trim()].filter(Boolean).length;
+                  const isReady = isProtected || filled === 4;
+
+                  return (
+                    <span className={`text-[10px] font-mono px-2.5 py-1 rounded-lg font-bold border flex items-center gap-1.5 ${
+                      isReady
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    }`}>
+                      {isReady ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>All 4 Sequences Ready (Button will be Green)</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{filled} / 4 Written (Fill all 4 to turn Green)</span>
+                        </>
+                      )}
+                    </span>
+                  );
+                })()}
+              </div>
 
               {/* Step 1: Initial DM (Day 0) */}
               <div className="space-y-1">
@@ -803,7 +916,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                   rows={3}
                   value={initialDmText}
                   onChange={(e) => setInitialDmText(e.target.value)}
-                  placeholder="Hey team! I just posted a quick video breaking down your website..."
+                  placeholder="Write Initial DM pitch (Day 0)..."
                   className="w-full p-3 bg-slate-950 border border-white/10 rounded-xl text-xs font-sans text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 leading-relaxed"
                 />
               </div>
@@ -815,13 +928,13 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                     <span className="w-2 h-2 rounded-full bg-purple-400" />
                     <span>Step 2: Day 4 Follow-Up (Value Check-In)</span>
                   </span>
-                  <span className="text-[10px] text-slate-500">Kitchen Ticket PDF</span>
+                  <span className="text-[10px] text-slate-500">Kitchen Ticket PDF / Quick Win</span>
                 </div>
                 <textarea
                   rows={3}
                   value={day4Text}
                   onChange={(e) => setDay4Text(e.target.value)}
-                  placeholder="Hey there, did you get a chance to see that breakdown video? We just put together a quick PDF..."
+                  placeholder="Write Day 4 Value Check-In (e.g. kitchen ticket speed-up PDF)..."
                   className="w-full p-3 bg-slate-950 border border-white/10 rounded-xl text-xs font-sans text-slate-100 placeholder-slate-600 focus:outline-none focus:border-purple-500 leading-relaxed"
                 />
               </div>
@@ -839,7 +952,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                   rows={3}
                   value={day8Text}
                   onChange={(e) => setDay8Text(e.target.value)}
-                  placeholder="Quick update—another spot in your area implemented that online ordering tweak and saw a 12% jump..."
+                  placeholder="Write Day 8 Social Proof reminder (e.g. 12% takeout surge case study)..."
                   className="w-full p-3 bg-slate-950 border border-white/10 rounded-xl text-xs font-sans text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-500 leading-relaxed"
                 />
               </div>
@@ -857,7 +970,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                   rows={3}
                   value={day14Text}
                   onChange={(e) => setDay14Text(e.target.value)}
-                  placeholder="I know you're super busy running service. I'm archiving our video breakdown this week, but I recorded a quick 60-second Loom..."
+                  placeholder="Write Day 14 Final Breakup (e.g. archiving video breakdown or 60s Loom audit)..."
                   className="w-full p-3 bg-slate-950 border border-white/10 rounded-xl text-xs font-sans text-slate-100 placeholder-slate-600 focus:outline-none focus:border-rose-500 leading-relaxed"
                 />
               </div>
