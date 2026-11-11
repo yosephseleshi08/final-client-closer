@@ -1,5 +1,5 @@
 import { ChannelLead, MultiChannelType } from '../types';
-import { getRoundRobinVoiceType } from './voiceTypeEngine';
+import { getRoundRobinVoiceType, getStrictVoiceTypeForId } from './voiceTypeEngine';
 
 /**
  * Returns today's date formatted as YYYY-MM-DD strictly in user's local timezone
@@ -860,7 +860,11 @@ export function autoScheduleLeads(
   }
 
   return leads.map((lead, idx) => {
-    const assignedVoice = lead.voiceType || getRoundRobinVoiceType(idx, channel);
+    const assignedVoice =
+      lead.isVoiceTypeOverridden && lead.voiceType
+        ? lead.voiceType
+        : getStrictVoiceTypeForId(lead, channel, idx);
+
     if (assignments[lead.id]) {
       return {
         ...lead,
@@ -872,7 +876,7 @@ export function autoScheduleLeads(
     }
     return {
       ...lead,
-      voiceType: lead.voiceType || assignedVoice,
+      voiceType: assignedVoice,
     };
   });
 }

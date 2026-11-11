@@ -1,107 +1,32 @@
-# Video Value First Sales Strategy Upgrade & Video Verification Gate (Outreach Engine Pro)
+# Strict ID-to-Type Engine & Leads Table UI Fixes
 
-Upgrading the CRM from traditional cold DM prospecting to a high-converting **"Video Value First"** sales workflow:
-`Record Video → Post Reel (Tagging) → Send DM with Link → Follow up with Value`
+### Overview of Completed Fixes
 
----
+1. **Fixed "Filter by Type" Dropdown Hiding Behind Table (Z-Index / Stacking Context Bug)**
+   - Elevated the toolbar container with `relative z-30` and the dropdown popover with `relative z-40` / `z-50 bg-slate-900 border border-slate-700/80 shadow-2xl shadow-black/80`.
+   - Constrained the table container to `relative z-10`.
+   - The dropdown now floats cleanly above the table header (`ID`, `PROSPECT NAME`, `SEQUENCE CONFIGURATION`, `ACTION`) and all lead rows without clipping or visual obstruction.
 
-## 1. Executive Summary & Core Quotas
+2. **Strict ID-to-Type Auto-Assignment (The Round-Robin Fix)**
+   - When leads are imported or auto-assigned, their type is strictly derived from their numeric ID:
+     - **Instagram Leads:**
+       - ID ending in 1, 7, 13, 19 (`(id - 1) % 6 === 0`) = Type 1 (`IG-1`)
+       - ID ending in 2, 8, 14, 20 (`(id - 1) % 6 === 1`) = Type 2 (`IG-2`)
+       - ID ending in 3, 9, 15, 21 (`(id - 1) % 6 === 2`) = Type 3 (`IG-3`)
+       - ID ending in 4, 10, 16, 22 (`(id - 1) % 6 === 3`) = Type 4 (`IG-4`)
+       - ID ending in 5, 11, 17, 23 (`(id - 1) % 6 === 4`) = Type 5 (`IG-5`)
+       - ID ending in 6, 12, 18, 24 (`(id - 1) % 6 === 5`) = Type 6 (`IG-6`)
+     - **Email / Combined Leads:**
+       - ID ending in 1, 5, 9, 13 (`(id - 1) % 4 === 0`) = Type 1 (`Email-1`)
+       - ID ending in 2, 6, 10, 14 (`(id - 1) % 4 === 1`) = Type 2 (`Email-2`)
+       - ID ending in 3, 7, 11, 15 (`(id - 1) % 4 === 2`) = Type 3 (`Email-3`)
+       - ID ending in 4, 8, 12, 16 (`(id - 1) % 4 === 3`) = Type 4 (`Email-4`)
+   - Existing leads immediately align to this formula on load, while respecting manual operator overrides (`isVoiceTypeOverridden: true`).
 
-### Top Dashboard Metrics (Executive Summary)
-- **DMs Sent Today:** Real-time progress bar tracking against daily quota `"X / 6"` with completion percentage.
-- **Reels Posted Today:** Real-time progress bar tracking against daily quota `"X / 2"` with completion percentage.
-- **Videos Verified Today:** Counter showing `"X"` (how many videos were verified today through the 2-second confirmation gate).
-- **Videos Pending Reel:** Counter highlighting prospects where `videoRecorded: true && !reelPosted`.
-- **Current Streak:** Streak Lock enabled: only increments if **BOTH** `DMs Sent Today >= 6` AND `Videos Verified Today >= 1`.
-- **Best Streak:** All-time execution record preserved.
+3. **Updated Table Badge & Manual Override Dropdown**
+   - Kept the small, color-coded badge next to the Prospect Name, updated to display the clean label: `Type 1`, `Type 2`, `Type 3`, etc.
+   - Clicking the badge opens a dropdown allowing the operator to manually override the type in 1 click (setting `isVoiceTypeOverridden: true`).
+   - Clean UI without horizontal scrolling.
 
----
-
-## 2. Lead Data Schema & Table Workflow Columns
-
-### Extended Lead Schema
-- `videoRecorded`: boolean
-- `videoRecordedAt`: string (ISO timestamp)
-- `videoVerifiedAt`: string (ISO timestamp of 2-second proof confirmation)
-- `reelPosted`: boolean (with `reelPostedAt` timestamp and optional `reelLink` URL)
-- `dmSent`: boolean (with `dmSentAt` timestamp)
-- `repliedSendIt`: boolean (with `repliedSendItAt` timestamp)
-- `liveLinkSent`: boolean (with `liveLinkSentAt` timestamp)
-- `city`: string (for contextual location replacement in templates)
-- `followup3Date`: string (Day 30 Breakup trigger)
-
-### Leads Table Workflow Columns
-- Added 5 interactive workflow toggle buttons with subtle icon + status dot directly alongside the "Details" action in the Leads table:
-  1. 🎥 **Video Recorded** (Cyan dot) — Gated with 2-second confirmation modal
-  2. 📱 **Reel Posted** (Pink dot)
-  3. ✈️ **DM Sent** (Indigo dot)
-  4. 💬 **Replied "Send it"** (Amber dot)
-  5. 🔗 **Live Link Sent** (Emerald dot)
-- Toggling automatically updates timestamp and state in localStorage without altering lead order or losing existing data.
-
----
-
-## 3. The "2-Second" Video Verification Gate
-
-### Verification Modal ("🎥 Video Recorded — Confirm")
-- Clicking the "Video Recorded" checkbox on a lead (`videoRecorded: false -> true`) opens the verification modal.
-- **Label:** *"Type the restaurant's name to confirm you recorded the video."*
-- Displays expected name below the input with a 1-click **Copy Name** button.
-- Single text input (auto-focused, submits on Enter).
-- **"Confirm"** and **"Cancel"** action buttons.
-
-### Validation & Toast Feedback
-- **Case-insensitive, trimmed comparison**: `input.trim().toLowerCase() === lead.name.trim().toLowerCase()`.
-- **Mismatch**: Shows error toast: *"❌ Name doesn't match. Please try again."* Modal stays open.
-- **Match**:
-  - Sets `videoRecorded: true`, `videoRecordedAt: nowIso`, `videoVerifiedAt: nowIso`.
-  - Records verification event in persistent storage (`recordVideoVerification`).
-  - Closes modal.
-  - Displays success toast: *"✅ Video verified."*
-
----
-
-## 4. The Streak Lock Logic
-
-- In `calculateStreaks` (`src/utils/historyStorage.ts`):
-  - Today only increments `currentStreak` if:
-    - `DMs Sent Today >= 6` AND
-    - `Videos Verified Today >= 1` (verified today through the modal)
-  - If a lead had `videoRecorded: true` prior to today but no verification was logged today, the streak does not increment.
-  - Sunday Rest Mode is strictly preserved (rest day; continues streak without breaking or incrementing).
-
----
-
-## 5. Video Value First Script Generator ("⚡ Script" / Warm-Up)
-
-Mounted a dedicated **Video Value First Script Generator** modal:
-- **Milestone Progress Bar:** Highlights current step.
-- **Stage A Script (Initial Contact - Day 1):**
-  > *"Hey [Lead Name]! I just posted a quick video on my story/feed breaking down your menu design/website and how you could easily add 15-20 more covers this weekend. Tagged you guys! Mind if I send the direct link to the full breakdown here?"*
-- **Stage B Script (Post-Reaction - "Send it"):**
-  > *"Here you go: [Live Link]. Let me know what you think of the online ordering tip at 1:12! If you want the full kitchen ticket PDF I mentioned, happy to send that over too."*
-
----
-
-## 6. Dedicated "Reel Queue" Sub-Tab
-
-- Dedicated sub-page right next to "Follow-Up Schedule".
-- Shows count of videos recorded and pending reel posting.
-- Helper Banner: *"You have [X] videos waiting to be posted. Goal: Post 2 today. Save the rest for tomorrow."*
-- Card list with handle link, optional Reel link input, and 1-click "Mark as Posted" button.
-
----
-
-## 7. Value-Based Follow-Up Timeline (Day 7, Day 14, Day 30)
-
-1. **Day 7 Trigger (Value Check-In):** Friday night kitchen ticket speed-up PDF.
-2. **Day 14 Trigger (Social Proof):** Area takeout order surge (+12%) case study.
-3. **Day 30 Trigger (Breakup / Loom):** Archiving notice with 60-second mobile checkout Loom offer.
-
----
-
-## 8. Verification & Data Safety
-
-- Existing leads across Email, Instagram, and Facebook workspaces preserved intact.
-- TypeScript compilation and linter verified with 0 errors.
-- Dark theme styling and Sunday Rest Mode preserved.
+4. **History Warm-Up CSV Export Calculation**
+   - Corrected live warm-up percentage calculation in the CSV export so it reflects the actual real-time status (100% when all leads are warmed) rather than stale partial records.

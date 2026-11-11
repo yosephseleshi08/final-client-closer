@@ -1,6 +1,6 @@
 {
-  "summary":  "Updated implementation plan including the 2-Second Video Verification modal, restaurant name validation logic, streak lock requirements (DMs >= 6 and Videos Verified >= 1), and top dashboard Videos Verified Today card.",
-  "updatedAt":  "2026-11-01T15:23:10.294454732Z",
+  "summary":  "Documented the fixes for the 'Filter by Type' dropdown z-index stacking bug, the strict ID-to-Type round-robin auto-assignment formula for Instagram (1..6) and Combined (1..4) workspaces, the updated table badge display (e.g., 'Type 1') with 1-click manual override dropdown, and the CSV export warmup percentage calculation.",
+  "updatedAt":  "2026-11-11T13:08:14.617135121Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

@@ -37,6 +37,7 @@ import {
 } from '../../utils/cadenceEngine';
 import {
   getRoundRobinVoiceType,
+  getStrictVoiceTypeForId,
   ensureVoiceTypeAssignments,
   getVoiceTypeBadgeStyle,
   getWorkspaceVoiceTypes,
@@ -155,7 +156,11 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
 
   // Update a single lead's voiceType via the inline dropdown
   const handleUpdateLeadVoiceType = (leadId: string, newVoiceType: VoiceType) => {
-    const updated = leads.map((l) => (l.id === leadId ? { ...l, voiceType: newVoiceType } : l));
+    const updated = leads.map((l) =>
+      l.id === leadId
+        ? { ...l, voiceType: newVoiceType, isVoiceTypeOverridden: true }
+        : l
+    );
     onUpdateLeads(updated);
     setOpenVoiceDropdownLeadId(null);
   };
@@ -280,7 +285,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         facebook: detectedFb,
         email: detectedEmail,
         channel,
-        voiceType: getRoundRobinVoiceType(currentList.length, channel),
+        voiceType: getStrictVoiceTypeForId(nextIdData.numericId, channel),
+        isVoiceTypeOverridden: false,
         scheduledDate: assignedScheduleDate,
         sortOrder: currentList.length,
         createdAt: new Date().toISOString(),
@@ -348,7 +354,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       )}
 
       {/* Toolbar: Closed-System Notice & Batch / Search Bar */}
-      <div className="rounded-2xl border border-white/[0.08] bg-slate-900/60 p-4 sm:p-5 backdrop-blur-sm shadow-xl space-y-4">
+      <div className="relative z-30 rounded-2xl border border-white/[0.08] bg-slate-900/60 p-4 sm:p-5 backdrop-blur-sm shadow-xl space-y-4">
         <div className="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2.5">
             <ShieldCheck className="w-4 h-4 text-indigo-400 shrink-0" />
@@ -388,7 +394,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
             </div>
 
             {/* Clean Dropdown: Filter by Type: [All Types] */}
-            <div className="relative">
+            <div className="relative z-40">
               <button
                 type="button"
                 onClick={() => setIsFilterDropdownOpen((prev) => !prev)}
@@ -405,10 +411,10 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
               {isFilterDropdownOpen && (
                 <>
                   <div
-                    className="fixed inset-0 z-30"
+                    className="fixed inset-0 z-40"
                     onClick={() => setIsFilterDropdownOpen(false)}
                   />
-                  <div className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-48 rounded-xl border border-white/10 bg-slate-900/95 backdrop-blur-md shadow-2xl p-1 z-40 text-xs">
+                  <div className="absolute left-0 mt-2 w-52 rounded-xl border border-slate-700/80 bg-slate-900 shadow-2xl shadow-black/80 p-1.5 z-50 text-xs">
                     <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 px-2.5 py-1.5 border-b border-white/5 mb-1">
                       {channel === 'instagram' ? 'Instagram Voice Types' : 'Email Voice Types'}
                     </div>
@@ -500,7 +506,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       </div>
 
       {/* Simplified Clean Table: ID, Name, Prompt / Edit Sequence, Delete */}
-      <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 backdrop-blur-sm overflow-hidden shadow-xl">
+      <div className="relative z-10 rounded-2xl border border-white/[0.08] bg-slate-900/50 backdrop-blur-sm overflow-hidden shadow-xl min-h-[360px]">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
@@ -558,7 +564,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                             {lead.name}
                           </span>
 
-                          {/* Voice Type Badge & Dropdown Selector */}
+                          {/* Voice Type Badge & Dropdown Selector (Requirement 4) */}
                           <div className="relative inline-block">
                             <button
                               type="button"
@@ -571,9 +577,9 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold font-mono border transition-all cursor-pointer shadow-sm ${
                                 getVoiceTypeBadgeStyle(lead.voiceType).pillClass
                               }`}
-                              title={`Voice Type: ${lead.voiceType || 'None'} - Click to change`}
+                              title={`Voice Type: ${getVoiceTypeDisplayLabel(lead.voiceType, channel)} - Click to override`}
                             >
-                              <span>{lead.voiceType || 'No Type'}</span>
+                              <span>{getVoiceTypeDisplayLabel(lead.voiceType, channel)}</span>
                               <ChevronDown className="w-2.5 h-2.5 opacity-70" />
                             </button>
 
@@ -586,9 +592,9 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                                     setOpenVoiceDropdownLeadId(null);
                                   }}
                                 />
-                                <div className="absolute left-0 mt-1 w-48 rounded-xl border border-white/10 bg-slate-900/95 backdrop-blur-md shadow-2xl p-1.5 z-50 text-left">
-                                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 px-2 py-1">
-                                    Change Voice Type
+                                <div className="absolute left-0 mt-1 w-44 rounded-xl border border-slate-700/80 bg-slate-900 shadow-2xl shadow-black/80 p-1.5 z-50 text-left">
+                                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 px-2 py-1 border-b border-white/5 mb-1">
+                                    Override Type
                                   </div>
                                   <div className="space-y-0.5 max-h-52 overflow-y-auto">
                                     {workspaceVoiceTypes.map((vt) => {
@@ -613,9 +619,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                                         >
                                           <span className="flex items-center gap-2">
                                             <span className={`w-2 h-2 rounded-full ${style.dotColor}`} />
-                                            <span>
-                                              {displayLabel} {channel === 'instagram' ? `(${vt})` : ''}
-                                            </span>
+                                            <span>{displayLabel}</span>
                                           </span>
                                           {isCurrent && <span className="text-[10px] text-emerald-400 font-bold">✓</span>}
                                         </button>

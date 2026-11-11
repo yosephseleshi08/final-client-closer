@@ -1,7 +1,7 @@
 import { InboxLead, MultiChannelType, ChannelLead } from '../types';
 import { getNextLeadId, saveChannelLeads, loadChannelLeads, findDuplicateLead } from './channelStorage';
 import { getNextAvailableScheduleDate } from './cadenceEngine';
-import { getRoundRobinVoiceType } from './voiceTypeEngine';
+import { getStrictVoiceTypeForId } from './voiceTypeEngine';
 
 export const INBOX_STORAGE_KEY = 'outreach_engine_lead_inbox_v1';
 
@@ -347,7 +347,7 @@ export function acceptInboxLeadIntoCrm(
     facebook: extractedFb || undefined,
     email: extractedEmail || undefined,
     channel: targetChannel,
-    voiceType: getRoundRobinVoiceType(currentLeads.length, targetChannel),
+    voiceType: getStrictVoiceTypeForId(numericId, targetChannel),
     sortOrder: 0,
     createdAt: nowIso,
     scheduledDate: assignedScheduleDate,
@@ -471,7 +471,7 @@ export function acceptAllInboxLeadsIntoCrm(
       facebook: extractedFb || undefined,
       email: extractedEmail || undefined,
       channel: targetChannel,
-      voiceType: getRoundRobinVoiceType(currentTargetList.length, targetChannel),
+      voiceType: getStrictVoiceTypeForId(numericId, targetChannel),
       sortOrder: currentTargetList.length,
       createdAt: nowIso,
       scheduledDate: assignedScheduleDate,

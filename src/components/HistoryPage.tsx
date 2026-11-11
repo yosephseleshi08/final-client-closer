@@ -233,12 +233,12 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
       } else if (day.status === 'pre_launch') {
         warmupPct = '0%';
       } else if (day.date === todayStr) {
-        // Today: match the live dashboard progress exactly (e.g. 1 / 10 -> 10%)
-        const todayPct =
-          day.warmupPercentage !== undefined ? day.warmupPercentage : liveWarmupPctToday;
-        warmupPct = `${todayPct}%`;
+        // Today: prioritize live real-time calculated warm-up progress (100% when all are completed)
+        warmupPct = `${liveWarmupPctToday}%`;
       } else if (day.warmupPercentage !== undefined) {
         warmupPct = `${day.warmupPercentage}%`;
+      } else if (day.status === 'full') {
+        warmupPct = '100%';
       } else if (day.warmupTarget !== undefined && day.warmupTarget > 0) {
         warmupPct = `${Math.min(100, Math.round(((day.warmupCompleted || 0) / day.warmupTarget) * 100))}%`;
       } else {

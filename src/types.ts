@@ -333,6 +333,7 @@ export interface ChannelLead {
   facebook?: string; // Explicit Facebook page link or handle for dual-channel workflow
   email?: string; // Explicit Email address for dual-channel workflow
   voiceType?: VoiceType; // Assigned Voice Type for DeepSeek Prompt Batching
+  isVoiceTypeOverridden?: boolean; // Whether the operator manually set this voice type
   rawDetails?: Record<string, any>; // Underlying extracted details from lead qualification
   channel: MultiChannelType;
   sortOrder: number; // rank for drag-and-drop ordering

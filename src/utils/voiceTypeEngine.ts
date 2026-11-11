@@ -15,9 +15,82 @@ export function getWorkspaceVoiceTypes(channel: MultiChannelType): VoiceType[] {
 }
 
 /**
+ * Extracts numeric ID from lead or string identifier.
+ */
+export function extractLeadNumericId(
+  leadOrId: ChannelLead | string | number | undefined | null,
+  fallbackIndex = 0
+): number {
+  if (typeof leadOrId === 'number' && !isNaN(leadOrId) && leadOrId > 0) {
+    return leadOrId;
+  }
+  if (typeof leadOrId === 'object' && leadOrId !== null) {
+    if (typeof leadOrId.numericId === 'number' && !isNaN(leadOrId.numericId) && leadOrId.numericId > 0) {
+      return leadOrId.numericId;
+    }
+    return extractLeadNumericId(leadOrId.id, fallbackIndex);
+  }
+  if (typeof leadOrId === 'string') {
+    const match = leadOrId.match(/\d+/);
+    if (match) {
+      const parsed = parseInt(match[0], 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+  }
+  return fallbackIndex + 1;
+}
+
+/**
+ * STRICT ID-TO-TYPE AUTO-ASSIGNMENT (Requirement 3)
+ *
+ * Instagram Leads:
+ * ID ending in 1, 7, 13, 19 (i.e., (id - 1) % 6 === 0) = Type 1 (IG-1)
+ * ID ending in 2, 8, 14, 20 = Type 2 (IG-2)
+ * ID ending in 3, 9, 15, 21 = Type 3 (IG-3)
+ * ID ending in 4, 10, 16, 22 = Type 4 (IG-4)
+ * ID ending in 5, 11, 17, 23 = Type 5 (IG-5)
+ * ID ending in 6, 12, 18, 24 = Type 6 (IG-6)
+ *
+ * Email/Combined Leads:
+ * ID ending in 1, 5, 9, 13 (i.e., (id - 1) % 4 === 0) = Type 1 (Email-1)
+ * ID ending in 2, 6, 10, 14 = Type 2 (Email-2)
+ * ID ending in 3, 7, 11, 15 = Type 3 (Email-3)
+ * ID ending in 4, 8, 12, 16 = Type 4 (Email-4)
+ */
+export function getStrictVoiceTypeForId(
+  leadOrId: ChannelLead | string | number | undefined | null,
+  channel: MultiChannelType,
+  fallbackIndex = 0
+): VoiceType {
+  const numericId = extractLeadNumericId(leadOrId, fallbackIndex);
+
+  if (channel === 'instagram') {
+    const slot = (((numericId - 1) % 6) + 6) % 6; // 0..5
+    return IG_VOICE_TYPES[slot]; // IG-1..IG-6
+  }
+
+  // Combined / Email
+  const slot = (((numericId - 1) % 4) + 4) % 4; // 0..3
+  return EMAIL_VOICE_TYPES[slot]; // Email-1..Email-4
+}
+
+/**
+ * Backward compatibility alias for sequential ID calls
+ */
+export function getRoundRobinVoiceType(
+  indexOrLead: number | ChannelLead,
+  channel: MultiChannelType
+): VoiceType {
+  if (typeof indexOrLead === 'number') {
+    return getStrictVoiceTypeForId(indexOrLead + 1, channel, indexOrLead);
+  }
+  return getStrictVoiceTypeForId(indexOrLead, channel);
+}
+
+/**
  * Returns user-facing label for a voice type in the current workspace.
  * For Instagram: IG-1 -> "Type 1", IG-2 -> "Type 2", etc.
- * For Combined: Email-1 -> "Email-1", etc.
+ * For Combined: Email-1 -> "Type 1", Email-2 -> "Type 2", etc.
  */
 export function getVoiceTypeDisplayLabel(
   voiceType: VoiceType | 'all' | null | undefined,
@@ -35,7 +108,14 @@ export function getVoiceTypeDisplayLabel(
       default: return voiceType;
     }
   }
-  return voiceType;
+  // Combined / Email
+  switch (voiceType) {
+    case 'Email-1': return 'Type 1';
+    case 'Email-2': return 'Type 2';
+    case 'Email-3': return 'Type 3';
+    case 'Email-4': return 'Type 4';
+    default: return voiceType;
+  }
 }
 
 export interface WorkspaceFilterOption {
@@ -46,7 +126,7 @@ export interface WorkspaceFilterOption {
 /**
  * Returns the exact filter dropdown options for the given workspace.
  * Instagram: All Types, Type 1 through Type 6.
- * Combined: All Types, Email-1 through Email-4.
+ * Combined: All Types, Type 1 through Type 4.
  */
 export function getWorkspaceFilterOptions(channel: MultiChannelType): WorkspaceFilterOption[] {
   if (channel === 'instagram') {
@@ -62,57 +142,39 @@ export function getWorkspaceFilterOptions(channel: MultiChannelType): WorkspaceF
   }
   return [
     { value: 'all', label: 'All Types' },
-    { value: 'Email-1', label: 'Email-1' },
-    { value: 'Email-2', label: 'Email-2' },
-    { value: 'Email-3', label: 'Email-3' },
-    { value: 'Email-4', label: 'Email-4' },
+    { value: 'Email-1', label: 'Type 1' },
+    { value: 'Email-2', label: 'Type 2' },
+    { value: 'Email-3', label: 'Type 3' },
+    { value: 'Email-4', label: 'Type 4' },
   ];
 }
 
 /**
- * Returns round-robin voice type for a specific sequential index and channel.
- */
-export function getRoundRobinVoiceType(index: number, channel: MultiChannelType): VoiceType {
-  if (channel === 'instagram') {
-    return IG_VOICE_TYPES[index % IG_VOICE_TYPES.length];
-  }
-  return EMAIL_VOICE_TYPES[index % EMAIL_VOICE_TYPES.length];
-}
-
-/**
- * Ensures all leads have an assigned voiceType via round-robin distribution.
- * If forceReassign is true, recalculates voiceType for all leads in order.
- * If forceReassign is false, only assigns leads that currently lack a voiceType.
+ * Ensures all leads have an assigned voiceType strictly tied to their ID number,
+ * while preserving manual operator overrides (lead.isVoiceTypeOverridden = true).
  */
 export function ensureVoiceTypeAssignments(
   leads: ChannelLead[],
-  channel: MultiChannelType,
-  forceReassign = false
+  channel: MultiChannelType
 ): { updatedLeads: ChannelLead[]; hasChanges: boolean } {
   let hasChanges = false;
-  let igCounter = 0;
-  let emailCounter = 0;
-
-  const pool = channel === 'instagram' ? IG_VOICE_TYPES : EMAIL_VOICE_TYPES;
 
   const updatedLeads = leads.map((lead, idx) => {
-    if (!forceReassign && lead.voiceType) {
+    // If the operator manually overrode this type, preserve it
+    if (lead.isVoiceTypeOverridden && lead.voiceType) {
       return lead;
     }
 
-    const assignedType =
-      channel === 'instagram'
-        ? IG_VOICE_TYPES[igCounter++ % IG_VOICE_TYPES.length]
-        : EMAIL_VOICE_TYPES[emailCounter++ % EMAIL_VOICE_TYPES.length];
-
-    if (lead.voiceType !== assignedType) {
+    const expectedType = getStrictVoiceTypeForId(lead, channel, idx);
+    if (lead.voiceType !== expectedType) {
       hasChanges = true;
+      return {
+        ...lead,
+        voiceType: expectedType,
+      };
     }
 
-    return {
-      ...lead,
-      voiceType: assignedType,
-    };
+    return lead;
   });
 
   return { updatedLeads, hasChanges };
