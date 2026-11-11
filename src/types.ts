@@ -310,6 +310,19 @@ export interface InboxLead {
 
 export type CadenceLeadStatus = 'not_sent' | 'waiting_reply' | 'seen' | 'replied' | 'completed';
 
+export type VoiceType =
+  | 'IG-1'
+  | 'IG-2'
+  | 'IG-3'
+  | 'IG-4'
+  | 'IG-5'
+  | 'IG-6'
+  | 'Email-1'
+  | 'Email-2'
+  | 'Email-3'
+  | 'Email-4'
+  | null;
+
 export interface ChannelLead {
   id: string; // e.g. "IG-1", "EM-1", "FB-1"
   numericId: number; // integer for next ID calculation
@@ -319,6 +332,7 @@ export interface ChannelLead {
   instagram?: string; // Explicit Instagram handle or link
   facebook?: string; // Explicit Facebook page link or handle for dual-channel workflow
   email?: string; // Explicit Email address for dual-channel workflow
+  voiceType?: VoiceType; // Assigned Voice Type for DeepSeek Prompt Batching
   rawDetails?: Record<string, any>; // Underlying extracted details from lead qualification
   channel: MultiChannelType;
   sortOrder: number; // rank for drag-and-drop ordering

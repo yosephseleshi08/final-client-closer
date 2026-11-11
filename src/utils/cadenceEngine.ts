@@ -1,4 +1,5 @@
 import { ChannelLead, MultiChannelType } from '../types';
+import { getRoundRobinVoiceType } from './voiceTypeEngine';
 
 /**
  * Returns today's date formatted as YYYY-MM-DD strictly in user's local timezone
@@ -858,16 +859,21 @@ export function autoScheduleLeads(
     }
   }
 
-  return leads.map((lead) => {
+  return leads.map((lead, idx) => {
+    const assignedVoice = lead.voiceType || getRoundRobinVoiceType(idx, channel);
     if (assignments[lead.id]) {
       return {
         ...lead,
         scheduledDate: assignments[lead.id],
         warmupStatus: lead.warmupStatus || (lead.isWarmedUp ? 'warmed' : 'locked'),
+        voiceType: assignedVoice,
         dismissedDate: undefined,
       };
     }
-    return lead;
+    return {
+      ...lead,
+      voiceType: lead.voiceType || assignedVoice,
+    };
   });
 }
 

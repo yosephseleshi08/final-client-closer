@@ -3,6 +3,7 @@ import {
   Trash2,
   Download,
   Search,
+  Filter,
   FileSpreadsheet,
   FileCode,
   AlertCircle,
@@ -16,8 +17,9 @@ import {
   ShieldCheck,
   Save,
   MessageSquare,
+  ChevronDown,
 } from 'lucide-react';
-import { ChannelLead, MultiChannelType } from '../../types';
+import { ChannelLead, MultiChannelType, VoiceType } from '../../types';
 import {
   getNextLeadId,
   extractSuggestedName,
@@ -33,6 +35,14 @@ import {
   getNextAvailableScheduleDate,
   getCadenceMessageTemplates,
 } from '../../utils/cadenceEngine';
+import {
+  getRoundRobinVoiceType,
+  ensureVoiceTypeAssignments,
+  getVoiceTypeBadgeStyle,
+  getWorkspaceVoiceTypes,
+  getVoiceTypeDisplayLabel,
+  getWorkspaceFilterOptions,
+} from '../../utils/voiceTypeEngine';
 import { playWarningChime } from '../../utils/soundEffects';
 
 interface LeadsSubPageProps {
@@ -56,6 +66,26 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   const [batchInputText, setBatchInputText] = useState('');
   const [batchError, setBatchError] = useState<string | null>(null);
 
+  // Voice Type Filtering States
+  const [selectedVoiceFilter, setSelectedVoiceFilter] = useState<VoiceType | 'all'>('all');
+  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
+  const [openVoiceDropdownLeadId, setOpenVoiceDropdownLeadId] = useState<string | null>(null);
+
+  // Reset filter when switching between workspaces
+  useEffect(() => {
+    setSelectedVoiceFilter('all');
+    setIsFilterDropdownOpen(false);
+  }, [channel]);
+
+  // Auto-assign round-robin voice types to existing leads immediately on mount if missing
+  useEffect(() => {
+    if (leads.length === 0) return;
+    const { updatedLeads, hasChanges } = ensureVoiceTypeAssignments(leads, channel);
+    if (hasChanges) {
+      onUpdateLeads(updatedLeads);
+    }
+  }, [leads, channel]);
+
   // Edit Sequence Modal State (Requirement 4)
   const [editingLead, setEditingLead] = useState<ChannelLead | null>(null);
   const [initialDmText, setInitialDmText] = useState('');
@@ -73,21 +103,62 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     return () => clearTimeout(timer);
   }, [duplicateAlert]);
 
+  // Workspace-specific voice options and allowed types
+  const workspaceVoiceTypes = useMemo(() => {
+    return getWorkspaceVoiceTypes(channel);
+  }, [channel]);
+
+  const workspaceFilterOptions = useMemo(() => {
+    return getWorkspaceFilterOptions(channel);
+  }, [channel]);
+
+  const currentFilterLabel = useMemo(() => {
+    return getVoiceTypeDisplayLabel(selectedVoiceFilter, channel);
+  }, [selectedVoiceFilter, channel]);
+
+  // Compute Voice Type counts for the current workspace
+  const voiceCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: leads.length };
+    workspaceVoiceTypes.forEach((vt) => {
+      if (vt) counts[vt] = 0;
+    });
+    leads.forEach((l) => {
+      if (l.voiceType) {
+        counts[l.voiceType] = (counts[l.voiceType] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [leads, workspaceVoiceTypes]);
+
   // Requirement 4: Always order leads by ID from least to highest (1, 2, 3...)
   const sortedLeads = useMemo(() => {
     return [...leads].sort((a, b) => (a.numericId || 0) - (b.numericId || 0));
   }, [leads]);
 
+  // Combined Voice Type & Search Query filter
   const filteredLeads = useMemo(() => {
-    if (!searchQuery.trim()) return sortedLeads;
-    const q = searchQuery.toLowerCase();
-    return sortedLeads.filter(
-      (l) =>
-        l.id.toLowerCase().includes(q) ||
-        l.name.toLowerCase().includes(q) ||
-        (l.link && l.link.toLowerCase().includes(q))
-    );
-  }, [sortedLeads, searchQuery]);
+    let result = sortedLeads;
+    if (selectedVoiceFilter !== 'all') {
+      result = result.filter((l) => l.voiceType === selectedVoiceFilter);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (l) =>
+          l.id.toLowerCase().includes(q) ||
+          l.name.toLowerCase().includes(q) ||
+          (l.link && l.link.toLowerCase().includes(q))
+      );
+    }
+    return result;
+  }, [sortedLeads, selectedVoiceFilter, searchQuery]);
+
+  // Update a single lead's voiceType via the inline dropdown
+  const handleUpdateLeadVoiceType = (leadId: string, newVoiceType: VoiceType) => {
+    const updated = leads.map((l) => (l.id === leadId ? { ...l, voiceType: newVoiceType } : l));
+    onUpdateLeads(updated);
+    setOpenVoiceDropdownLeadId(null);
+  };
 
   // Open Edit Sequence Modal
   const handleOpenEditSequence = (lead: ChannelLead) => {
@@ -209,6 +280,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         facebook: detectedFb,
         email: detectedEmail,
         channel,
+        voiceType: getRoundRobinVoiceType(currentList.length, channel),
         scheduledDate: assignedScheduleDate,
         sortOrder: currentList.length,
         createdAt: new Date().toISOString(),
@@ -298,27 +370,94 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
           </button>
         </div>
 
-        {/* Search & Export */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1">
-          <div className="relative flex-1 max-w-sm">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
-              <Search className="w-3.5 h-3.5" />
+        {/* Search Bar, Filter by Type Dropdown & Export Menu */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-1 border-t border-white/5">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 flex-1 max-w-xl">
+            {/* Search Input */}
+            <div className="relative flex-1">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                <Search className="w-3.5 h-3.5" />
+              </div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search leads by name or ID..."
+                className="w-full pl-9 pr-3 py-2 bg-slate-950/50 border border-white/10 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              />
             </div>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search leads by name or ID..."
-              className="w-full pl-9 pr-3 py-1.5 bg-slate-950/50 border border-white/10 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
-            />
+
+            {/* Clean Dropdown: Filter by Type: [All Types] */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsFilterDropdownOpen((prev) => !prev)}
+                className="h-9 px-3.5 bg-slate-950/60 hover:bg-slate-900 border border-white/10 hover:border-white/20 rounded-xl text-xs font-medium text-slate-200 flex items-center justify-between gap-2 transition cursor-pointer shadow-sm shrink-0"
+              >
+                <div className="flex items-center gap-1.5">
+                  <Filter className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <span className="text-slate-400 font-normal">Filter by Type:</span>
+                  <span className="font-semibold text-slate-100">{currentFilterLabel}</span>
+                </div>
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isFilterDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isFilterDropdownOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-30"
+                    onClick={() => setIsFilterDropdownOpen(false)}
+                  />
+                  <div className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-48 rounded-xl border border-white/10 bg-slate-900/95 backdrop-blur-md shadow-2xl p-1 z-40 text-xs">
+                    <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 px-2.5 py-1.5 border-b border-white/5 mb-1">
+                      {channel === 'instagram' ? 'Instagram Voice Types' : 'Email Voice Types'}
+                    </div>
+                    {workspaceFilterOptions.map((opt) => {
+                      const isSelected = selectedVoiceFilter === opt.value;
+                      const style = opt.value && opt.value !== 'all' ? getVoiceTypeBadgeStyle(opt.value) : null;
+                      const count = !opt.value || opt.value === 'all' ? leads.length : (voiceCounts[opt.value] || 0);
+
+                      return (
+                        <button
+                          key={opt.value ?? 'all'}
+                          type="button"
+                          onClick={() => {
+                            setSelectedVoiceFilter(opt.value);
+                            setIsFilterDropdownOpen(false);
+                          }}
+                          className={`w-full text-left px-2.5 py-1.5 rounded-lg font-medium flex items-center justify-between transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'bg-indigo-600/30 text-indigo-200 font-bold border border-indigo-500/30'
+                              : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            {style ? (
+                              <span className={`w-2 h-2 rounded-full ${style.dotColor}`} />
+                            ) : (
+                              <span className="w-2 h-2 rounded-full bg-slate-400" />
+                            )}
+                            <span>{opt.label}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] font-mono text-slate-500">({count})</span>
+                            {isSelected && <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
-          <div className="relative self-end sm:self-auto">
+          <div className="flex items-center gap-2 self-end sm:self-auto">
             <button
               type="button"
               onClick={() => setShowExportMenu(!showExportMenu)}
               disabled={leads.length === 0}
-              className="px-3.5 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-slate-300 hover:text-white text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
+              className="px-3.5 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 disabled:opacity-40 text-slate-300 hover:text-white text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
             >
               <Download className="w-3.5 h-3.5 text-indigo-400" />
               <span>Export</span>
@@ -412,12 +551,82 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                         </div>
                       </td>
 
-                      {/* 2. Prospect Name */}
+                      {/* 2. Prospect Name + Voice Type Badge with Dropdown */}
                       <td className="py-3.5 px-4 text-left">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-medium text-slate-100 font-['Outfit'] truncate max-w-xs">
                             {lead.name}
                           </span>
+
+                          {/* Voice Type Badge & Dropdown Selector */}
+                          <div className="relative inline-block">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenVoiceDropdownLeadId(
+                                  openVoiceDropdownLeadId === lead.id ? null : lead.id
+                                );
+                              }}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold font-mono border transition-all cursor-pointer shadow-sm ${
+                                getVoiceTypeBadgeStyle(lead.voiceType).pillClass
+                              }`}
+                              title={`Voice Type: ${lead.voiceType || 'None'} - Click to change`}
+                            >
+                              <span>{lead.voiceType || 'No Type'}</span>
+                              <ChevronDown className="w-2.5 h-2.5 opacity-70" />
+                            </button>
+
+                            {openVoiceDropdownLeadId === lead.id && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenVoiceDropdownLeadId(null);
+                                  }}
+                                />
+                                <div className="absolute left-0 mt-1 w-48 rounded-xl border border-white/10 bg-slate-900/95 backdrop-blur-md shadow-2xl p-1.5 z-50 text-left">
+                                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 px-2 py-1">
+                                    Change Voice Type
+                                  </div>
+                                  <div className="space-y-0.5 max-h-52 overflow-y-auto">
+                                    {workspaceVoiceTypes.map((vt) => {
+                                      if (!vt) return null;
+                                      const isCurrent = lead.voiceType === vt;
+                                      const style = getVoiceTypeBadgeStyle(vt);
+                                      const displayLabel = getVoiceTypeDisplayLabel(vt, channel);
+                                      return (
+                                        <button
+                                          key={vt}
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleUpdateLeadVoiceType(lead.id, vt);
+                                            setOpenVoiceDropdownLeadId(null);
+                                          }}
+                                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium flex items-center justify-between transition-colors cursor-pointer ${
+                                            isCurrent
+                                              ? 'bg-white/15 text-white font-bold'
+                                              : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                                          }`}
+                                        >
+                                          <span className="flex items-center gap-2">
+                                            <span className={`w-2 h-2 rounded-full ${style.dotColor}`} />
+                                            <span>
+                                              {displayLabel} {channel === 'instagram' ? `(${vt})` : ''}
+                                            </span>
+                                          </span>
+                                          {isCurrent && <span className="text-[10px] text-emerald-400 font-bold">✓</span>}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+
                           {lead.scheduledDate && (
                             <span
                               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold font-mono border ${dayStyle.badgeClass}`}

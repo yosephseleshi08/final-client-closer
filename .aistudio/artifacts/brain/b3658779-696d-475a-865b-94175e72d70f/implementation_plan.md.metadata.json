@@ -1,6 +1,6 @@
 {
-  "summary":  "Updated Midnight Calendar Unlock Engine specification to strictly enforce same-day dispatch locks. Leads warmed today or missing timestamps default to isLeadWarmedToday = true, rendering a locked dispatch button labeled '🔒 Locked - Unlocks at Midnight' until 12:00 AM midnight. A manual testing unlock toggle is provided in the CRM Settings Station.",
-  "updatedAt":  "2026-11-11T09:29:25.125702069Z",
+  "summary":  "Implementation plan updated for the streamlined Voice Type interface: removed the Copy Batch button and horizontal scroll bar; replaced with a clean 'Filter by Type: [All Types]' dropdown next to the search bar; enforced strict workspace segregation (Type 1-6 for Instagram, Email 1-4 for Combined) across the filter dropdown and lead row badge editor.",
+  "updatedAt":  "2026-11-11T12:54:34.222673429Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
