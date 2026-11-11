@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Instagram,
   CalendarDays,
@@ -7,9 +7,11 @@ import {
   Layers,
   History,
   Inbox,
+  Settings,
 } from 'lucide-react';
 import { GlobalNavTab } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
+import { SettingsModal } from './SettingsModal';
 
 interface HeaderProps {
   activeTab: GlobalNavTab;
@@ -32,6 +34,8 @@ export const Header: React.FC<HeaderProps> = ({
   isFrozen = false,
   onToggleFreeze,
 }) => {
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
   const navButtons: {
     id: GlobalNavTab;
     label: string;
@@ -128,6 +132,14 @@ export const Header: React.FC<HeaderProps> = ({
                 <span>{isFrozen ? '❄️ Frozen' : '❄️ Freeze'}</span>
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+              className="p-1.5 rounded-lg border border-white/10 bg-white/5 text-slate-400 hover:text-white transition cursor-pointer"
+              title="CRM Settings & Testing Station"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
             <PWAInstallButton />
           </div>
         </div>
@@ -185,9 +197,21 @@ export const Header: React.FC<HeaderProps> = ({
               <span>{isFrozen ? '❄️ Frozen (Click to Resume)' : '❄️ Freeze Week'}</span>
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            className="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 border border-white/10 bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 active:scale-95"
+            title="CRM Settings & Testing Station"
+          >
+            <Settings className="w-4 h-4 text-slate-400" />
+            <span>Settings</span>
+          </button>
           <PWAInstallButton />
         </div>
       </div>
+
+      {/* Settings Modal */}
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
     </header>
   );
 };

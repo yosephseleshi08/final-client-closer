@@ -23,7 +23,33 @@ export function normalizeToLocalDateStr(rawInput?: string | null): string | null
   const str = String(rawInput).trim();
   if (!str) return null;
 
-  // 1. Standard ISO date prefix (YYYY-MM-DD)
+  // 1. Plain local date format: YYYY-MM-DD (strictly 10 characters, no time component)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    return str;
+  }
+
+  // 2. If it contains time (like ISO 8601 with 'T', e.g. 2026-11-11T03:59:00Z or date with space and time),
+  // parse through Date object using local calendar getters to strictly honor user's local timezone.
+  if (str.includes('T') || str.includes(':') || str.includes('Z')) {
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) {
+      const y = parsed.getFullYear();
+      const m = String(parsed.getMonth() + 1).padStart(2, '0');
+      const d = String(parsed.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+  }
+
+  // 3. US format (MM/DD/YYYY or M/D/YYYY)
+  const mdyMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (mdyMatch) {
+    const m = String(parseInt(mdyMatch[1], 10)).padStart(2, '0');
+    const d = String(parseInt(mdyMatch[2], 10)).padStart(2, '0');
+    const y = mdyMatch[3];
+    return `${y}-${m}-${d}`;
+  }
+
+  // 4. Standard date prefix (YYYY/MM/DD or YYYY.MM.DD)
   const ymdMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
   if (ymdMatch) {
     const y = ymdMatch[1];
@@ -32,16 +58,7 @@ export function normalizeToLocalDateStr(rawInput?: string | null): string | null
     return `${y}-${m}-${d}`;
   }
 
-  // 2. US format (MM/DD/YYYY or M/D/YYYY)
-  const mdyMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
-  if (mdyMatch) {
-    const m = String(parseInt(mdyMatch[1], 10)).padStart(2, '0');
-    const d = String(parseInt(mdyMatch[2], 10)).padStart(2, '0');
-    const y = mdyMatch[3];
-    return `${y}-${m}-${d}`;
-  }
-
-  // 3. Fallback: parse through Date object using local calendar getters
+  // 5. Fallback: parse through Date object using local calendar getters
   const parsed = new Date(str);
   if (!isNaN(parsed.getTime())) {
     const y = parsed.getFullYear();
@@ -639,16 +656,70 @@ export function isLeadWarmed(lead: ChannelLead): boolean {
   return lead.warmupStatus === 'warmed' || Boolean(lead.isWarmedUp);
 }
 
+export const WARMUP_MANUAL_OVERRIDE_KEY = 'crm_warmup_manual_override_unlocked';
+
+export function isManualWarmupOverrideEnabled(): boolean {
+  try {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem(WARMUP_MANUAL_OVERRIDE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setManualWarmupOverride(enabled: boolean): void {
+  try {
+    if (typeof window === 'undefined') return;
+    if (enabled) {
+      localStorage.setItem(WARMUP_MANUAL_OVERRIDE_KEY, 'true');
+    } else {
+      localStorage.removeItem(WARMUP_MANUAL_OVERRIDE_KEY);
+    }
+    window.dispatchEvent(new CustomEvent('crm_warmup_override_changed', { detail: { enabled } }));
+  } catch (err) {
+    console.error('Failed to update manual warm-up override', err);
+  }
+}
+
+/**
+ * Checks if a lead was warmed up TODAY.
+ * If warmed today (or if warmed with no timestamp), it CANNOT be sent today; it unlocks at midnight tomorrow.
+ */
+export function isLeadWarmedToday(lead: ChannelLead, referenceDateStr = getLocalTodayStr()): boolean {
+  // If manual testing override is enabled in settings, unlock for testing
+  if (isManualWarmupOverrideEnabled()) {
+    return false;
+  }
+  if (!lead.isWarmedUp && lead.warmupStatus !== 'warmed') {
+    return false;
+  }
+  // STRICT RULE 1: If no date stamp was explicitly recorded, strictly default to warmed today
+  // (Safety first - prevents accidental same-day dispatch and Instagram bans)
+  if (!lead.warmedUpAt) {
+    return true;
+  }
+  const warmedDate = normalizeToLocalDateStr(lead.warmedUpAt);
+  // If normalization failed or matches today or in the future: strictly warmed today
+  if (!warmedDate || warmedDate >= referenceDateStr) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Checks if a lead was warmed up strictly BEFORE today (e.g. yesterday or earlier).
  * A lead can ONLY be dispatched if it was warmed up before today.
  * Warming up a lead today is strictly for tomorrow's dispatch. Same-day send is prohibited.
  */
 export function isLeadWarmedBeforeToday(lead: ChannelLead, referenceDateStr = getLocalTodayStr()): boolean {
+  // If manual testing override is enabled, allow immediate dispatch
+  if (isManualWarmupOverrideEnabled()) {
+    return true;
+  }
   if (!lead.isWarmedUp && lead.warmupStatus !== 'warmed') {
     return false;
   }
-  // If warmed today, it is strictly prohibited from same-day dispatch
+  // If warmed today (or missing timestamp defaulting to today), strictly prohibited from same-day dispatch
   if (isLeadWarmedToday(lead, referenceDateStr)) {
     return false;
   }
@@ -659,27 +730,8 @@ export function isLeadWarmedBeforeToday(lead: ChannelLead, referenceDateStr = ge
       return warmedDate < referenceDateStr;
     }
   }
-  // If warmedUpAt was not recorded, only permit if lead was created prior to reference date
-  if (lead.createdAt) {
-    const createdDate = normalizeToLocalDateStr(lead.createdAt);
-    if (createdDate && createdDate < referenceDateStr) {
-      return true;
-    }
-  }
+  // Safe default: cannot dispatch today without verified past date
   return false;
-}
-
-/**
- * Checks if a lead was warmed up TODAY.
- * If warmed today, it CANNOT be sent today; it is scheduled for tomorrow.
- */
-export function isLeadWarmedToday(lead: ChannelLead, referenceDateStr = getLocalTodayStr()): boolean {
-  if (!lead.isWarmedUp && lead.warmupStatus !== 'warmed') {
-    return false;
-  }
-  if (!lead.warmedUpAt) return false;
-  const warmedDate = normalizeToLocalDateStr(lead.warmedUpAt);
-  return warmedDate === referenceDateStr;
 }
 
 /**
@@ -687,6 +739,9 @@ export function isLeadWarmedToday(lead: ChannelLead, referenceDateStr = getLocal
  * A lead is locked if not warmed up, or if only warmed up today (same-day dispatch prohibited).
  */
 export function isLeadDispatchLocked(lead: ChannelLead, referenceDateStr = getLocalTodayStr()): boolean {
+  if (isManualWarmupOverrideEnabled()) {
+    return false;
+  }
   if (isEmailOnlyLead(lead)) {
     return false;
   }

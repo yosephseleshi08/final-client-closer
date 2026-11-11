@@ -178,14 +178,14 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
     }
 
     const nextVal = !isCurrentlyWarmed;
-    const nowIso = new Date().toISOString();
+    const localDateStr = getLocalTodayStr();
     const updated = leads.map((l) => {
       if (l.id === lead.id) {
         return {
           ...l,
           warmupStatus: nextVal ? ('warmed' as const) : ('locked' as const),
           isWarmedUp: nextVal,
-          warmedUpAt: nextVal ? nowIso : undefined,
+          warmedUpAt: nextVal ? localDateStr : undefined,
         };
       }
       return l;

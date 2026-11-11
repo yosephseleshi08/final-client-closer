@@ -64,6 +64,8 @@ import {
   isLeadWarmedBeforeToday,
   isLeadWarmedToday,
   getTomorrowWarmupTargetDate,
+  isManualWarmupOverrideEnabled,
+  setManualWarmupOverride,
 } from '../utils/cadenceEngine';
 import {
   getChannelCooldownRemaining,
@@ -149,6 +151,18 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   // 8-Minute Platform-Independent Warm-Up Cooling Breaks
   const [igWarmupCooldownMs, setIgWarmupCooldownMs] = useState<number>(() => getWarmupCooldownRemaining('instagram'));
   const [fbWarmupCooldownMs, setFbWarmupCooldownMs] = useState<number>(() => getWarmupCooldownRemaining('facebook'));
+
+  // Testing Override State for Midnight Warm-Up Protocol
+  const [warmupOverrideActive, setWarmupOverrideActive] = useState<boolean>(() => isManualWarmupOverrideEnabled());
+
+  useEffect(() => {
+    const handleOverrideChanged = (e: Event) => {
+      const customEvent = e as CustomEvent<{ enabled: boolean }>;
+      setWarmupOverrideActive(customEvent.detail?.enabled ?? isManualWarmupOverrideEnabled());
+    };
+    window.addEventListener('crm_warmup_override_changed', handleOverrideChanged);
+    return () => window.removeEventListener('crm_warmup_override_changed', handleOverrideChanged);
+  }, []);
 
   // Ticking cooldown timer for both DM spacing and Warm-Up cooling breaks
   useEffect(() => {
@@ -286,11 +300,12 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       // If scheduled for today or overdue, but wasn't warmed up before today
       if (lead.scheduledDate <= todayStr && !isLeadWarmedBeforeToday(lead, todayStr)) {
         igNeedsUpdate = true;
+        const warmedToday = isLeadWarmedToday(lead, todayStr);
         return {
           ...lead,
           scheduledDate: targetTomorrow,
-          warmupStatus: 'locked' as const,
-          isWarmedUp: false,
+          warmupStatus: warmedToday ? ('warmed' as const) : ('locked' as const),
+          isWarmedUp: warmedToday,
         };
       }
       return lead;
@@ -308,11 +323,12 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
         if (isEmailOnlyLead(lead)) return lead;
         if (lead.scheduledDate <= todayStr && !isLeadWarmedBeforeToday(lead, todayStr)) {
           combinedNeedsUpdate = true;
+          const warmedToday = isLeadWarmedToday(lead, todayStr);
           return {
             ...lead,
             scheduledDate: targetTomorrow,
-            warmupStatus: 'locked' as const,
-            isWarmedUp: false,
+            warmupStatus: warmedToday ? ('warmed' as const) : ('locked' as const),
+            isWarmedUp: warmedToday,
           };
         }
         return lead;
@@ -414,7 +430,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       ...lead,
       warmupStatus: nextVal ? 'warmed' : 'locked',
       isWarmedUp: nextVal,
-      warmedUpAt: nextVal ? new Date().toISOString() : undefined,
+      warmedUpAt: nextVal ? todayStr : undefined,
       // If warming up today, strictly set scheduled date to tomorrow's dispatch date
       scheduledDate: nextVal
         ? (lead.scheduledDate && lead.scheduledDate > todayStr ? lead.scheduledDate : targetTomorrow)
@@ -452,15 +468,16 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   };
 
   // Channel Specific Lists for Dedicated Modals
-  // STRICT RULE: Initial social leads MUST have been warmed up BEFORE today (yesterday or older).
   const todayIgLeads = useMemo(() => {
     return instagramLeads.filter((l) => {
       if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
       if (isLeadDismissedToday(l)) return false;
-      // Initial due: MUST be scheduled for today AND warmed up before today!
+      // Initial due: scheduled for today OR warmed today (showing midnight lock)
       if (!l.initialSentDate) {
-        if (!l.scheduledDate || !isDateToday(l.scheduledDate)) return false;
-        return isLeadWarmedBeforeToday(l, todayStr);
+        if (!l.scheduledDate) return false;
+        const isScheduledToday = isDateToday(l.scheduledDate);
+        const isWarmedToday = isLeadWarmedToday(l, todayStr);
+        return isScheduledToday || isWarmedToday;
       }
       // Follow-ups due
       if (l.initialSentDate) {
@@ -470,17 +487,19 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       }
       return false;
     });
-  }, [instagramLeads, todayStr]);
+  }, [instagramLeads, todayStr, warmupOverrideActive]);
 
   const todayCombinedLeads = useMemo(() => {
     return effectiveCombinedLeads.filter((l) => {
       if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
       if (isLeadDismissedToday(l)) return false;
-      // Initial due
+      // Initial due: scheduled for today OR warmed today
       if (!l.initialSentDate) {
-        if (!l.scheduledDate || !isDateToday(l.scheduledDate)) return false;
-        if (isEmailOnlyLead(l)) return true;
-        return isLeadWarmedBeforeToday(l, todayStr);
+        if (!l.scheduledDate) return false;
+        const isScheduledToday = isDateToday(l.scheduledDate);
+        const isWarmedToday = isLeadWarmedToday(l, todayStr);
+        if (isEmailOnlyLead(l)) return isScheduledToday;
+        return isScheduledToday || isWarmedToday;
       }
       // Follow-ups due
       if (l.initialSentDate) {
@@ -490,7 +509,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       }
       return false;
     });
-  }, [effectiveCombinedLeads, todayStr]);
+  }, [effectiveCombinedLeads, todayStr, warmupOverrideActive]);
 
   // Quota and Stats
   const igInitialDue = todayIgLeads.filter((l) => !l.initialSentDate).length;
@@ -1421,6 +1440,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                       : lead.breakupDM_Day30 || templates.day14Message;
 
                   const isWarmedBeforeToday = isLeadWarmedBeforeToday(lead, todayStr);
+                  const isWarmedToday = isLeadWarmedToday(lead, todayStr);
                   const isLockedByWarmup = !isWarmedBeforeToday && stageNumber === 0;
                   const isLockedByTimer = igCooldownMs > 0;
                   const canSend = !isLockedByWarmup && !isLockedByTimer;
@@ -1518,10 +1538,15 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         {/* Dispatch Button with 12-Minute Timer & Warm-Up Lock */}
                         {isLockedByWarmup ? (
                           <div className="flex items-center gap-2">
-                            <span className="text-[11px] text-amber-300 font-mono font-bold flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                            <button
+                              type="button"
+                              disabled
+                              className="px-4 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold flex items-center gap-2 cursor-not-allowed opacity-90 shadow-none"
+                              title="Warmed today. Dispatch unlocks automatically at midnight (00:00)."
+                            >
                               <Lock className="w-3.5 h-3.5 text-amber-400" />
-                              <span>Must be warmed up day before (moved to tomorrow)</span>
-                            </span>
+                              <span>{isWarmedToday ? '🔒 Locked - Unlocks at Midnight' : '🔒 Day-Before Warm-Up Required'}</span>
+                            </button>
                           </div>
                         ) : isLockedByTimer ? (
                           <button
@@ -1639,6 +1664,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
 
                   const isFbLead = Boolean(lead.facebook || lead.channel === 'facebook');
                   const isWarmedBeforeToday = isLeadWarmedBeforeToday(lead, todayStr);
+                  const isWarmedToday = isLeadWarmedToday(lead, todayStr);
                   const isLockedByWarmup = isFbLead && !isWarmedBeforeToday && stageNumber === 0;
                   const isLockedByTimer = combinedCooldownMs > 0;
 
@@ -1733,10 +1759,15 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                         {/* Dispatch Button with 12-Minute Timer & Warm-Up Lock */}
                         {isLockedByWarmup ? (
                           <div className="flex items-center gap-2">
-                            <span className="text-[11px] text-amber-300 font-mono font-bold flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                            <button
+                              type="button"
+                              disabled
+                              className="px-4 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold flex items-center gap-2 cursor-not-allowed opacity-90 shadow-none"
+                              title="Warmed today. Dispatch unlocks automatically at midnight (00:00)."
+                            >
                               <Lock className="w-3.5 h-3.5 text-amber-400" />
-                              <span>FB must be warmed up day before (moved to tomorrow)</span>
-                            </span>
+                              <span>{isWarmedToday ? '🔒 Locked - Unlocks at Midnight' : '🔒 FB Day-Before Warm-Up Required'}</span>
+                            </button>
                           </div>
                         ) : isLockedByTimer ? (
                           <button

@@ -214,9 +214,14 @@ export function FollowupScheduleSubPage({
     if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
     if (isLeadDismissedToday(l)) return false;
 
-    // Initial outreach due today or overdue
-    if (!l.initialSentDate && !l.dmSent && l.scheduledDate && (isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate))) {
-      return true;
+    // Initial outreach due today or overdue, or warmed today (awaiting midnight unlock)
+    if (!l.initialSentDate && !l.dmSent) {
+      if (l.scheduledDate && (isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate))) {
+        return true;
+      }
+      if (isLeadWarmedToday(l, todayStr)) {
+        return true;
+      }
     }
 
     // Follow-ups due today or overdue (Day 4, Day 8, Day 14)
@@ -558,7 +563,7 @@ export function FollowupScheduleSubPage({
                         <span>
                           {isWarmedToday ? (
                             <>
-                              <strong>Warmed Today:</strong> Profile was engaged and warmed up today for <strong>tomorrow's dispatch</strong>. Same-day initial DM is locked to protect account health.
+                              <strong>Warmed Today:</strong> Profile was engaged and warmed up today. Initial dispatch unlocks automatically at midnight (00:00).
                             </>
                           ) : (
                             <>
@@ -571,7 +576,6 @@ export function FollowupScheduleSubPage({
                         <button
                           type="button"
                           onClick={() => {
-                            const nowIso = new Date().toISOString();
                             const targetTomorrow = getTomorrowWarmupTargetDate(todayStr);
                             const platform = getLeadWarmupPlatform(lead);
                             startWarmupCooldown(platform);
@@ -579,7 +583,7 @@ export function FollowupScheduleSubPage({
                               ...lead,
                               warmupStatus: 'warmed',
                               isWarmedUp: true,
-                              warmedUpAt: nowIso,
+                              warmedUpAt: todayStr,
                               scheduledDate: targetTomorrow,
                             });
                           }}
@@ -589,8 +593,9 @@ export function FollowupScheduleSubPage({
                           <span>Mark as Warmed</span>
                         </button>
                       ) : (
-                        <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono text-[11px] font-bold shrink-0">
-                          📅 Dispatches Tomorrow
+                        <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono text-[11px] font-bold shrink-0 flex items-center gap-1.5">
+                          <Lock className="w-3 h-3 text-amber-400" />
+                          <span>Locked - Unlocks at Midnight</span>
                         </span>
                       )}
                     </div>
@@ -663,7 +668,7 @@ export function FollowupScheduleSubPage({
                         title={
                           isDispatchLocked
                             ? isWarmedToday
-                              ? 'Initial DM dispatches tomorrow to satisfy the 24-hour warm-up rule'
+                              ? 'Initial DM is locked today. Unlocks automatically at midnight (00:00) to satisfy previous-day warm-up law'
                               : "Dispatch is locked until this lead is marked as 'warmed' before dispatch day"
                             : undefined
                         }
@@ -671,7 +676,7 @@ export function FollowupScheduleSubPage({
                         {isDispatchLocked ? (
                           <>
                             <Lock className="w-3.5 h-3.5 text-amber-500" />
-                            <span>{isWarmedToday ? '🔒 Unlocks Tomorrow' : '🔒 Dispatch Locked'}</span>
+                            <span>{isWarmedToday ? '🔒 Locked - Unlocks at Midnight' : '🔒 Dispatch Locked'}</span>
                           </>
                         ) : (
                           <>

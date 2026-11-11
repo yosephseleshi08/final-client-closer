@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for creating a fresh history state, eliminating premature red '0% Missed' calendar indicators, introducing neutral Pre-Launch status styling, and starting streak and completion tracking only from the first verified outreach dispatch day.",
-  "updatedAt":  "2026-11-08T20:12:39.793438667Z",
+  "summary":  "Updated Midnight Calendar Unlock Engine specification to strictly enforce same-day dispatch locks. Leads warmed today or missing timestamps default to isLeadWarmedToday = true, rendering a locked dispatch button labeled '🔒 Locked - Unlocks at Midnight' until 12:00 AM midnight. A manual testing unlock toggle is provided in the CRM Settings Station.",
+  "updatedAt":  "2026-11-11T09:29:25.125702069Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
