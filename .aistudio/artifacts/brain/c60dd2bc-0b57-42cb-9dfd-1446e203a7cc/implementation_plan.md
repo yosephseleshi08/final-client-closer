@@ -28,5 +28,10 @@
    - Clicking the badge opens a dropdown allowing the operator to manually override the type in 1 click (setting `isVoiceTypeOverridden: true`).
    - Clean UI without horizontal scrolling.
 
-4. **History Warm-Up CSV Export Calculation**
+4. **Visual Completion Indicator: "Prompt / Edit Sequence" Turns Green**
+   - **Default State (Unconfigured):** Renders with the original blue/indigo theme (`bg-indigo-500/15`, `border-indigo-500/30`, `text-indigo-300`, `Sparkles` icon).
+   - **Saved / Configured State:** Once the operator writes/saves the 4-step sequence (setting `isSequenceConfigured: true` and `pitchSavedAt`), the button turns **emerald green** (`bg-emerald-500/20`, `border-emerald-500/40`, `text-emerald-200`, `CheckCircle2` green checkmark icon, and an emerald pulse dot).
+   - The operator can still click the green button at any time to inspect the lead analysis or adjust the copy.
+
+5. **History Warm-Up CSV Export Calculation**
    - Corrected live warm-up percentage calculation in the CSV export so it reflects the actual real-time status (100% when all leads are warmed) rather than stale partial records.

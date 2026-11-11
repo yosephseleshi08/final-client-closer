@@ -13,6 +13,7 @@ import {
   FileText,
   Copy,
   Check,
+  CheckCircle2,
   Sparkles,
   ShieldCheck,
   Save,
@@ -193,6 +194,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
           followup7DM: day8Text.trim(),
           breakupDM_Day30: day14Text.trim(),
           pitchSavedAt: new Date().toISOString(),
+          isSequenceConfigured: true,
         };
       }
       return l;
@@ -648,17 +650,42 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                         </div>
                       </td>
 
-                      {/* 3. Prompt / Edit Sequence Button (Requirement 4) */}
+                      {/* 3. Prompt / Edit Sequence Button (Turns green when configured) */}
                       <td className="py-3.5 px-4 text-left">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditSequence(lead)}
-                          className="px-3.5 py-1.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border border-indigo-500/30 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-sm"
-                          title="Open Lead Analysis and edit 4-step sequence (Initial, Day 4, Day 8, Day 14)"
-                        >
-                          <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>Prompt / Edit Sequence</span>
-                        </button>
+                        {(() => {
+                          const isConfigured = Boolean(
+                            lead.isSequenceConfigured ||
+                            lead.pitchSavedAt ||
+                            (lead.initialDM && lead.initialDM.trim().length > 0)
+                          );
+
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditSequence(lead)}
+                              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-sm ${
+                                isConfigured
+                                  ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 hover:text-white border border-emerald-500/40 shadow-emerald-500/10'
+                                  : 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border border-indigo-500/30 shadow-indigo-500/10'
+                              }`}
+                              title={
+                                isConfigured
+                                  ? 'Sequence edited & saved! Click to review or adjust.'
+                                  : 'Open Lead Analysis and write/edit 4-step sequence (Initial, Day 4, Day 8, Day 14)'
+                              }
+                            >
+                              {isConfigured ? (
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              ) : (
+                                <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                              )}
+                              <span>Prompt / Edit Sequence</span>
+                              {isConfigured && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                              )}
+                            </button>
+                          );
+                        })()}
                       </td>
 
                       {/* 4. Action: ONLY Delete Button (🗑️) */}

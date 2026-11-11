@@ -352,6 +352,7 @@ export interface ChannelLead {
   followup3DM?: string; // backwards compatibility
   followup7DM?: string; // backwards compatibility
   pitchSavedAt?: string;
+  isSequenceConfigured?: boolean; // Whether the sequence has been saved / customized
 
   // Gemini Lead Analysis & Prompt Hub
   leadAnalysis?: string;
