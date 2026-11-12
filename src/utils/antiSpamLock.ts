@@ -51,10 +51,18 @@ export function formatCooldownTime(msRemaining: number): string {
 }
 
 /**
- * 8-Minute Platform-Independent Warm-Up Cooling Break
- * Tracks independent timers for Instagram and Facebook warm-up actions.
+ * Randomized 2–3 Minute Platform-Independent Warm-Up Cooling Gap
+ * Tracks independent human-like randomized timers for Instagram and Facebook warm-up actions.
  */
-export const WARMUP_COOLDOWN_MS = 8 * 60 * 1000; // 8 minutes
+export const WARMUP_MIN_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes
+export const WARMUP_MAX_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes
+
+export function getRandomizedWarmupCooldownMs(): number {
+  const minSeconds = 120;
+  const maxSeconds = 180;
+  const randomSeconds = Math.floor(Math.random() * (maxSeconds - minSeconds + 1)) + minSeconds;
+  return randomSeconds * 1000;
+}
 
 export function getWarmupCooldownStorageKey(platform: 'instagram' | 'facebook'): string {
   return `outreach_warmup_cooldown_${platform}`;
@@ -70,25 +78,32 @@ export function getWarmupCooldownRemaining(platform: 'instagram' | 'facebook'): 
     const expiresAt = parseInt(raw, 10);
     if (isNaN(expiresAt)) return 0;
     const remaining = expiresAt - Date.now();
-    return remaining > 0 ? remaining : 0;
+    if (remaining <= 0) {
+      localStorage.removeItem(getWarmupCooldownStorageKey(platform));
+      return 0;
+    }
+    return remaining;
   } catch {
     return 0;
   }
 }
 
 /**
- * Sets an 8-minute cooling break strictly for the specified platform.
+ * Sets a randomized 2-3 minute cooling break strictly for the specified platform
+ * and returns the chosen duration in milliseconds.
  */
-export function startWarmupCooldown(platform: 'instagram' | 'facebook'): void {
+export function startWarmupCooldown(platform: 'instagram' | 'facebook'): number {
+  const durationMs = getRandomizedWarmupCooldownMs();
   try {
-    const expiresAt = Date.now() + WARMUP_COOLDOWN_MS;
+    const expiresAt = Date.now() + durationMs;
     localStorage.setItem(getWarmupCooldownStorageKey(platform), expiresAt.toString());
     window.dispatchEvent(
-      new CustomEvent('outreach_warmup_cooldown_changed', { detail: { platform } })
+      new CustomEvent('outreach_warmup_cooldown_changed', { detail: { platform, durationMs } })
     );
   } catch (err) {
     console.error('Failed to set warm-up cooldown:', err);
   }
+  return durationMs;
 }
 
 /**

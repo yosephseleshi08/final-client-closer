@@ -218,7 +218,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
           <div className="leading-relaxed">
             <strong className="text-slate-200 block mb-0.5">Account Safety Standard:</strong>
-            12-minute cooldowns between DM dispatches and 8-minute warm-up cooling breaks operate independently to keep your outreach natural and safe.
+            12-minute cooldowns between manual live DM dispatches and randomized 2-3 minute warm-up gaps operate independently to keep your outreach natural and safe.
           </div>
         </div>
 

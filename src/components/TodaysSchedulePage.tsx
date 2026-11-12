@@ -163,7 +163,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const [igCooldownMs, setIgCooldownMs] = useState<number>(() => getChannelCooldownRemaining('instagram'));
   const [combinedCooldownMs, setCombinedCooldownMs] = useState<number>(() => getChannelCooldownRemaining('combined'));
 
-  // 8-Minute Platform-Independent Warm-Up Cooling Breaks
+  // Randomized 2-3 Minute Platform-Independent Warm-Up Cooling Gaps
   const [igWarmupCooldownMs, setIgWarmupCooldownMs] = useState<number>(() => getWarmupCooldownRemaining('instagram'));
   const [fbWarmupCooldownMs, setFbWarmupCooldownMs] = useState<number>(() => getWarmupCooldownRemaining('facebook'));
 
@@ -179,7 +179,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     return () => window.removeEventListener('crm_warmup_override_changed', handleOverrideChanged);
   }, []);
 
-  // Ticking cooldown timer for both DM spacing and Warm-Up cooling breaks
+  // Ticking cooldown timer for both DM spacing and Warm-Up cooling gaps
   useEffect(() => {
     const updateAllTimers = () => {
       setIgCooldownMs(getChannelCooldownRemaining('instagram'));
@@ -196,10 +196,14 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
 
     window.addEventListener('outreach_cooldown_changed', handleCooldownChange);
     window.addEventListener('outreach_warmup_cooldown_changed', handleCooldownChange);
+    window.addEventListener('focus', handleCooldownChange);
+    document.addEventListener('visibilitychange', handleCooldownChange);
     return () => {
       clearInterval(timer);
       window.removeEventListener('outreach_cooldown_changed', handleCooldownChange);
       window.removeEventListener('outreach_warmup_cooldown_changed', handleCooldownChange);
+      window.removeEventListener('focus', handleCooldownChange);
+      document.removeEventListener('visibilitychange', handleCooldownChange);
     };
   }, []);
 
@@ -454,12 +458,12 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     handleUpdateLead(updated);
 
     if (nextVal) {
-      // Start 8-minute cooling break strictly for this platform
-      startWarmupCooldown(platform);
+      // Start randomized 2-3 minute cooling gap strictly for this platform
+      const cooldownMs = startWarmupCooldown(platform);
       if (platform === 'instagram') {
-        setIgWarmupCooldownMs(8 * 60 * 1000);
+        setIgWarmupCooldownMs(cooldownMs);
       } else {
-        setFbWarmupCooldownMs(8 * 60 * 1000);
+        setFbWarmupCooldownMs(cooldownMs);
       }
 
       if (warmupCompletedCount + 1 >= warmupTotalNeeded && warmupTotalNeeded > 0) {
@@ -478,7 +482,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       action: nextVal ? 'warmed' : 'locked',
       channel: lead.channel,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      notice: nextVal ? `${platName} 8-minute cooling break active to protect account.` : undefined,
+      notice: nextVal ? `${platName}: Randomized 2-3 minute gap to protect account health.` : undefined,
     });
   };
 
@@ -941,7 +945,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                8-minute anti-spam guardrail running to protect account health. Other platform remains ready to engage!
+                Randomized 2-3 minute gap to protect account health. Draft tomorrow&apos;s DM while the timer counts down!
               </p>
             </div>
           </div>
@@ -1393,19 +1397,23 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
             </div>
           </div>
 
-          {/* 8-Minute Platform Cooling Break Status Banners */}
+          {/* Randomized 2-3 Minute Platform Cooling Gap Status Banners */}
           {(igWarmupCooldownMs > 0 || fbWarmupCooldownMs > 0) && (
             <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
               {igWarmupCooldownMs > 0 && (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-pink-500/15 border border-pink-500/30 text-pink-200 text-xs font-mono font-bold shadow-sm">
-                  <Timer className="w-3.5 h-3.5 text-pink-400 animate-spin shrink-0" />
-                  <span>IG Cooling: {formatCooldownTime(igWarmupCooldownMs)}</span>
+                <div
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-pink-500/15 border border-pink-500/30 text-pink-200 text-xs font-mono font-bold shadow-sm"
+                  title="Randomized 2-3 minute gap to protect account health."
+                >
+                  <span>🔥 IG {formatCooldownTime(igWarmupCooldownMs)}</span>
                 </div>
               )}
               {fbWarmupCooldownMs > 0 && (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-200 text-xs font-mono font-bold shadow-sm">
-                  <Timer className="w-3.5 h-3.5 text-sky-400 animate-spin shrink-0" />
-                  <span>FB Cooling: {formatCooldownTime(fbWarmupCooldownMs)}</span>
+                <div
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-200 text-xs font-mono font-bold shadow-sm"
+                  title="Randomized 2-3 minute gap to protect account health."
+                >
+                  <span>🔥 FB {formatCooldownTime(fbWarmupCooldownMs)}</span>
                 </div>
               )}
             </div>
@@ -1502,10 +1510,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                       type="button"
                       onClick={() => handleToggleLeadWarmup(lead)}
                       className="px-3 py-1.5 rounded-xl text-xs font-bold font-mono transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 shrink-0 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40"
-                      title={`${leadPlat === 'instagram' ? 'Instagram' : 'Facebook'} cooling break active (${formatCooldownTime(leadCooldown)} remaining). Click for details.`}
+                      title="Randomized 2-3 minute gap to protect account health."
                     >
-                      <Timer className="w-3.5 h-3.5 text-amber-400 animate-spin shrink-0" />
-                      <span>{formatCooldownTime(leadCooldown)}</span>
+                      <span>🔥 {formatCooldownTime(leadCooldown)}</span>
                     </button>
                   ) : (
                     <button
@@ -2162,9 +2169,11 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                       <span>Instagram Leads (for Tomorrow)</span>
                     </div>
                     {igWarmupCooldownMs > 0 && (
-                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-pink-500/15 border border-pink-500/30 text-pink-200 text-xs font-mono font-bold shadow-sm">
-                        <Timer className="w-3.5 h-3.5 text-pink-400 animate-spin shrink-0" />
-                        <span>IG Cooling: {formatCooldownTime(igWarmupCooldownMs)}</span>
+                      <div
+                        className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-pink-500/15 border border-pink-500/30 text-pink-200 text-xs font-mono font-bold shadow-sm"
+                        title="Randomized 2-3 minute gap to protect account health."
+                      >
+                        <span>🔥 {formatCooldownTime(igWarmupCooldownMs)}</span>
                       </div>
                     )}
                   </div>
@@ -2228,10 +2237,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                                   type="button"
                                   onClick={() => handleToggleLeadWarmup(lead)}
                                   className="px-3 py-1.5 rounded-xl text-xs font-bold font-mono transition flex items-center gap-1.5 cursor-pointer shrink-0 bg-pink-500/15 hover:bg-pink-500/25 text-pink-300 border border-pink-500/40"
-                                  title={`Instagram cooling break active (${formatCooldownTime(igWarmupCooldownMs)} remaining). Click for details.`}
+                                  title="Randomized 2-3 minute gap to protect account health."
                                 >
-                                  <Timer className="w-3.5 h-3.5 text-pink-400 animate-spin shrink-0" />
-                                  <span>{formatCooldownTime(igWarmupCooldownMs)}</span>
+                                  <span>🔥 {formatCooldownTime(igWarmupCooldownMs)}</span>
                                 </button>
                               ) : (
                                 <button
@@ -2257,9 +2265,11 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                       <span>Combined Outreach (Facebook - for Tomorrow)</span>
                     </div>
                     {fbWarmupCooldownMs > 0 && (
-                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-200 text-xs font-mono font-bold shadow-sm">
-                        <Timer className="w-3.5 h-3.5 text-sky-400 animate-spin shrink-0" />
-                        <span>FB Cooling: {formatCooldownTime(fbWarmupCooldownMs)}</span>
+                      <div
+                        className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-200 text-xs font-mono font-bold shadow-sm"
+                        title="Randomized 2-3 minute gap to protect account health."
+                      >
+                        <span>🔥 {formatCooldownTime(fbWarmupCooldownMs)}</span>
                       </div>
                     )}
                   </div>
@@ -2323,10 +2333,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                                   type="button"
                                   onClick={() => handleToggleLeadWarmup(lead)}
                                   className="px-3 py-1.5 rounded-xl text-xs font-bold font-mono transition flex items-center gap-1.5 cursor-pointer shrink-0 bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/40"
-                                  title={`Facebook cooling break active (${formatCooldownTime(fbWarmupCooldownMs)} remaining). Click for details.`}
+                                  title="Randomized 2-3 minute gap to protect account health."
                                 >
-                                  <Timer className="w-3.5 h-3.5 text-sky-400 animate-spin shrink-0" />
-                                  <span>{formatCooldownTime(fbWarmupCooldownMs)}</span>
+                                  <span>🔥 {formatCooldownTime(fbWarmupCooldownMs)}</span>
                                 </button>
                               ) : (
                                 <button

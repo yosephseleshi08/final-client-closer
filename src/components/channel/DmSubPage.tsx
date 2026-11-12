@@ -48,7 +48,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [promptModalLeadId, setPromptModalLeadId] = useState<string | null>(null);
 
-  // 8-Minute Platform-Independent Warm-Up Cooling Breaks
+  // Randomized 2-3 Minute Platform-Independent Warm-Up Cooling Gaps
   const [igWarmupCooldownMs, setIgWarmupCooldownMs] = useState<number>(() => getWarmupCooldownRemaining('instagram'));
   const [fbWarmupCooldownMs, setFbWarmupCooldownMs] = useState<number>(() => getWarmupCooldownRemaining('facebook'));
   const [coolingToast, setCoolingToast] = useState<{
@@ -70,11 +70,16 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
 
     const timer = setInterval(updateTimers, 1000);
     const handleCooldownChange = () => updateTimers();
+    const handleVisibilityOrFocus = () => updateTimers();
 
     window.addEventListener('outreach_warmup_cooldown_changed', handleCooldownChange);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
     return () => {
       clearInterval(timer);
       window.removeEventListener('outreach_warmup_cooldown_changed', handleCooldownChange);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
     };
   }, []);
 
@@ -193,11 +198,11 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
     onUpdateLeads(updated);
 
     if (nextVal) {
-      startWarmupCooldown(platform);
+      const cooldownMs = startWarmupCooldown(platform);
       if (platform === 'instagram') {
-        setIgWarmupCooldownMs(8 * 60 * 1000);
+        setIgWarmupCooldownMs(cooldownMs);
       } else {
-        setFbWarmupCooldownMs(8 * 60 * 1000);
+        setFbWarmupCooldownMs(cooldownMs);
       }
     }
   };
@@ -253,7 +258,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                8-minute anti-spam guardrail running to protect account health against burst engagement flags.
+                Randomized 2-3 minute gap to protect account health. Draft tomorrow&apos;s DM while the timer counts down.
               </p>
             </div>
           </div>
@@ -308,15 +313,17 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
             </div>
           )}
           {(igWarmupCooldownMs > 0 || fbWarmupCooldownMs > 0) && (
-            <div className="bg-amber-500/15 border border-amber-500/30 px-3.5 py-2 rounded-xl flex items-center gap-2 text-amber-200 font-bold">
-              <Timer className="w-3.5 h-3.5 text-amber-400 animate-spin shrink-0" />
+            <div
+              className="bg-amber-500/15 border border-amber-500/30 px-3.5 py-2 rounded-xl flex items-center gap-2 text-amber-200 font-bold"
+              title="Randomized 2-3 minute gap to protect account health."
+            >
+              <span>🔥</span>
               <span>
-                Cooling:{' '}
                 {channel === 'instagram'
                   ? formatCooldownTime(igWarmupCooldownMs)
                   : fbWarmupCooldownMs > 0
-                  ? `FB (${formatCooldownTime(fbWarmupCooldownMs)})`
-                  : `IG (${formatCooldownTime(igWarmupCooldownMs)})`}
+                  ? `FB ${formatCooldownTime(fbWarmupCooldownMs)}`
+                  : `IG ${formatCooldownTime(igWarmupCooldownMs)}`}
               </span>
             </div>
           )}
@@ -596,10 +603,9 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
                               type="button"
                               onClick={() => handleToggleWarmup(lead)}
                               className="px-4 py-2 rounded-xl text-xs font-bold font-mono transition flex items-center gap-1.5 cursor-pointer shadow-lg active:scale-95 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40"
-                              title={`${leadPlat === 'instagram' ? 'Instagram' : 'Facebook'} cooling break active (${formatCooldownTime(leadCooldown)} remaining). Click for details.`}
+                              title="Randomized 2-3 minute gap to protect account health."
                             >
-                              <Timer className="w-4 h-4 text-amber-400 animate-spin shrink-0" />
-                              <span>⏱️ {formatCooldownTime(leadCooldown)}</span>
+                              <span>🔥 {formatCooldownTime(leadCooldown)}</span>
                             </button>
                           );
                         }
