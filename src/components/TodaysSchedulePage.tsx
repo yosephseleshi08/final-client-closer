@@ -128,6 +128,13 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     timestamp: string;
   } | null>(null);
 
+  // Toast for Native Scheduling actions ("X leads scheduled. D4 follow-ups queued.")
+  const [scheduledToast, setScheduledToast] = useState<{
+    count: number;
+    channelLabel: string;
+    timestamp: string;
+  } | null>(null);
+
   useEffect(() => {
     if (!warmupToast) return;
     const timer = setTimeout(() => {
@@ -143,6 +150,14 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     }, 4000);
     return () => clearTimeout(timer);
   }, [coolingToast]);
+
+  useEffect(() => {
+    if (!scheduledToast) return;
+    const timer = setTimeout(() => {
+      setScheduledToast(null);
+    }, 5500);
+    return () => clearTimeout(timer);
+  }, [scheduledToast]);
 
   // Anti-Spam 12-Minute Countdown Cooldown Timers (Direct Messages)
   const [igCooldownMs, setIgCooldownMs] = useState<number>(() => getChannelCooldownRemaining('instagram'));
@@ -518,7 +533,27 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const combinedInitialDue = todayCombinedLeads.filter((l) => !l.initialSentDate).length;
   const combinedFollowupsDue = todayCombinedLeads.filter((l) => Boolean(l.initialSentDate)).length;
 
-  // Requirement 5: "Mark as Sent" with 12-Minute Spaced Out Cooldown
+  // Eligible leads ready for native bulk scheduling (respecting Previous-Day Warm-Up Law & Channel Isolation)
+  const eligibleIgScheduledLeads = useMemo(() => {
+    return todayIgLeads.filter((lead) => {
+      if (lead.channel !== 'instagram') return false;
+      const isStage0 = !lead.initialSentDate;
+      const lockedByWarmup = isStage0 && !isLeadWarmedBeforeToday(lead, todayStr);
+      return !lockedByWarmup;
+    });
+  }, [todayIgLeads, todayStr, warmupOverrideActive]);
+
+  const eligibleCombinedScheduledLeads = useMemo(() => {
+    return todayCombinedLeads.filter((lead) => {
+      if (lead.channel !== 'combined') return false;
+      const isStage0 = !lead.initialSentDate;
+      const isFbLead = Boolean(lead.facebook);
+      const lockedByWarmup = isFbLead && isStage0 && !isLeadWarmedBeforeToday(lead, todayStr);
+      return !lockedByWarmup;
+    });
+  }, [todayCombinedLeads, todayStr, warmupOverrideActive]);
+
+  // Requirement 5: "Mark as Sent" with 12-Minute Spaced Out Cooldown (Manual live sends only)
   const handleMarkLeadSentWithCooldown = (lead: ChannelLead, stepNumber: 0 | 1 | 2 | 3 = 0) => {
     const channelKey = lead.channel === 'instagram' ? 'instagram' : 'combined';
     const currentCooldown = getChannelCooldownRemaining(channelKey);
@@ -544,6 +579,101 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     } else {
       setCombinedCooldownMs(12 * 60 * 1000);
     }
+  };
+
+  // Requirement 1 & 3: "✅ Scheduled" single lead handler (Bypasses 12-minute lock completely)
+  const handleScheduleLeadNoLock = (lead: ChannelLead, stepNumber: 0 | 1 | 2 | 3 = 0) => {
+    const updated =
+      stepNumber === 0
+        ? markInitialSent(lead, todayStr)
+        : markFollowupSent(lead, stepNumber as 1 | 2 | 3, todayStr);
+
+    handleUpdateLead(updated);
+    const remainingCount =
+      lead.channel === 'instagram' ? todayIgLeads.length - 1 : todayCombinedLeads.length - 1;
+    if (remainingCount <= 0) {
+      setActiveModal('none');
+      playGoalAccomplishedFanfare();
+    } else {
+      playSuccessChime();
+    }
+    setScheduledToast({
+      count: 1,
+      channelLabel: lead.channel === 'instagram' ? 'Instagram' : 'Combined Outreach',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    });
+  };
+
+  // Requirement 2, 3 & 4: Bulk "Log All Scheduled as Sent" for Instagram ONLY (channel === 'instagram')
+  const handleLogAllInstagramScheduled = () => {
+    if (eligibleIgScheduledLeads.length === 0) return;
+
+    const eligibleIds = new Set(eligibleIgScheduledLeads.map((l) => l.id));
+    let processedCount = 0;
+
+    const nextIgLeads = instagramLeads.map((lead) => {
+      // Strict Channel Isolation: ONLY process leads where channel === 'instagram'
+      if (lead.channel !== 'instagram' || !eligibleIds.has(lead.id)) {
+        return lead;
+      }
+      processedCount++;
+      if (!lead.initialSentDate) {
+        return markInitialSent(lead, todayStr);
+      }
+      const step: 1 | 2 | 3 =
+        lead.followupCount === 0 || lead.followupCount === undefined
+          ? 1
+          : lead.followupCount === 1
+          ? 2
+          : 3;
+      return markFollowupSent(lead, step, todayStr);
+    });
+
+    onUpdateInstagramLeads(nextIgLeads);
+    setActiveModal('none');
+    playGoalAccomplishedFanfare();
+    setScheduledToast({
+      count: processedCount,
+      channelLabel: 'Instagram',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    });
+  };
+
+  // Requirement 2, 3 & 4: Bulk "Log All Scheduled as Sent" for Combined Outreach ONLY (channel === 'combined')
+  const handleLogAllCombinedScheduled = () => {
+    if (eligibleCombinedScheduledLeads.length === 0) return;
+
+    const eligibleIds = new Set(eligibleCombinedScheduledLeads.map((l) => l.id));
+    let processedCount = 0;
+
+    const nextCombinedLeads = effectiveCombinedLeads.map((lead) => {
+      // Strict Channel Isolation: ONLY process leads where channel === 'combined'
+      if (lead.channel !== 'combined' || !eligibleIds.has(lead.id)) {
+        return lead;
+      }
+      processedCount++;
+      if (!lead.initialSentDate) {
+        return markInitialSent(lead, todayStr);
+      }
+      const step: 1 | 2 | 3 =
+        lead.followupCount === 0 || lead.followupCount === undefined
+          ? 1
+          : lead.followupCount === 1
+          ? 2
+          : 3;
+      return markFollowupSent(lead, step, todayStr);
+    });
+
+    if (onUpdateCombinedLeads) {
+      onUpdateCombinedLeads(nextCombinedLeads);
+    }
+    setActiveModal('none');
+    playGoalAccomplishedFanfare();
+    setScheduledToast({
+      count: processedCount,
+      channelLabel: 'Combined Outreach',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    });
   };
 
   // Sync today's full schedule progress to persistent daily history
@@ -684,6 +814,46 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* ========================================================================= */}
+      {/* NATIVE SCHEDULING CONFIRMATION TOAST                                      */}
+      {/* ========================================================================= */}
+      {scheduledToast && (
+        <div
+          role="status"
+          className="p-4 rounded-2xl border border-emerald-500/50 bg-gradient-to-r from-emerald-950/95 via-slate-900/95 to-slate-900/95 text-emerald-100 shadow-2xl flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-200"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-950/50">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+            </div>
+            <div>
+              <div className="font-bold text-white text-sm flex items-center gap-2 flex-wrap">
+                <span>
+                  ✅ {scheduledToast.count} {scheduledToast.count === 1 ? 'lead' : 'leads'} scheduled. D4 follow-ups queued.
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-white/10 text-slate-300">
+                  {scheduledToast.timestamp}
+                </span>
+                <span className="text-[10px] uppercase font-mono font-bold text-emerald-300 bg-emerald-500/15 px-2 py-0.5 rounded border border-emerald-500/30">
+                  {scheduledToast.channelLabel}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                D0 outreach logged natively and automated +4 day cadence timers updated across your dashboard.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setScheduledToast(null)}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
+            title="Dismiss notification"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* ========================================================================= */}
       {/* VERIFICATION TOAST BANNER (Requirement 1 Fix)                             */}
       {/* ========================================================================= */}
@@ -1384,19 +1554,64 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
               </button>
             </div>
 
+            {/* Inline Scheduled Confirmation Banner */}
+            {scheduledToast && (
+              <div
+                role="status"
+                className="p-3 rounded-2xl border border-emerald-500/40 bg-emerald-950/50 text-emerald-100 flex items-center justify-between gap-3 text-xs animate-in fade-in"
+              >
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="font-semibold">
+                    ✅ {scheduledToast.count} {scheduledToast.count === 1 ? 'lead' : 'leads'} scheduled. D4 follow-ups queued.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setScheduledToast(null)}
+                  className="p-1 rounded text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             {/* Anti-Spam Cooldown Active Notice */}
             {igCooldownMs > 0 && (
               <div className="p-4 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs font-mono flex items-center justify-between gap-3 shadow-lg animate-in fade-in">
                 <div className="flex items-center gap-2.5">
                   <Timer className="w-5 h-5 text-amber-400 animate-spin shrink-0" />
                   <div>
-                    <strong className="text-white block font-sans">⏱️ 12-Minute Spaced Out Lock Active</strong>
-                    <span>Anti-spam protection running. Next DM dispatch unlocks in {formatCooldownTime(igCooldownMs)}.</span>
+                    <strong className="text-white block font-sans">⏱️ 12-Minute Spaced Out Lock Active (Live Sends Only)</strong>
+                    <span>Applies to manual "Mark as Sent" only. Use "✅ Scheduled" or "Log All Scheduled as Sent" to bypass lock. Unlocks in {formatCooldownTime(igCooldownMs)}.</span>
                   </div>
                 </div>
                 <span className="text-lg font-black font-mono text-amber-300 tabular-nums">
                   {formatCooldownTime(igCooldownMs)}
                 </span>
+              </div>
+            )}
+
+            {/* Native Instagram Bulk Scheduling Bar (12-min native gaps) */}
+            {eligibleIgScheduledLeads.length > 0 && (
+              <div className="p-4 rounded-2xl border border-emerald-500/40 bg-gradient-to-r from-emerald-950/50 via-slate-950/90 to-pink-950/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-bold text-emerald-300 flex items-center gap-1.5 font-['Outfit']">
+                    <Zap className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>Native Instagram Scheduling (12-Min Gaps)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    Already queued these DMs natively on Instagram? Log all {eligibleIgScheduledLeads.length} ready IG leads as D0 and queue D4 follow-ups immediately (bypasses 12-min lock).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogAllInstagramScheduled}
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Log All Scheduled as Sent ({eligibleIgScheduledLeads.length})</span>
+                </button>
               </div>
             )}
 
@@ -1535,7 +1750,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                           </button>
                         </div>
 
-                        {/* Dispatch Button with 12-Minute Timer & Warm-Up Lock */}
+                        {/* Dispatch Buttons: ✅ Scheduled (No 12-Min Lock) + Mark as Sent (12-Min Lock) */}
                         {isLockedByWarmup ? (
                           <div className="flex items-center gap-2">
                             <button
@@ -1548,25 +1763,49 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                               <span>{isWarmedToday ? '🔒 Locked - Unlocks at Midnight' : '🔒 Day-Before Warm-Up Required'}</span>
                             </button>
                           </div>
-                        ) : isLockedByTimer ? (
-                          <button
-                            type="button"
-                            disabled
-                            className="px-4 py-2 rounded-xl bg-slate-800 border border-white/10 text-slate-400 text-xs font-bold flex items-center gap-2 cursor-not-allowed"
-                            title={`Locked for 12 minutes to prevent spam. Unlocks in ${formatCooldownTime(igCooldownMs)}`}
-                          >
-                            <Lock className="w-3.5 h-3.5 text-amber-400" />
-                            <span>⏱️ Locked ({formatCooldownTime(igCooldownMs)})</span>
-                          </button>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleMarkLeadSentWithCooldown(lead, stageNumber === 0 ? 0 : (lead.followupCount === 0 ? 1 : lead.followupCount === 1 ? 2 : 3))}
-                            className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-600/30 flex items-center gap-2 cursor-pointer active:scale-95"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                            <span>Mark as Sent</span>
-                          </button>
+                          <div className="flex items-center gap-2 flex-wrap justify-end">
+                            {/* ✅ Scheduled Button (Bypasses 12-min cooldown completely) */}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleScheduleLeadNoLock(
+                                  lead,
+                                  stageNumber === 0 ? 0 : (lead.followupCount === 0 ? 1 : lead.followupCount === 1 ? 2 : 3)
+                                )
+                              }
+                              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-lg shadow-indigo-600/25 flex items-center gap-1.5 cursor-pointer active:scale-95"
+                              title="Log as scheduled natively on Instagram (bypasses 12-minute lock and queues D4 follow-up)"
+                            >
+                              <span>✅ Scheduled</span>
+                            </button>
+
+                            {isLockedByTimer ? (
+                              <button
+                                type="button"
+                                disabled
+                                className="px-4 py-2 rounded-xl bg-slate-800 border border-white/10 text-slate-400 text-xs font-bold flex items-center gap-2 cursor-not-allowed"
+                                title={`Manual live send locked for 12 minutes to prevent spam. Unlocks in ${formatCooldownTime(igCooldownMs)}`}
+                              >
+                                <Lock className="w-3.5 h-3.5 text-amber-400" />
+                                <span>⏱️ Locked ({formatCooldownTime(igCooldownMs)})</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleMarkLeadSentWithCooldown(
+                                    lead,
+                                    stageNumber === 0 ? 0 : (lead.followupCount === 0 ? 1 : lead.followupCount === 1 ? 2 : 3)
+                                  )
+                                }
+                                className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-600/30 flex items-center gap-2 cursor-pointer active:scale-95"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                                <span>Mark as Sent</span>
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1607,19 +1846,64 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
               </button>
             </div>
 
+            {/* Inline Scheduled Confirmation Banner */}
+            {scheduledToast && (
+              <div
+                role="status"
+                className="p-3 rounded-2xl border border-emerald-500/40 bg-emerald-950/50 text-emerald-100 flex items-center justify-between gap-3 text-xs animate-in fade-in"
+              >
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="font-semibold">
+                    ✅ {scheduledToast.count} {scheduledToast.count === 1 ? 'lead' : 'leads'} scheduled. D4 follow-ups queued.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setScheduledToast(null)}
+                  className="p-1 rounded text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             {/* Anti-Spam Cooldown Active Notice */}
             {combinedCooldownMs > 0 && (
               <div className="p-4 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs font-mono flex items-center justify-between gap-3 shadow-lg animate-in fade-in">
                 <div className="flex items-center gap-2.5">
                   <Timer className="w-5 h-5 text-amber-400 animate-spin shrink-0" />
                   <div>
-                    <strong className="text-white block font-sans">⏱️ 12-Minute Spaced Out Lock Active</strong>
-                    <span>Anti-spam protection running. Next dispatch unlocks in {formatCooldownTime(combinedCooldownMs)}.</span>
+                    <strong className="text-white block font-sans">⏱️ 12-Minute Spaced Out Lock Active (Live Sends Only)</strong>
+                    <span>Applies to manual "Mark as Sent" only. Use "✅ Scheduled" or "Log All Scheduled as Sent" to bypass lock. Unlocks in {formatCooldownTime(combinedCooldownMs)}.</span>
                   </div>
                 </div>
                 <span className="text-lg font-black font-mono text-amber-300 tabular-nums">
                   {formatCooldownTime(combinedCooldownMs)}
                 </span>
+              </div>
+            )}
+
+            {/* Native Gmail Bulk Scheduling Bar (45-min native gaps) */}
+            {eligibleCombinedScheduledLeads.length > 0 && (
+              <div className="p-4 rounded-2xl border border-emerald-500/40 bg-gradient-to-r from-emerald-950/50 via-slate-950/90 to-indigo-950/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-bold text-emerald-300 flex items-center gap-1.5 font-['Outfit']">
+                    <Zap className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>Native Gmail Scheduling (45-Min Gaps)</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    Already scheduled these emails natively in Gmail? Log all {eligibleCombinedScheduledLeads.length} ready Combined leads as D0 and queue D4 follow-ups immediately (bypasses 12-min lock).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLogAllCombinedScheduled}
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-600/30 transition flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Log All Scheduled as Sent ({eligibleCombinedScheduledLeads.length})</span>
+                </button>
               </div>
             )}
 
@@ -1686,6 +1970,15 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                               ? 'Day 0 Initial Email'
                               : `Day ${stageNumber} Email`}
                           </span>
+                          {lead.hasInvalidEmail && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 cursor-help"
+                              title={`Invalid or corrupted email (${lead.email || lead.link || 'missing'}) — fix manually before sending.`}
+                            >
+                              <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0" />
+                              <span>Invalid Email</span>
+                            </span>
+                          )}
                         </div>
 
                         {/* Requirement 6: Blind Route Link (ONLY one link shown) */}
@@ -1756,7 +2049,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                           </button>
                         </div>
 
-                        {/* Dispatch Button with 12-Minute Timer & Warm-Up Lock */}
+                        {/* Dispatch Buttons: ✅ Scheduled (No 12-Min Lock) + Mark as Sent (12-Min Lock) */}
                         {isLockedByWarmup ? (
                           <div className="flex items-center gap-2">
                             <button
@@ -1769,25 +2062,49 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                               <span>{isWarmedToday ? '🔒 Locked - Unlocks at Midnight' : '🔒 FB Day-Before Warm-Up Required'}</span>
                             </button>
                           </div>
-                        ) : isLockedByTimer ? (
-                          <button
-                            type="button"
-                            disabled
-                            className="px-4 py-2 rounded-xl bg-slate-800 border border-white/10 text-slate-400 text-xs font-bold flex items-center gap-2 cursor-not-allowed"
-                            title={`Locked for 12 minutes to space out outreach. Unlocks in ${formatCooldownTime(combinedCooldownMs)}`}
-                          >
-                            <Lock className="w-3.5 h-3.5 text-amber-400" />
-                            <span>⏱️ Locked ({formatCooldownTime(combinedCooldownMs)})</span>
-                          </button>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleMarkLeadSentWithCooldown(lead, stageNumber === 0 ? 0 : (lead.followupCount === 0 ? 1 : lead.followupCount === 1 ? 2 : 3))}
-                            className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-600/30 flex items-center gap-2 cursor-pointer active:scale-95"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                            <span>Mark as Sent</span>
-                          </button>
+                          <div className="flex items-center gap-2 flex-wrap justify-end">
+                            {/* ✅ Scheduled Button (Bypasses 12-min cooldown completely) */}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleScheduleLeadNoLock(
+                                  lead,
+                                  stageNumber === 0 ? 0 : (lead.followupCount === 0 ? 1 : lead.followupCount === 1 ? 2 : 3)
+                                )
+                              }
+                              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-lg shadow-indigo-600/25 flex items-center gap-1.5 cursor-pointer active:scale-95"
+                              title="Log as scheduled natively in Gmail (bypasses 12-minute lock and queues D4 follow-up)"
+                            >
+                              <span>✅ Scheduled</span>
+                            </button>
+
+                            {isLockedByTimer ? (
+                              <button
+                                type="button"
+                                disabled
+                                className="px-4 py-2 rounded-xl bg-slate-800 border border-white/10 text-slate-400 text-xs font-bold flex items-center gap-2 cursor-not-allowed"
+                                title={`Manual live send locked for 12 minutes to space out outreach. Unlocks in ${formatCooldownTime(combinedCooldownMs)}`}
+                              >
+                                <Lock className="w-3.5 h-3.5 text-amber-400" />
+                                <span>⏱️ Locked ({formatCooldownTime(combinedCooldownMs)})</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleMarkLeadSentWithCooldown(
+                                    lead,
+                                    stageNumber === 0 ? 0 : (lead.followupCount === 0 ? 1 : lead.followupCount === 1 ? 2 : 3)
+                                  )
+                                }
+                                className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-600/30 flex items-center gap-2 cursor-pointer active:scale-95"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                                <span>Mark as Sent</span>
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>

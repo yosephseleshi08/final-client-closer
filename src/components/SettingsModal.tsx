@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Settings, ShieldCheck, Lock, Unlock, AlertTriangle, Check, RefreshCw } from 'lucide-react';
+import { X, Settings, ShieldCheck, Lock, Unlock, AlertTriangle, Check, Wrench } from 'lucide-react';
 import { isManualWarmupOverrideEnabled, setManualWarmupOverride } from '../utils/cadenceEngine';
+import { runDiagnosticDataRepair, DataRepairReport } from '../utils/dataRepair';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [overrideEnabled, setOverrideEnabled] = useState<boolean>(() => isManualWarmupOverrideEnabled());
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [repairReport, setRepairReport] = useState<DataRepairReport | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -38,6 +40,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setTimeout(() => {
       setStatusMessage(null);
     }, 4000);
+  };
+
+  const handleRunDataRepair = () => {
+    const report = runDiagnosticDataRepair(true);
+    setRepairReport(report);
+    setStatusMessage(
+      report.emailsCleaned > 0 || report.invalidFlagged > 0
+        ? `🔧 Data Repair Complete: Cleaned ${report.emailsCleaned} corrupted email(s), flagged ${report.invalidFlagged} unfixable lead(s).`
+        : `✅ Data Repair Complete: Scanned ${report.totalScanned} leads — all email addresses are clean!`
+    );
+    setTimeout(() => {
+      setStatusMessage(null);
+    }, 5500);
   };
 
   return (
@@ -149,6 +164,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <span>Unlock for Testing</span>
               </button>
             )}
+          </div>
+        </div>
+
+        {/* Section: Diagnostic Data Repair (Corrupted Scraper Emails) */}
+        <div className="p-4 rounded-2xl bg-slate-950/60 border border-white/5 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-white font-['Outfit']">
+                  Diagnostic Data Repair
+                </span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  AUTO-CLEAN ACTIVE
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Scans all stored leads for corrupted scraper email strings (e.g., <code className="text-slate-300 font-mono">map marker pin...</code>), extracts clean addresses, and flags unfixable emails without deleting leads or sequence messages.
+              </p>
+            </div>
+          </div>
+
+          {repairReport && (
+            <div className="p-2.5 rounded-xl bg-slate-900/90 border border-white/10 text-[11px] font-mono text-slate-300 flex items-center justify-between flex-wrap gap-2">
+              <span>
+                Scanned: <strong className="text-white">{repairReport.totalScanned}</strong> · Cleaned:{' '}
+                <strong className="text-emerald-400">{repairReport.emailsCleaned}</strong> · Invalid Flagged:{' '}
+                <strong className={repairReport.invalidFlagged > 0 ? 'text-rose-400' : 'text-slate-400'}>
+                  {repairReport.invalidFlagged}
+                </strong>
+              </span>
+              <span className="text-slate-500">{repairReport.timestamp}</span>
+            </div>
+          )}
+
+          <div className="pt-2 border-t border-white/5 flex items-center justify-between gap-3">
+            <span className="text-[11px] text-slate-400 font-mono">
+              Deep Clean &amp; Validate Emails:
+            </span>
+            <button
+              type="button"
+              onClick={handleRunDataRepair}
+              className="px-3.5 py-1.5 rounded-xl bg-indigo-600/80 hover:bg-indigo-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-950/50 transition cursor-pointer active:scale-95"
+            >
+              <Wrench className="w-3.5 h-3.5" />
+              <span>Run Data Repair</span>
+            </button>
           </div>
         </div>
 

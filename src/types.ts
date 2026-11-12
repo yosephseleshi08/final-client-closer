@@ -332,6 +332,7 @@ export interface ChannelLead {
   instagram?: string; // Explicit Instagram handle or link
   facebook?: string; // Explicit Facebook page link or handle for dual-channel workflow
   email?: string; // Explicit Email address for dual-channel workflow
+  hasInvalidEmail?: boolean; // Flagged true by Diagnostic Data Repair when no valid email can be extracted
   voiceType?: VoiceType; // Assigned Voice Type for DeepSeek Prompt Batching
   isVoiceTypeOverridden?: boolean; // Whether the operator manually set this voice type
   rawDetails?: Record<string, any>; // Underlying extracted details from lead qualification

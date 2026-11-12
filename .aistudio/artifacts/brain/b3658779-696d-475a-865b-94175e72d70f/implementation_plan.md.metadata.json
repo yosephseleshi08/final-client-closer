@@ -1,6 +1,0 @@
-{
-  "summary":  "Implementation plan updated for the streamlined Voice Type interface: removed the Copy Batch button and horizontal scroll bar; replaced with a clean 'Filter by Type: [All Types]' dropdown next to the search bar; enforced strict workspace segregation (Type 1-6 for Instagram, Email 1-4 for Combined) across the filter dropdown and lead row badge editor.",
-  "updatedAt":  "2026-11-11T12:54:34.222673429Z",
-  "requestFeedback":  true,
-  "userFacing":  true
-}

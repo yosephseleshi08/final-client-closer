@@ -7,6 +7,7 @@ import {
   FileSpreadsheet,
   FileCode,
   AlertCircle,
+  AlertTriangle,
   X,
   ArrowRight,
   Upload,
@@ -713,6 +714,15 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                           {lead.fb_message_restricted && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
                               ✉️ Email Default
+                            </span>
+                          )}
+                          {lead.hasInvalidEmail && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 cursor-help"
+                              title={`Invalid or unfixable email address (${lead.email || lead.link || 'missing'}). Click to manually inspect or skip this lead.`}
+                            >
+                              <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                              {lead.email && <span className="truncate max-w-[140px]">{lead.email}</span>}
                             </span>
                           )}
                         </div>

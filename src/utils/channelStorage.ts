@@ -1,4 +1,5 @@
 import { ChannelLead, MultiChannelType } from '../types';
+import { extractCleanEmail } from './dataRepair';
 
 const STORAGE_PREFIX = 'outreach_channel_leads_';
 
@@ -629,6 +630,8 @@ export function getLeadEmail(lead?: any): string | undefined {
   if (!lead) return undefined;
   if (typeof lead === 'string') {
     const s = lead.trim();
+    const cleaned = extractCleanEmail(s);
+    if (cleaned) return cleaned;
     if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) || s.startsWith('mailto:')) return s;
     return undefined;
   }
@@ -640,7 +643,7 @@ export function getLeadEmail(lead?: any): string | undefined {
     lead.contactEmail ||
     lead.contact_email;
   if (explicit && typeof explicit === 'string' && explicit.trim()) {
-    return explicit.trim();
+    return extractCleanEmail(explicit) || explicit.trim();
   }
   const rawDetails = lead.rawDetails;
   if (rawDetails) {
@@ -653,14 +656,15 @@ export function getLeadEmail(lead?: any): string | undefined {
       rawDetails.contact_email ||
       rawDetails.socialLinks?.email;
     if (fromRaw && typeof fromRaw === 'string' && fromRaw.trim()) {
-      return fromRaw.trim();
+      return extractCleanEmail(fromRaw) || fromRaw.trim();
     }
   }
   const link = lead.platformLink || lead.link || lead.profileLink;
   if (typeof link === 'string') {
     const trimmed = link.trim();
-    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) || trimmed.startsWith('mailto:')) {
-      return trimmed;
+    const cleanedLinkEmail = extractCleanEmail(trimmed);
+    if (cleanedLinkEmail && !trimmed.includes('instagram.com') && !trimmed.includes('facebook.com')) {
+      return cleanedLinkEmail;
     }
     if ((lead.channel === 'email' || lead.platform === 'Email') && trimmed.includes('@')) {
       return trimmed;
@@ -738,18 +742,23 @@ export function getPlatformLink(
   const trimmed = rawLink.trim();
   if (!trimmed) return '';
 
-  // 1. If it starts with mailto:, return as-is
+  // 1. If it starts with mailto:, clean the email portion inside it
   if (/^mailto:/i.test(trimmed)) {
-    return trimmed;
+    const cleaned = extractCleanEmail(trimmed);
+    return cleaned ? `mailto:${cleaned}` : trimmed;
   }
 
   const isEmail =
     platform.includes('email') ||
     platform.includes('mail') ||
-    (!trimmed.includes('/') && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed));
+    (!trimmed.includes('/') && Boolean(extractCleanEmail(trimmed)));
 
-  // 2. Email: Prepend mailto: to the email address
+  // 2. Email: Extract clean email and prepend mailto:
   if (isEmail) {
+    const cleaned = extractCleanEmail(trimmed);
+    if (cleaned) {
+      return `mailto:${cleaned}`;
+    }
     return `mailto:${trimmed.replace(/^mailto:/i, '')}`;
   }
 

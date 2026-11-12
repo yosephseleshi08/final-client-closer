@@ -26,32 +26,17 @@ import {
   isEmailOnlyLead,
 } from './utils/cadenceEngine';
 import { isPipelineFrozenNow, togglePipelineFreeze } from './utils/pipelineFreeze';
+import { runDiagnosticDataRepair } from './utils/dataRepair';
 
 export default function App() {
   const [activeNavTab, setActiveNavTab] = useState<GlobalNavTab>('today');
   const [isFrozen, setIsFrozen] = useState<boolean>(() => isPipelineFrozenNow());
   const [inboxCount, setInboxCount] = useState<number>(() => loadInboxLeads().length);
 
-  // Listen for pipeline freeze & inbox changes across components
-  React.useEffect(() => {
-    const handleFreeze = () => setIsFrozen(isPipelineFrozenNow());
-    const handleInbox = () => setInboxCount(loadInboxLeads().length);
-    window.addEventListener('pipeline_freeze_changed', handleFreeze);
-    window.addEventListener('inbox_leads_changed', handleInbox);
-    window.addEventListener('storage', handleFreeze);
-    window.addEventListener('storage', handleInbox);
-    return () => {
-      window.removeEventListener('pipeline_freeze_changed', handleFreeze);
-      window.removeEventListener('inbox_leads_changed', handleInbox);
-      window.removeEventListener('storage', handleFreeze);
-      window.removeEventListener('storage', handleInbox);
-    };
-  }, []);
-
-  const handleToggleFreeze = () => {
-    const updated = togglePipelineFreeze();
-    setIsFrozen(updated.isFrozen);
-  };
+  // Run one-time/auto-clean Diagnostic Data Repair on initialization before reading leads
+  useState(() => {
+    runDiagnosticDataRepair(false);
+  });
 
   // Channel Leads State (Instagram & Unified Combined Outreach)
   const [combinedLeads, setCombinedLeads] = useState<ChannelLead[]>(() =>
@@ -61,6 +46,34 @@ export default function App() {
   const [instagramLeads, setInstagramLeads] = useState<ChannelLead[]>(() =>
     loadChannelLeads('instagram')
   );
+
+  // Listen for pipeline freeze, inbox, and diagnostic data repair changes across components
+  React.useEffect(() => {
+    const handleFreeze = () => setIsFrozen(isPipelineFrozenNow());
+    const handleInbox = () => setInboxCount(loadInboxLeads().length);
+    const handleRepaired = () => {
+      setCombinedLeads(loadChannelLeads('combined'));
+      setInstagramLeads(loadChannelLeads('instagram'));
+      setInboxCount(loadInboxLeads().length);
+    };
+    window.addEventListener('pipeline_freeze_changed', handleFreeze);
+    window.addEventListener('inbox_leads_changed', handleInbox);
+    window.addEventListener('crm_data_repaired', handleRepaired);
+    window.addEventListener('storage', handleFreeze);
+    window.addEventListener('storage', handleInbox);
+    return () => {
+      window.removeEventListener('pipeline_freeze_changed', handleFreeze);
+      window.removeEventListener('inbox_leads_changed', handleInbox);
+      window.removeEventListener('crm_data_repaired', handleRepaired);
+      window.removeEventListener('storage', handleFreeze);
+      window.removeEventListener('storage', handleInbox);
+    };
+  }, []);
+
+  const handleToggleFreeze = () => {
+    const updated = togglePipelineFreeze();
+    setIsFrozen(updated.isFrozen);
+  };
 
   const handleUpdateCombinedLeads = (updated: ChannelLead[]) => {
     setCombinedLeads(updated);
