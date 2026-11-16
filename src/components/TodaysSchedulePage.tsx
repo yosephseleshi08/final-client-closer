@@ -42,6 +42,7 @@ import {
 import {
   getPlatformLink,
   getBlindRouteLink,
+  getLeadEmail,
 } from '../utils/channelStorage';
 import {
   getLocalTodayStr,
@@ -135,6 +136,13 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     timestamp: string;
   } | null>(null);
 
+  // Toast for Copy Email action ("Email address copied to clipboard. Verify before sending.")
+  const [emailCopiedToast, setEmailCopiedToast] = useState<{
+    email: string;
+    leadName: string;
+    timestamp: string;
+  } | null>(null);
+
   useEffect(() => {
     if (!warmupToast) return;
     const timer = setTimeout(() => {
@@ -158,6 +166,14 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     }, 5500);
     return () => clearTimeout(timer);
   }, [scheduledToast]);
+
+  useEffect(() => {
+    if (!emailCopiedToast) return;
+    const timer = setTimeout(() => {
+      setEmailCopiedToast(null);
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, [emailCopiedToast]);
 
   // Anti-Spam 12-Minute Countdown Cooldown Timers (Direct Messages)
   const [igCooldownMs, setIgCooldownMs] = useState<number>(() => getChannelCooldownRemaining('instagram'));
@@ -256,6 +272,21 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const handleCopyLeadEmail = (lead: ChannelLead, fallbackLink?: string) => {
+    const rawEmail = getLeadEmail(lead) || fallbackLink || lead.email || lead.link || '';
+    const emailToCopy = rawEmail.replace(/^mailto:/i, '').trim();
+    if (!emailToCopy) return;
+
+    navigator.clipboard.writeText(emailToCopy);
+    setCopiedKey(`email-${lead.id}`);
+    setTimeout(() => setCopiedKey(null), 2000);
+    setEmailCopiedToast({
+      email: emailToCopy,
+      leadName: lead.name,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    });
   };
 
   const handleUndoSent = (lead: ChannelLead) => {
@@ -818,6 +849,44 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* ========================================================================= */}
+      {/* COPY EMAIL FLOATING TOAST (Always visible above open modals)              */}
+      {/* ========================================================================= */}
+      {emailCopiedToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-5 right-5 z-[60] max-w-md w-[calc(100vw-2.5rem)] p-4 rounded-2xl border border-indigo-400/50 bg-slate-900/95 backdrop-blur-xl text-slate-100 shadow-2xl shadow-black/70 flex items-start justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200"
+        >
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-indigo-500/20 border border-indigo-400/40 text-indigo-300 flex items-center justify-center shrink-0">
+              <Mail className="w-4 h-4 text-indigo-300" />
+            </div>
+            <div className="min-w-0">
+              <div className="font-bold text-white text-xs sm:text-sm leading-snug">
+                Email address copied to clipboard. Verify before sending.
+              </div>
+              <div className="mt-1 flex items-center gap-2 flex-wrap">
+                <code className="text-[11px] font-mono px-2 py-0.5 rounded bg-indigo-500/15 border border-indigo-500/30 text-indigo-200 truncate max-w-[260px]">
+                  {emailCopiedToast.email}
+                </code>
+                <span className="text-[10px] font-mono text-slate-400">
+                  {emailCopiedToast.timestamp}
+                </span>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setEmailCopiedToast(null)}
+            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer shrink-0"
+            title="Dismiss notification"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* ========================================================================= */}
       {/* NATIVE SCHEDULING CONFIRMATION TOAST                                      */}
       {/* ========================================================================= */}
@@ -1988,17 +2057,24 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                           )}
                         </div>
 
-                        {/* Requirement 6: Blind Route Link (ONLY one link shown) */}
+                        {/* Requirement 6: Blind Route Link / Copy Email for Manual Verification */}
                         {blindRoute && (
                           <div className="flex items-center gap-2">
-                            <a
-                              href={blindRoute.href}
-                              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-indigo-500/15 text-indigo-300 hover:text-white border border-indigo-500/30 text-xs font-bold font-mono transition"
+                            <button
+                              type="button"
+                              onClick={() => handleCopyLeadEmail(lead, blindRoute.link)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border border-indigo-500/30 text-xs font-bold font-mono transition cursor-pointer active:scale-95"
+                              title="Copy email address to clipboard to verify manually before sending in Gmail"
                             >
-                              <Mail className="w-3.5 h-3.5" />
-                              <span>Send Email</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
+                              {copiedKey === `email-${lead.id}` ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span className="text-emerald-300">Copied!</span>
+                                </>
+                              ) : (
+                                <span>📋 Copy Email</span>
+                              )}
+                            </button>
                             <TestLinkButton lead={lead} platform="email" label="Test Email" />
                           </div>
                         )}
