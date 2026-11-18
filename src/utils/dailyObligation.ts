@@ -147,6 +147,39 @@ function isWarmedBeforeDate(lead: ChannelLead, dateStr: string): boolean {
   return Boolean(warmedDate && warmedDate < dateStr);
 }
 
+function getDaysElapsedLocal(fromDateStr: string, toDateStr: string): number {
+  const f = toLocalDateString(fromDateStr);
+  const t = toLocalDateString(toDateStr);
+  if (!f || !t) return 0;
+  const [y1, m1, d1] = f.split('-').map(Number);
+  const [y2, m2, d2] = t.split('-').map(Number);
+  const t1 = new Date(y1, m1 - 1, d1).getTime();
+  const t2 = new Date(y2, m2 - 1, d2).getTime();
+  return Math.max(0, Math.round((t2 - t1) / (1000 * 60 * 60 * 24)));
+}
+
+function resolveEffectiveInitialDate(lead: ChannelLead): string | null {
+  const direct = toLocalDateString(lead.initialSentDate);
+  if (direct) return direct;
+  const hasSentSignal = Boolean(
+    lead.dmSent ||
+      lead.status === 'dispatched' ||
+      lead.status === 'sent' ||
+      (typeof lead.followupCount === 'number' && lead.followupCount > 0) ||
+      lead.followup1SentDate ||
+      lead.followup2SentDate ||
+      lead.followup3SentDate
+  );
+  if (!hasSentSignal) return null;
+  return (
+    toLocalDateString(lead.dispatchDate) ||
+    toLocalDateString(lead.dmSentAt) ||
+    toLocalDateString(lead.dispatchedAt) ||
+    toLocalDateString(lead.lastContactDate) ||
+    null
+  );
+}
+
 function countFollowupsDueForDate(leads: ChannelLead[], dateStr: string): number {
   let count = 0;
   for (const lead of leads) {
@@ -157,19 +190,33 @@ function countFollowupsDueForDate(leads: ChannelLead[], dateStr: string): number
       continue;
     }
 
-    // Active OR archived with cadenceStatus === 'running' (cancelled/completed already skipped above)
-    if (!lead.initialSentDate && !lead.dmSent) continue;
+    const effectiveInitial = resolveEffectiveInitialDate(lead);
+    const hasSentFlag = Boolean(
+      effectiveInitial ||
+        lead.dmSent ||
+        lead.status === 'dispatched' ||
+        lead.status === 'sent' ||
+        (typeof lead.followupCount === 'number' && lead.followupCount > 0)
+    );
+    if (!hasSentFlag) continue;
 
-    const fuCount = lead.followupCount ?? 0;
-    if (fuCount === 0) {
-      const target = toLocalDateString(lead.followup1Date) || addLocalDays(lead.initialSentDate || dateStr, 4);
-      if (target <= dateStr) count++;
-    } else if (fuCount === 1) {
-      const target = toLocalDateString(lead.followup2Date) || addLocalDays(lead.initialSentDate || dateStr, 8);
-      if (target <= dateStr) count++;
-    } else if (fuCount === 2) {
-      const target = toLocalDateString(lead.followup3Date) || addLocalDays(lead.initialSentDate || dateStr, 14);
-      if (target <= dateStr) count++;
+    const fuCount = typeof lead.followupCount === 'number' ? lead.followupCount : 0;
+    if (fuCount >= 3) continue;
+
+    const daysElapsed = effectiveInitial
+      ? getDaysElapsedLocal(effectiveInitial, dateStr)
+      : fuCount === 0
+      ? 4
+      : fuCount === 1
+      ? 8
+      : 14;
+
+    if (
+      (daysElapsed >= 14 && fuCount <= 2) ||
+      (daysElapsed >= 8 && fuCount <= 1) ||
+      (daysElapsed >= 4 && fuCount === 0)
+    ) {
+      count++;
     }
   }
   return count;
@@ -623,11 +670,31 @@ export function evaluateDateObligationGrade(
 
 /**
  * Wave priority sorting for Daily Queue: D14 -> D8 -> D4 -> D0.
+ * Accounts for skipped days using elapsed days since initial outreach.
  */
-export function getLeadWaveRank(lead: ChannelLead): number {
-  if (lead.initialSentDate) {
-    if (lead.followupCount === 2) return 1; // D14
-    if (lead.followupCount === 1) return 2; // D8
+export function getLeadWaveRank(lead: ChannelLead, todayStr = getLocalTodayDateString()): number {
+  const effectiveInitial = resolveEffectiveInitialDate(lead);
+  const hasSent = Boolean(
+    effectiveInitial ||
+      lead.dmSent ||
+      lead.status === 'dispatched' ||
+      lead.status === 'sent' ||
+      (typeof lead.followupCount === 'number' && lead.followupCount > 0)
+  );
+  if (hasSent) {
+    const fuCount = typeof lead.followupCount === 'number' ? lead.followupCount : 0;
+    const daysElapsed = effectiveInitial
+      ? getDaysElapsedLocal(effectiveInitial, todayStr)
+      : fuCount === 0
+      ? 4
+      : fuCount === 1
+      ? 8
+      : 14;
+    if (daysElapsed >= 14 && fuCount <= 2) return 1; // D14
+    if (daysElapsed >= 8 && fuCount <= 1) return 2; // D8
+    if (daysElapsed >= 4 && fuCount === 0) return 3; // D4
+    if (fuCount === 2) return 1;
+    if (fuCount === 1) return 2;
     return 3; // D4
   }
   return 4; // D0

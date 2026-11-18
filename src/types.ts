@@ -370,6 +370,9 @@ export interface ChannelLead {
   customPitch?: string;
   stagedDmMiniPitch?: string;
   initialDM?: string;
+  followupDM_Day4?: string;
+  followupDM_Day8?: string;
+  breakupDM_Day14?: string;
   followupDM_Day7?: string;
   followupDM_Day14?: string;
   breakupDM_Day30?: string;

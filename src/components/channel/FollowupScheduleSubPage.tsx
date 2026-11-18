@@ -40,6 +40,9 @@ import {
   restoreDismissedLead,
   isLeadDismissedToday,
   getCadenceMessageTemplates,
+  getMessageForCadenceStage,
+  resolveLeadCadenceStep,
+  getEffectiveInitialSentDate,
   isDay4FollowupDue,
   isDay8FollowupDue,
   isDay14FollowupDue,
@@ -269,68 +272,85 @@ export function FollowupScheduleSubPage({
       if (l.cadenceStatus === 'cancelled') return false;
       if (isLeadDismissedToday(l)) return false;
 
+      const resolved = resolveLeadCadenceStep(l, todayStr);
+
       // Initial outreach due today or overdue, or warmed today (awaiting midnight unlock)
-      if (!l.initialSentDate && !l.dmSent && !l.isArchived) {
+      if (resolved.stageNumber === 0 && !l.isArchived) {
         if (l.scheduledDate && (isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate))) {
           return true;
         }
         if (!isEmailOnlyLead(l) && isLeadWarmedToday(l, todayStr)) {
           return true;
         }
+        return false;
       }
 
-      // Follow-ups due today or overdue (Day 4, Day 8, Day 14)
-      if (isDay4FollowupDue(l, todayStr)) return true;
-      if (isDay8FollowupDue(l, todayStr)) return true;
-      if (isDay14FollowupDue(l, todayStr)) return true;
-
-      return false;
+      // Follow-ups due today or overdue (Day 4, Day 8, Day 14 — handles skipped days automatically)
+      return resolved.isFollowupDue;
     })
   );
 
   // 2. Sub-tab: DAY 4 (Kitchen Ticket PDF)
-  const allDay4Pending = cadencePool.filter((l) => {
+  const day4ActionableLeads = cadencePool.filter((l) => isDay4FollowupDue(l, todayStr));
+  const day4LockedLeads = cadencePool.filter((l) => {
     if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
     if (l.cadenceStatus === 'cancelled') return false;
-    return Boolean(l.initialSentDate || l.dmSent) && (l.followupCount === 0 || l.followupCount === undefined);
+    const resolved = resolveLeadCadenceStep(l, todayStr);
+    return (
+      !resolved.isFollowupDue &&
+      resolved.stageNumber === null &&
+      Boolean(resolved.effectiveInitialSentDate || l.dmSent) &&
+      (l.followupCount === 0 || l.followupCount === undefined)
+    );
   });
-  const day4ActionableLeads = allDay4Pending.filter((l) => isDay4FollowupDue(l, todayStr));
-  const day4LockedLeads = allDay4Pending.filter((l) => !isDay4FollowupDue(l, todayStr));
   const nextDay4Countdown = day4LockedLeads.length > 0
     ? Math.min(...day4LockedLeads.map((l) => {
-        const targetDate = l.followup1Date || addDays(getLeadBaseContactDate(l), 4);
+        const base = getEffectiveInitialSentDate(l) || getLeadBaseContactDate(l);
+        const targetDate = l.followup1Date || addDays(base, 4);
         const diff = getDayDifference(targetDate, todayStr);
         return diff > 0 ? diff : 1;
       }))
     : 4;
 
   // 3. Sub-tab: DAY 8 (Takeout Surge)
-  const allDay8Pending = cadencePool.filter((l) => {
+  const day8ActionableLeads = cadencePool.filter((l) => isDay8FollowupDue(l, todayStr));
+  const day8LockedLeads = cadencePool.filter((l) => {
     if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
     if (l.cadenceStatus === 'cancelled') return false;
-    return Boolean(l.initialSentDate || l.dmSent) && l.followupCount === 1;
+    const resolved = resolveLeadCadenceStep(l, todayStr);
+    return (
+      !resolved.isFollowupDue &&
+      resolved.stageNumber === null &&
+      Boolean(resolved.effectiveInitialSentDate || l.dmSent) &&
+      l.followupCount === 1
+    );
   });
-  const day8ActionableLeads = allDay8Pending.filter((l) => isDay8FollowupDue(l, todayStr));
-  const day8LockedLeads = allDay8Pending.filter((l) => !isDay8FollowupDue(l, todayStr));
   const nextDay8Countdown = day8LockedLeads.length > 0
     ? Math.min(...day8LockedLeads.map((l) => {
-        const targetDate = l.followup2Date || addDays(getLeadBaseContactDate(l), 8);
+        const base = getEffectiveInitialSentDate(l) || getLeadBaseContactDate(l);
+        const targetDate = l.followup2Date || addDays(base, 8);
         const diff = getDayDifference(targetDate, todayStr);
         return diff > 0 ? diff : 1;
       }))
     : 8;
 
   // 4. Sub-tab: DAY 14 (Final Nudge / Breakup)
-  const allDay14Pending = cadencePool.filter((l) => {
+  const day14ActionableLeads = cadencePool.filter((l) => isDay14FollowupDue(l, todayStr));
+  const day14LockedLeads = cadencePool.filter((l) => {
     if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
     if (l.cadenceStatus === 'cancelled') return false;
-    return Boolean(l.initialSentDate || l.dmSent) && l.followupCount === 2;
+    const resolved = resolveLeadCadenceStep(l, todayStr);
+    return (
+      !resolved.isFollowupDue &&
+      resolved.stageNumber === null &&
+      Boolean(resolved.effectiveInitialSentDate || l.dmSent) &&
+      l.followupCount === 2
+    );
   });
-  const day14ActionableLeads = allDay14Pending.filter((l) => isDay14FollowupDue(l, todayStr));
-  const day14LockedLeads = allDay14Pending.filter((l) => !isDay14FollowupDue(l, todayStr));
   const nextDay14Countdown = day14LockedLeads.length > 0
     ? Math.min(...day14LockedLeads.map((l) => {
-        const targetDate = l.followup3Date || addDays(getLeadBaseContactDate(l), 14);
+        const base = getEffectiveInitialSentDate(l) || getLeadBaseContactDate(l);
+        const targetDate = l.followup3Date || addDays(base, 14);
         const diff = getDayDifference(targetDate, todayStr);
         return diff > 0 ? diff : 1;
       }))
@@ -482,35 +502,28 @@ export function FollowupScheduleSubPage({
             </div>
           ) : (
             dueTodayLeads.map((lead) => {
-              const templates = getCadenceMessageTemplates(lead);
-              const isInitial = !lead.initialSentDate && !lead.dmSent;
+              const resolved = resolveLeadCadenceStep(lead, todayStr);
+              const stageNumber: 0 | 4 | 8 | 14 = resolved.stageNumber ?? 0;
+              const isInitial = stageNumber === 0;
               const isWarmedBeforeToday = isLeadWarmedBeforeToday(lead, todayStr);
               const isWarmedToday = isLeadWarmedToday(lead, todayStr);
               const isDispatchLocked = isInitial && !isEmailOnlyLead(lead) && !isWarmedBeforeToday;
-              const isDay4 = (lead.initialSentDate || lead.dmSent) && (lead.followupCount === 0 || lead.followupCount === undefined);
-              const isDay8 = lead.followupCount === 1;
-              const isDay14 = lead.followupCount === 2;
+              const isDay4 = stageNumber === 4;
+              const isDay8 = stageNumber === 8;
 
-              const stageNumber: 0 | 4 | 8 | 14 = isInitial ? 0 : isDay4 ? 4 : isDay8 ? 8 : 14;
-
+              const baseInitial = resolved.effectiveInitialSentDate || getLeadBaseContactDate(lead);
               const targetDate = isInitial
-                ? lead.scheduledDate!
+                ? (lead.scheduledDate || todayStr)
                 : isDay4
-                ? (lead.followup1Date || addDays(getLeadBaseContactDate(lead), 4))
+                ? (lead.followup1Date || addDays(baseInitial, 4))
                 : isDay8
-                ? (lead.followup2Date || addDays(getLeadBaseContactDate(lead), 8))
-                : (lead.followup3Date || addDays(getLeadBaseContactDate(lead), 14));
+                ? (lead.followup2Date || addDays(baseInitial, 8))
+                : (lead.followup3Date || addDays(baseInitial, 14));
 
               const isOverdue = targetDate < todayStr;
               const isToday = targetDate === todayStr;
 
-              const copyText = isInitial
-                ? templates.stageAMessage
-                : isDay4
-                ? templates.day7Message
-                : isDay8
-                ? templates.day14Message
-                : templates.day30Message;
+              const copyText = getMessageForCadenceStage(lead, stageNumber);
 
               return (
                 <div
@@ -799,8 +812,8 @@ export function FollowupScheduleSubPage({
           ) : (
             <div className="space-y-3">
               {day4ActionableLeads.map((lead) => {
-                const templates = getCadenceMessageTemplates(lead);
-                const fu1Date = lead.followup1Date || addDays(getLeadBaseContactDate(lead), 4);
+                const day4Msg = getMessageForCadenceStage(lead, 4);
+                const fu1Date = lead.followup1Date || addDays(getEffectiveInitialSentDate(lead) || getLeadBaseContactDate(lead), 4);
 
                 return (
                   <div
@@ -821,7 +834,7 @@ export function FollowupScheduleSubPage({
                           </span>
                         )}
                         <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40 font-mono">
-                          ⚡ Day 4: Value Check-In
+                          ⚡ Day 4 Follow-Up
                         </span>
                       </div>
 
@@ -833,7 +846,7 @@ export function FollowupScheduleSubPage({
                         <span>Day 4 Trigger Message (Kitchen Ticket PDF)</span>
                         <button
                           type="button"
-                          onClick={() => handleCopy(`${lead.id}-day4`, templates.day7Message)}
+                          onClick={() => handleCopy(`${lead.id}-day4`, day4Msg)}
                           className="flex items-center gap-1 text-xs text-amber-300 hover:text-white transition cursor-pointer"
                         >
                           {copiedKey === `${lead.id}-day4` ? (
@@ -850,7 +863,7 @@ export function FollowupScheduleSubPage({
                         </button>
                       </div>
                       <p className="text-xs text-slate-300 italic select-all font-sans leading-relaxed">
-                        "{templates.day7Message}"
+                        "{day4Msg}"
                       </p>
                     </div>
 
@@ -999,8 +1012,8 @@ export function FollowupScheduleSubPage({
           ) : (
             <div className="space-y-3">
               {day8ActionableLeads.map((lead) => {
-                const templates = getCadenceMessageTemplates(lead);
-                const fu2Date = lead.followup2Date || addDays(getLeadBaseContactDate(lead), 8);
+                const day8Msg = getMessageForCadenceStage(lead, 8);
+                const fu2Date = lead.followup2Date || addDays(getEffectiveInitialSentDate(lead) || getLeadBaseContactDate(lead), 8);
 
                 return (
                   <div
@@ -1021,7 +1034,7 @@ export function FollowupScheduleSubPage({
                           </span>
                         )}
                         <span className="text-[10px] font-bold text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-500/40 font-mono">
-                          📊 Day 8: Takeout Surge
+                          📊 Day 8 Follow-Up
                         </span>
                       </div>
 
@@ -1033,7 +1046,7 @@ export function FollowupScheduleSubPage({
                         <span>Day 8 Trigger Message (Takeout Surge Case Study)</span>
                         <button
                           type="button"
-                          onClick={() => handleCopy(`${lead.id}-day8`, templates.day14Message)}
+                          onClick={() => handleCopy(`${lead.id}-day8`, day8Msg)}
                           className="flex items-center gap-1 text-xs text-purple-300 hover:text-white transition cursor-pointer"
                         >
                           {copiedKey === `${lead.id}-day8` ? (
@@ -1050,7 +1063,7 @@ export function FollowupScheduleSubPage({
                         </button>
                       </div>
                       <p className="text-xs text-slate-300 italic select-all font-sans leading-relaxed">
-                        "{templates.day14Message}"
+                        "{day8Msg}"
                       </p>
                     </div>
 
@@ -1199,8 +1212,8 @@ export function FollowupScheduleSubPage({
           ) : (
             <div className="space-y-3">
               {day14ActionableLeads.map((lead) => {
-                const templates = getCadenceMessageTemplates(lead);
-                const fu3Date = lead.followup3Date || addDays(getLeadBaseContactDate(lead), 14);
+                const day14Msg = getMessageForCadenceStage(lead, 14);
+                const fu3Date = lead.followup3Date || addDays(getEffectiveInitialSentDate(lead) || getLeadBaseContactDate(lead), 14);
 
                 return (
                   <div
@@ -1221,7 +1234,7 @@ export function FollowupScheduleSubPage({
                           </span>
                         )}
                         <span className="text-[10px] font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded border border-rose-500/40 font-mono">
-                          🎯 Day 14: Breakup Loom
+                          🎯 Day 14 Follow-Up (Breakup)
                         </span>
                       </div>
 
@@ -1233,7 +1246,7 @@ export function FollowupScheduleSubPage({
                         <span>Day 14 Trigger Message (60s Mobile Checkout Loom)</span>
                         <button
                           type="button"
-                          onClick={() => handleCopy(`${lead.id}-day14`, templates.day30Message)}
+                          onClick={() => handleCopy(`${lead.id}-day14`, day14Msg)}
                           className="flex items-center gap-1 text-xs text-rose-300 hover:text-white transition cursor-pointer"
                         >
                           {copiedKey === `${lead.id}-day14` ? (
@@ -1250,7 +1263,7 @@ export function FollowupScheduleSubPage({
                         </button>
                       </div>
                       <p className="text-xs text-slate-300 italic select-all font-sans leading-relaxed">
-                        "{templates.day30Message}"
+                        "{day14Msg}"
                       </p>
                     </div>
 

@@ -350,61 +350,180 @@ export function isInitialSentToday(lead: ChannelLead, today = getLocalTodayStr()
 }
 
 /**
- * Strict Day 4 Follow-Up Time-Lock (Value Check-In):
- * Returns true ONLY if today is on or after (initialSentDate + 4 days) and Follow-Up 1 is pending.
+ * Resolves the effective initial outreach sent date (YYYY-MM-DD in local timezone)
+ * from initialSentDate or fallback sent timestamps when initial outreach was already logged.
+ */
+export function getEffectiveInitialSentDate(lead: ChannelLead): string | null {
+  const normInitial = normalizeToLocalDateStr(lead.initialSentDate);
+  if (normInitial) return normInitial;
+
+  const hasSentSignal = Boolean(
+    lead.dmSent ||
+      lead.status === 'dispatched' ||
+      lead.status === 'sent' ||
+      (typeof lead.followupCount === 'number' && lead.followupCount > 0) ||
+      lead.followup1SentDate ||
+      lead.followup2SentDate ||
+      lead.followup3SentDate
+  );
+
+  if (!hasSentSignal) return null;
+
+  return (
+    normalizeToLocalDateStr(lead.dispatchDate) ||
+    normalizeToLocalDateStr(lead.dmSentAt) ||
+    normalizeToLocalDateStr(lead.dispatchedAt) ||
+    normalizeToLocalDateStr(lead.lastContactDate) ||
+    null
+  );
+}
+
+export interface ResolvedCadenceStep {
+  stageNumber: 0 | 4 | 8 | 14 | null;
+  step: 0 | 1 | 2 | 3 | null;
+  daysSinceInitial: number;
+  effectiveInitialSentDate: string | null;
+  isFollowupDue: boolean;
+}
+
+/**
+ * Calculates the lead's actual current cadence step based on days passed since initialSentDate
+ * and followupCount, automatically advancing past skipped days (e.g. missed Day 4 -> Day 8 on Day 8+).
+ */
+export function resolveLeadCadenceStep(
+  lead: ChannelLead,
+  today = getLocalTodayStr()
+): ResolvedCadenceStep {
+  const effectiveInitial = getEffectiveInitialSentDate(lead);
+
+  if (
+    lead.cadenceStatus === 'cancelled' ||
+    lead.cadenceStatus === 'completed' ||
+    lead.isCompleted ||
+    lead.leadStatus === 'replied' ||
+    lead.leadStatus === 'completed'
+  ) {
+    const days = effectiveInitial ? Math.max(0, getDayDifference(today, effectiveInitial)) : 0;
+    return {
+      stageNumber: null,
+      step: null,
+      daysSinceInitial: days,
+      effectiveInitialSentDate: effectiveInitial,
+      isFollowupDue: false,
+    };
+  }
+
+  const hasInitialSentFlag = Boolean(
+    effectiveInitial ||
+      lead.dmSent ||
+      lead.status === 'dispatched' ||
+      lead.status === 'sent' ||
+      (typeof lead.followupCount === 'number' && lead.followupCount > 0)
+  );
+
+  // Day 0 = Initial DM (no initialSentDate / sent signal exists)
+  if (!hasInitialSentFlag) {
+    return {
+      stageNumber: 0,
+      step: 0,
+      daysSinceInitial: 0,
+      effectiveInitialSentDate: null,
+      isFollowupDue: false,
+    };
+  }
+
+  const fuCount = typeof lead.followupCount === 'number' ? lead.followupCount : 0;
+  if (fuCount >= 3) {
+    const days = effectiveInitial ? Math.max(0, getDayDifference(today, effectiveInitial)) : 14;
+    return {
+      stageNumber: null,
+      step: null,
+      daysSinceInitial: days,
+      effectiveInitialSentDate: effectiveInitial,
+      isFollowupDue: false,
+    };
+  }
+
+  const daysSinceInitial = effectiveInitial
+    ? Math.max(0, getDayDifference(today, effectiveInitial))
+    : fuCount === 0
+    ? 4
+    : fuCount === 1
+    ? 8
+    : 14;
+
+  // Day 14 = 14+ days passed and followupCount <= 2 (handles skipped Day 4 or Day 8)
+  if (daysSinceInitial >= 14 && fuCount <= 2) {
+    return {
+      stageNumber: 14,
+      step: 3,
+      daysSinceInitial,
+      effectiveInitialSentDate: effectiveInitial,
+      isFollowupDue: true,
+    };
+  }
+
+  // Day 8 = 8+ days passed and followupCount <= 1 (handles skipped Day 4)
+  if (daysSinceInitial >= 8 && fuCount <= 1) {
+    return {
+      stageNumber: 8,
+      step: 2,
+      daysSinceInitial,
+      effectiveInitialSentDate: effectiveInitial,
+      isFollowupDue: true,
+    };
+  }
+
+  // Day 4 = 4+ days passed and followupCount === 0
+  if (daysSinceInitial >= 4 && fuCount === 0) {
+    return {
+      stageNumber: 4,
+      step: 1,
+      daysSinceInitial,
+      effectiveInitialSentDate: effectiveInitial,
+      isFollowupDue: true,
+    };
+  }
+
+  // Waiting for next follow-up window
+  return {
+    stageNumber: null,
+    step: null,
+    daysSinceInitial,
+    effectiveInitialSentDate: effectiveInitial,
+    isFollowupDue: false,
+  };
+}
+
+/**
+ * Day 4 Follow-Up (Value Check-In):
+ * True when resolved cadence step is Day 4 (4-7 days passed and followupCount === 0).
  */
 export function isDay4FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
-  if (lead.cadenceStatus === 'cancelled' || lead.cadenceStatus === 'completed') return false;
-  if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
-  if (!lead.initialSentDate && !lead.dmSent) return false;
-  if (lead.followupCount !== undefined && lead.followupCount > 0) return false;
-
-  const targetDate = lead.followup1Date || addDays(getLeadBaseContactDate(lead), 4);
-  const normalizedTarget = normalizeToLocalDateStr(targetDate);
-  if (!normalizedTarget) return false;
-
-  return today >= normalizedTarget;
+  return resolveLeadCadenceStep(lead, today).stageNumber === 4;
 }
 
 /**
- * Strict Day 8 Follow-Up Time-Lock (Social Proof / Quick Bump):
- * Returns true ONLY if today is on or after (initialSentDate + 8 days) and Follow-Up 1 is completed.
+ * Day 8 Follow-Up (Social Proof / Quick Bump):
+ * True when resolved cadence step is Day 8 (8-13 days passed and followupCount <= 1, including skipped Day 4).
  */
 export function isDay8FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
-  if (lead.cadenceStatus === 'cancelled' || lead.cadenceStatus === 'completed') return false;
-  if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
-  if (!lead.initialSentDate && !lead.dmSent) return false;
-  if (lead.followupCount !== 1) return false;
-
-  const targetDate = lead.followup2Date || addDays(getLeadBaseContactDate(lead), 8);
-  const normalizedTarget = normalizeToLocalDateStr(targetDate);
-  if (!normalizedTarget) return false;
-
-  return today >= normalizedTarget;
+  return resolveLeadCadenceStep(lead, today).stageNumber === 8;
 }
 
 /**
- * Strict Day 14 Follow-Up Time-Lock (Breakup / Final Nudge):
- * Returns true ONLY if today is on or after (initialSentDate + 14 days) and Follow-Up 2 is completed.
+ * Day 14 Follow-Up (Breakup / Final Nudge):
+ * True when resolved cadence step is Day 14 (14+ days passed and followupCount <= 2, including skipped Day 4/8).
  */
 export function isDay14FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
-  if (lead.cadenceStatus === 'cancelled' || lead.cadenceStatus === 'completed') return false;
-  if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
-  if (!lead.initialSentDate && !lead.dmSent) return false;
-  if (lead.followupCount !== 2) return false;
-
-  const targetDate = lead.followup3Date || addDays(getLeadBaseContactDate(lead), 14);
-  const normalizedTarget = normalizeToLocalDateStr(targetDate);
-  if (!normalizedTarget) return false;
-
-  return today >= normalizedTarget;
+  return resolveLeadCadenceStep(lead, today).stageNumber === 14;
 }
 
 /**
  * Checks if any follow-up touchpoint (Day 4, Day 8, or Day 14) is due today or overdue.
  */
 export function isAnyFollowupDueToday(lead: ChannelLead, today = getLocalTodayStr()): boolean {
-  return isDay4FollowupDue(lead, today) || isDay8FollowupDue(lead, today) || isDay14FollowupDue(lead, today);
+  return resolveLeadCadenceStep(lead, today).isFollowupDue;
 }
 
 // Backwards-compatibility aliases for legacy 7/14/30 and 3/7 callers
@@ -467,14 +586,20 @@ export function getCadenceMessageTemplates(lead: ChannelLead) {
 
   // Value-Based Timeline Triggers (4/8/14 Sequence)
   const day4Message =
+    lead.followupDM_Day4?.trim() ||
+    lead.followupDM_Day7?.trim() ||
     lead.followup3DM?.trim() ||
     `Hey ${recipient}, did you get a chance to see that breakdown video? We just put together a quick PDF on 3 ways to speed up kitchen ticket times on Friday nights—want me to drop it here?`;
 
   const day8Message =
+    lead.followupDM_Day8?.trim() ||
+    lead.followupDM_Day14?.trim() ||
     lead.followup7DM?.trim() ||
     `Hey ${recipient}! Quick update—another spot in ${city} implemented that online ordering tweak from the video we tagged you in and saw a 12% jump in takeout orders last week. Thought of you guys!`;
 
   const day14Message =
+    lead.breakupDM_Day14?.trim() ||
+    lead.breakupDM_Day30?.trim() ||
     `Hey ${recipient}, I know you're super busy running service. I'm archiving our video breakdown this week, but I recorded a quick 60-second Loom showing the #1 leak on your mobile checkout. Should I send the Loom or would you rather I close your file?`;
 
   return {
@@ -490,6 +615,46 @@ export function getCadenceMessageTemplates(lead: ChannelLead) {
     day3Bump: day4Message,
     day7Loom: day8Message,
   };
+}
+
+/**
+ * Returns the exact saved or template message for a specific cadence stage (0, 4, 8, or 14).
+ * Never falls back to Initial DM when a follow-up stage (4, 8, 14) is active.
+ */
+export function getMessageForCadenceStage(
+  lead: ChannelLead,
+  stageNumber: 0 | 4 | 8 | 14
+): string {
+  const templates = getCadenceMessageTemplates(lead);
+  if (stageNumber === 0) {
+    return (
+      lead.initialDM?.trim() ||
+      lead.customPitch?.trim() ||
+      lead.stagedDmMiniPitch?.trim() ||
+      templates.stageAMessage
+    );
+  }
+  if (stageNumber === 4) {
+    return (
+      lead.followupDM_Day4?.trim() ||
+      lead.followupDM_Day7?.trim() ||
+      lead.followup3DM?.trim() ||
+      templates.day4Message
+    );
+  }
+  if (stageNumber === 8) {
+    return (
+      lead.followupDM_Day8?.trim() ||
+      lead.followupDM_Day14?.trim() ||
+      lead.followup7DM?.trim() ||
+      templates.day8Message
+    );
+  }
+  return (
+    lead.breakupDM_Day14?.trim() ||
+    lead.breakupDM_Day30?.trim() ||
+    templates.day14Message
+  );
 }
 
 /**

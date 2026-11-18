@@ -68,6 +68,9 @@ import {
   isDay14FollowupDue,
   revertInitialSent,
   getCadenceMessageTemplates,
+  resolveLeadCadenceStep,
+  getEffectiveInitialSentDate,
+  getMessageForCadenceStage,
   isEmailOnlyLead,
   isLeadWarmedBeforeToday,
   isLeadWarmedToday,
@@ -375,7 +378,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     const targetTomorrow = getTomorrowWarmupTargetDate(todayStr);
     let igNeedsUpdate = false;
     const nextIgLeads = instagramLeads.map((lead) => {
-      if (lead.isCompleted || lead.isArchived || lead.cadenceStatus === 'cancelled' || lead.initialSentDate) return lead;
+      if (lead.isCompleted || lead.isArchived || lead.cadenceStatus === 'cancelled' || getEffectiveInitialSentDate(lead) || lead.dmSent) return lead;
       if (!lead.scheduledDate) return lead;
       // If scheduled for today or overdue, but wasn't warmed up before today
       if (lead.scheduledDate <= todayStr && !isLeadWarmedBeforeToday(lead, todayStr)) {
@@ -398,7 +401,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     if (onUpdateCombinedLeads) {
       let combinedNeedsUpdate = false;
       const nextCombinedLeads = effectiveCombinedLeads.map((lead) => {
-        if (lead.isCompleted || lead.isArchived || lead.cadenceStatus === 'cancelled' || lead.initialSentDate) return lead;
+        if (lead.isCompleted || lead.isArchived || lead.cadenceStatus === 'cancelled' || getEffectiveInitialSentDate(lead) || lead.dmSent) return lead;
         if (!lead.scheduledDate) return lead;
         if (isEmailOnlyLead(lead)) return lead;
         if (lead.scheduledDate <= todayStr && !isLeadWarmedBeforeToday(lead, todayStr)) {
@@ -425,8 +428,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   // Same-day warm-up or un-warmed leads cannot be dispatched today.
   const newOutreachDueToday = sortLeadsByWavePriority(
     allLeads.filter((l) => {
-      if (l.isCompleted || l.isArchived || l.cadenceStatus === 'cancelled' || l.initialSentDate) return false;
+      if (l.isCompleted || l.isArchived || l.cadenceStatus === 'cancelled') return false;
       if (isLeadDismissedToday(l)) return false;
+      if (resolveLeadCadenceStep(l, todayStr).stageNumber !== 0) return false;
       if (!l.scheduledDate) return false;
       if (isEmailOnlyLead(l)) {
         return isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate);
@@ -436,7 +440,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     })
   );
 
-  // 3. Follow-Ups Due Today
+  // 3. Follow-Ups Due Today (advances automatically past skipped days)
   const followupsDueToday = sortLeadsByWavePriority(
     allLeads.filter((l) => {
       if (
@@ -449,13 +453,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
         return false;
       }
       if (isLeadDismissedToday(l)) return false;
-      if (!l.initialSentDate) return false;
-
-      if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date) || isDay4FollowupDue(l, todayStr))) return true;
-      if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date) || isDay8FollowupDue(l, todayStr))) return true;
-      if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDateOverdue(l.followup3Date) || isDay14FollowupDue(l, todayStr))) return true;
-
-      return false;
+      return resolveLeadCadenceStep(l, todayStr).isFollowupDue;
     })
   );
 
@@ -597,20 +595,17 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
         return false;
       }
       if (isLeadDismissedToday(l)) return false;
+
+      const resolved = resolveLeadCadenceStep(l, todayStr);
       // Initial due: scheduled for today OR warmed today (showing midnight lock)
-      if (!l.initialSentDate) {
+      if (resolved.stageNumber === 0) {
         if (!l.scheduledDate) return false;
         const isScheduledToday = isDateToday(l.scheduledDate);
         const isWarmedToday = isLeadWarmedToday(l, todayStr);
         return isScheduledToday || isWarmedToday;
       }
-      // Follow-ups due
-      if (l.initialSentDate) {
-        if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date) || isDay4FollowupDue(l, todayStr))) return true;
-        if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date) || isDay8FollowupDue(l, todayStr))) return true;
-        if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDateOverdue(l.followup3Date) || isDay14FollowupDue(l, todayStr))) return true;
-      }
-      return false;
+      // Follow-ups due (Day 4, Day 8, Day 14 - including skipped days)
+      return resolved.isFollowupDue;
     });
     return sortLeadsByWavePriority(filtered);
   }, [instagramLeads, todayStr, warmupOverrideActive]);
@@ -627,37 +622,34 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
         return false;
       }
       if (isLeadDismissedToday(l)) return false;
+
+      const resolved = resolveLeadCadenceStep(l, todayStr);
       // Initial due: scheduled for today OR warmed today
-      if (!l.initialSentDate) {
+      if (resolved.stageNumber === 0) {
         if (!l.scheduledDate) return false;
         const isScheduledToday = isDateToday(l.scheduledDate);
         const isWarmedToday = isLeadWarmedToday(l, todayStr);
         if (isEmailOnlyLead(l)) return isScheduledToday || isDateOverdue(l.scheduledDate);
         return isScheduledToday || isWarmedToday;
       }
-      // Follow-ups due
-      if (l.initialSentDate) {
-        if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date) || isDay4FollowupDue(l, todayStr))) return true;
-        if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date) || isDay8FollowupDue(l, todayStr))) return true;
-        if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDateOverdue(l.followup3Date) || isDay14FollowupDue(l, todayStr))) return true;
-      }
-      return false;
+      // Follow-ups due (Day 4, Day 8, Day 14 - including skipped days)
+      return resolved.isFollowupDue;
     });
     return sortLeadsByWavePriority(filtered);
   }, [effectiveCombinedLeads, todayStr, warmupOverrideActive]);
 
   // Quota and Stats
-  const igInitialDue = todayIgLeads.filter((l) => !l.initialSentDate).length;
-  const igFollowupsDue = todayIgLeads.filter((l) => Boolean(l.initialSentDate)).length;
+  const igInitialDue = todayIgLeads.filter((l) => resolveLeadCadenceStep(l, todayStr).stageNumber === 0).length;
+  const igFollowupsDue = todayIgLeads.filter((l) => resolveLeadCadenceStep(l, todayStr).isFollowupDue).length;
 
-  const combinedInitialDue = todayCombinedLeads.filter((l) => !l.initialSentDate).length;
-  const combinedFollowupsDue = todayCombinedLeads.filter((l) => Boolean(l.initialSentDate)).length;
+  const combinedInitialDue = todayCombinedLeads.filter((l) => resolveLeadCadenceStep(l, todayStr).stageNumber === 0).length;
+  const combinedFollowupsDue = todayCombinedLeads.filter((l) => resolveLeadCadenceStep(l, todayStr).isFollowupDue).length;
 
   // Eligible leads ready for native bulk scheduling (respecting Previous-Day Warm-Up Law & Channel Isolation)
   const eligibleIgScheduledLeads = useMemo(() => {
     return todayIgLeads.filter((lead) => {
       if (lead.channel !== 'instagram') return false;
-      const isStage0 = !lead.initialSentDate;
+      const isStage0 = resolveLeadCadenceStep(lead, todayStr).stageNumber === 0;
       const lockedByWarmup = isStage0 && !isLeadWarmedBeforeToday(lead, todayStr);
       return !lockedByWarmup;
     });
@@ -666,7 +658,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const eligibleCombinedScheduledLeads = useMemo(() => {
     return todayCombinedLeads.filter((lead) => {
       if (lead.channel !== 'combined') return false;
-      const isStage0 = !lead.initialSentDate;
+      const isStage0 = resolveLeadCadenceStep(lead, todayStr).stageNumber === 0;
       const isFbLead = !isEmailOnlyLead(lead);
       const lockedByWarmup = isFbLead && isStage0 && !isLeadWarmedBeforeToday(lead, todayStr);
       return !lockedByWarmup;
@@ -737,15 +729,12 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
         return lead;
       }
       processedCount++;
-      if (!lead.initialSentDate) {
+      const resolved = resolveLeadCadenceStep(lead, todayStr);
+      if (resolved.stageNumber === 0) {
         return markInitialSent(lead, todayStr);
       }
       const step: 1 | 2 | 3 =
-        lead.followupCount === 0 || lead.followupCount === undefined
-          ? 1
-          : lead.followupCount === 1
-          ? 2
-          : 3;
+        resolved.step === 1 || resolved.step === 2 || resolved.step === 3 ? resolved.step : 1;
       return markFollowupSent(lead, step, todayStr);
     });
 
@@ -772,15 +761,12 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
         return lead;
       }
       processedCount++;
-      if (!lead.initialSentDate) {
+      const resolved = resolveLeadCadenceStep(lead, todayStr);
+      if (resolved.stageNumber === 0) {
         return markInitialSent(lead, todayStr);
       }
       const step: 1 | 2 | 3 =
-        lead.followupCount === 0 || lead.followupCount === undefined
-          ? 1
-          : lead.followupCount === 1
-          ? 2
-          : 3;
+        resolved.step === 1 || resolved.step === 2 || resolved.step === 3 ? resolved.step : 1;
       return markFollowupSent(lead, step, todayStr);
     });
 
@@ -1891,31 +1877,37 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
             ) : (
               <div className="space-y-4">
                 {todayIgLeads.map((lead) => {
+                  const cadenceStep = resolveLeadCadenceStep(lead, todayStr);
                   const stageNumber: 0 | 4 | 8 | 14 =
-                    !lead.initialSentDate
-                      ? 0
-                      : lead.followupCount === 0
-                      ? 4
-                      : lead.followupCount === 1
-                      ? 8
-                      : 14;
+                    cadenceStep.stageNumber === 4 || cadenceStep.stageNumber === 8 || cadenceStep.stageNumber === 14
+                      ? cadenceStep.stageNumber
+                      : 0;
+                  const stepNumber: 0 | 1 | 2 | 3 =
+                    stageNumber === 0 ? 0 : stageNumber === 4 ? 1 : stageNumber === 8 ? 2 : 3;
 
                   const blindRoute = getBlindRouteLink(lead, 'dispatch', stageNumber);
-                  const templates = getCadenceMessageTemplates(lead);
-                  const activeMessage =
-                    stageNumber === 0
-                      ? lead.initialDM || lead.customPitch || templates.stageAMessage
-                      : stageNumber === 4
-                      ? lead.followupDM_Day7 || lead.followup3DM || templates.day4Message
-                      : stageNumber === 8
-                      ? lead.followupDM_Day14 || lead.followup7DM || templates.day8Message
-                      : lead.breakupDM_Day30 || templates.day14Message;
+                  const activeMessage = getMessageForCadenceStage(lead, stageNumber);
 
                   const isWarmedBeforeToday = isLeadWarmedBeforeToday(lead, todayStr);
                   const isWarmedToday = isLeadWarmedToday(lead, todayStr);
                   const isLockedByWarmup = !isWarmedBeforeToday && stageNumber === 0;
                   const isLockedByTimer = igCooldownMs > 0;
-                  const canSend = !isLockedByWarmup && !isLockedByTimer;
+
+                  const stepBadgeStyle =
+                    stageNumber === 0
+                      ? 'bg-pink-500/15 text-pink-300 border-pink-500/30'
+                      : stageNumber === 4
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : stageNumber === 8
+                      ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                      : 'bg-rose-500/20 text-rose-300 border-rose-500/40';
+
+                  const stepBadgeLabel =
+                    stageNumber === 0
+                      ? 'Day 0 Initial IG DM'
+                      : stageNumber === 14
+                      ? 'Day 14 Follow-Up (Breakup)'
+                      : `Day ${stageNumber} Follow-Up`;
 
                   return (
                     <div
@@ -1930,14 +1922,15 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                           <span className="text-base font-bold text-white font-['Outfit']">
                             {lead.name}
                           </span>
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-pink-500/15 text-pink-300 border border-pink-500/30">
-                            <Instagram className="w-3 h-3 text-pink-400" />
-                            <span>
-                              {stageNumber === 0
-                                ? 'Day 0 Initial IG DM'
-                                : `Day ${stageNumber} IG Follow-Up`}
-                            </span>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${stepBadgeStyle}`}>
+                            <Instagram className="w-3 h-3 shrink-0" />
+                            <span>{stepBadgeLabel}</span>
                           </span>
+                          {stageNumber !== 0 && cadenceStep.daysSinceInitial > 0 && (
+                            <span className="text-[10px] font-mono text-slate-400 bg-white/5 px-2 py-0.5 rounded border border-white/10">
+                              Day {cadenceStep.daysSinceInitial} since Initial
+                            </span>
+                          )}
                         </div>
 
                         {/* Requirement 6: Blind Route Link (ONLY one link shown) */}
@@ -1961,7 +1954,11 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                       {/* Auto-Served Message Copy */}
                       <div className="p-3.5 rounded-xl bg-slate-900 border border-white/5 space-y-2">
                         <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                          <span>Pre-Configured Message for Today:</span>
+                          <span>
+                            {stageNumber === 0
+                              ? 'Pre-Configured Message for Today (Day 0 Initial):'
+                              : `Pre-Configured Message for Today (Day ${stageNumber} Follow-Up):`}
+                          </span>
                           <button
                             type="button"
                             onClick={() => handleCopyText(`dm-${lead.id}`, activeMessage)}
@@ -2028,14 +2025,13 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                             {/* ✅ Scheduled Button (Bypasses 12-min cooldown completely) */}
                             <button
                               type="button"
-                              onClick={() =>
-                                handleScheduleLeadNoLock(
-                                  lead,
-                                  stageNumber === 0 ? 0 : (lead.followupCount === 0 ? 1 : lead.followupCount === 1 ? 2 : 3)
-                                )
-                              }
+                              onClick={() => handleScheduleLeadNoLock(lead, stepNumber)}
                               className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-lg shadow-indigo-600/25 flex items-center gap-1.5 cursor-pointer active:scale-95"
-                              title="Log as scheduled natively on Instagram (bypasses 12-minute lock and queues D4 follow-up)"
+                              title={
+                                stageNumber === 0
+                                  ? 'Log as scheduled natively on Instagram (bypasses 12-minute lock and queues D4 follow-up)'
+                                  : `Log Day ${stageNumber} Follow-Up as sent (bypasses 12-minute lock)`
+                              }
                             >
                               <span>✅ Scheduled</span>
                             </button>
@@ -2053,16 +2049,13 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                             ) : (
                               <button
                                 type="button"
-                                onClick={() =>
-                                  handleMarkLeadSentWithCooldown(
-                                    lead,
-                                    stageNumber === 0 ? 0 : (lead.followupCount === 0 ? 1 : lead.followupCount === 1 ? 2 : 3)
-                                  )
-                                }
+                                onClick={() => handleMarkLeadSentWithCooldown(lead, stepNumber)}
                                 className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-600/30 flex items-center gap-2 cursor-pointer active:scale-95"
                               >
                                 <Send className="w-3.5 h-3.5" />
-                                <span>Mark as Sent</span>
+                                <span>
+                                  {stageNumber === 0 ? 'Mark as Sent' : `Mark Day ${stageNumber} Sent`}
+                                </span>
                               </button>
                             )}
                           </div>
@@ -2186,31 +2179,38 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
             ) : (
               <div className="space-y-4">
                 {todayCombinedLeads.map((lead) => {
+                  const cadenceStep = resolveLeadCadenceStep(lead, todayStr);
                   const stageNumber: 0 | 4 | 8 | 14 =
-                    !lead.initialSentDate
-                      ? 0
-                      : lead.followupCount === 0
-                      ? 4
-                      : lead.followupCount === 1
-                      ? 8
-                      : 14;
+                    cadenceStep.stageNumber === 4 || cadenceStep.stageNumber === 8 || cadenceStep.stageNumber === 14
+                      ? cadenceStep.stageNumber
+                      : 0;
+                  const stepNumber: 0 | 1 | 2 | 3 =
+                    stageNumber === 0 ? 0 : stageNumber === 4 ? 1 : stageNumber === 8 ? 2 : 3;
 
                   const blindRoute = getBlindRouteLink(lead, 'dispatch', stageNumber);
-                  const templates = getCadenceMessageTemplates(lead);
-                  const activeMessage =
-                    stageNumber === 0
-                      ? lead.initialDM || lead.customPitch || templates.stageAMessage
-                      : stageNumber === 4
-                      ? lead.followupDM_Day7 || lead.followup3DM || templates.day4Message
-                      : stageNumber === 8
-                      ? lead.followupDM_Day14 || lead.followup7DM || templates.day8Message
-                      : lead.breakupDM_Day30 || templates.day14Message;
+                  const activeMessage = getMessageForCadenceStage(lead, stageNumber);
 
                   const isFbLead = !isEmailOnlyLead(lead);
                   const isWarmedBeforeToday = isLeadWarmedBeforeToday(lead, todayStr);
                   const isWarmedToday = isLeadWarmedToday(lead, todayStr);
                   const isLockedByWarmup = isFbLead && !isWarmedBeforeToday && stageNumber === 0;
                   const isLockedByTimer = combinedCooldownMs > 0;
+
+                  const stepBadgeStyle =
+                    stageNumber === 0
+                      ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+                      : stageNumber === 4
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : stageNumber === 8
+                      ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                      : 'bg-rose-500/20 text-rose-300 border-rose-500/40';
+
+                  const stepBadgeLabel =
+                    stageNumber === 0
+                      ? 'Day 0 Initial Email'
+                      : stageNumber === 14
+                      ? 'Day 14 Follow-Up (Breakup)'
+                      : `Day ${stageNumber} Follow-Up`;
 
                   return (
                     <div
@@ -2225,14 +2225,15 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                           <span className="text-base font-bold text-white font-['Outfit']">
                             {lead.name}
                           </span>
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                            <Mail className="w-3 h-3 text-indigo-400" />
-                            <span>
-                              {stageNumber === 0
-                                ? 'Day 0 Initial Email'
-                                : `Day ${stageNumber} Email`}
-                            </span>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${stepBadgeStyle}`}>
+                            <Mail className="w-3 h-3 shrink-0" />
+                            <span>{stepBadgeLabel}</span>
                           </span>
+                          {stageNumber !== 0 && cadenceStep.daysSinceInitial > 0 && (
+                            <span className="text-[10px] font-mono text-slate-400 bg-white/5 px-2 py-0.5 rounded border border-white/10">
+                              Day {cadenceStep.daysSinceInitial} since Initial
+                            </span>
+                          )}
                         </div>
 
                         {/* Requirement 6: Blind Route Link / Copy Email for Manual Verification */}
@@ -2264,7 +2265,11 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                       {/* Auto-Served Message Copy */}
                       <div className="p-3.5 rounded-xl bg-slate-900 border border-white/5 space-y-2">
                         <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                          <span>Pre-Configured Message for Today:</span>
+                          <span>
+                            {stageNumber === 0
+                              ? 'Pre-Configured Message for Today (Day 0 Initial):'
+                              : `Pre-Configured Message for Today (Day ${stageNumber} Follow-Up):`}
+                          </span>
                           <button
                             type="button"
                             onClick={() => handleCopyText(`dm-${lead.id}`, activeMessage)}
@@ -2331,14 +2336,13 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                             {/* ✅ Scheduled Button (Bypasses 12-min cooldown completely) */}
                             <button
                               type="button"
-                              onClick={() =>
-                                handleScheduleLeadNoLock(
-                                  lead,
-                                  stageNumber === 0 ? 0 : (lead.followupCount === 0 ? 1 : lead.followupCount === 1 ? 2 : 3)
-                                )
-                              }
+                              onClick={() => handleScheduleLeadNoLock(lead, stepNumber)}
                               className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition shadow-lg shadow-indigo-600/25 flex items-center gap-1.5 cursor-pointer active:scale-95"
-                              title="Log as scheduled natively in Gmail (bypasses 12-minute lock and queues D4 follow-up)"
+                              title={
+                                stageNumber === 0
+                                  ? 'Log as scheduled natively in Gmail (bypasses 12-minute lock and queues D4 follow-up)'
+                                  : `Log Day ${stageNumber} Follow-Up as sent (bypasses 12-minute lock)`
+                              }
                             >
                               <span>✅ Scheduled</span>
                             </button>
@@ -2356,16 +2360,13 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                             ) : (
                               <button
                                 type="button"
-                                onClick={() =>
-                                  handleMarkLeadSentWithCooldown(
-                                    lead,
-                                    stageNumber === 0 ? 0 : (lead.followupCount === 0 ? 1 : lead.followupCount === 1 ? 2 : 3)
-                                  )
-                                }
+                                onClick={() => handleMarkLeadSentWithCooldown(lead, stepNumber)}
                                 className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition shadow-lg shadow-emerald-600/30 flex items-center gap-2 cursor-pointer active:scale-95"
                               >
                                 <Send className="w-3.5 h-3.5" />
-                                <span>Mark as Sent</span>
+                                <span>
+                                  {stageNumber === 0 ? 'Mark as Sent' : `Mark Day ${stageNumber} Sent`}
+                                </span>
                               </button>
                             )}
                           </div>

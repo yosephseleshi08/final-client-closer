@@ -18,7 +18,7 @@ import { ScheduleSubPage } from './ScheduleSubPage';
 import { FollowupScheduleSubPage } from './FollowupScheduleSubPage';
 import { MockupSubPage } from './MockupSubPage';
 import { getChannelLabel } from '../../utils/channelStorage';
-import { getLocalTodayStr, normalizeToLocalDateStr, getTomorrowWarmupTargetDate, isEmailOnlyLead } from '../../utils/cadenceEngine';
+import { getLocalTodayStr, normalizeToLocalDateStr, getTomorrowWarmupTargetDate, isEmailOnlyLead, resolveLeadCadenceStep } from '../../utils/cadenceEngine';
 
 interface ChannelWorkspaceProps {
   channel: MultiChannelType;
@@ -108,13 +108,14 @@ export function ChannelWorkspace({
     (l) => l.warmupStatus !== 'warmed' && !l.isWarmedUp
   ).length;
 
-  // Calculate actionable items in this channel for badge (Initial due + Day 7 + Day 14 + Day 30)
+  // Calculate actionable items in this channel for badge (Initial due + Day 4 + Day 8 + Day 14)
   const urgentCount = leads.filter((l) => {
-    if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
-    if (!l.initialSentDate && l.scheduledDate && l.scheduledDate <= todayStr) return true;
-    if (l.initialSentDate && (l.followupCount === 0 || l.followupCount === undefined) && l.followup1Date && l.followup1Date <= todayStr) return true;
-    if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && l.followup2Date <= todayStr) return true;
-    return false;
+    if (l.isCompleted || l.cadenceStatus === 'cancelled' || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+    const resolved = resolveLeadCadenceStep(l, todayStr);
+    if (resolved.stageNumber === 0) {
+      return Boolean(l.scheduledDate && l.scheduledDate <= todayStr);
+    }
+    return resolved.isFollowupDue;
   }).length;
 
   const subTabs: { id: MultiChannelSubTab; label: string; icon: React.ReactNode; badge?: number }[] = [

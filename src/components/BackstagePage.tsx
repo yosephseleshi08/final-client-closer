@@ -533,8 +533,8 @@ export const BackstagePage: React.FC<BackstagePageProps> = ({
                   const hasSequence =
                     Boolean(lead.isSequenceConfigured) ||
                     Boolean(
-                      (lead.initialDM || '').trim() &&
-                        (lead.followupDM_Day7 || lead.followup3DM || '').trim()
+                      (lead.initialDM || lead.customPitch || '').trim() &&
+                        (lead.followupDM_Day4 || lead.followupDM_Day7 || lead.followup3DM || '').trim()
                     );
 
                   return (

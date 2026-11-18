@@ -122,9 +122,9 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const handleOpenPitchEditor = (lead: ChannelLead) => {
     setSelectedLeadId(lead.id);
     setInitialDraft(lead.initialDM || lead.customPitch || '');
-    setFollowup7Draft(lead.followupDM_Day7 || lead.followup3DM || '');
-    setFollowup14Draft(lead.followupDM_Day14 || lead.followup7DM || '');
-    setBreakup30Draft(lead.breakupDM_Day30 || '');
+    setFollowup7Draft(lead.followupDM_Day4 || lead.followupDM_Day7 || lead.followup3DM || '');
+    setFollowup14Draft(lead.followupDM_Day8 || lead.followupDM_Day14 || lead.followup7DM || '');
+    setBreakup30Draft(lead.breakupDM_Day14 || lead.breakupDM_Day30 || '');
     setActiveStepTab('all');
   };
 
@@ -141,8 +141,11 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
         return {
           ...l,
           initialDM: trimmedInitial || undefined,
+          followupDM_Day4: trimmed7 || undefined,
           followupDM_Day7: trimmed7 || undefined,
+          followupDM_Day8: trimmed14 || undefined,
           followupDM_Day14: trimmed14 || undefined,
+          breakupDM_Day14: trimmed30 || undefined,
           breakupDM_Day30: trimmed30 || undefined,
           followup3DM: trimmed7 || undefined,
           followup7DM: trimmed14 || undefined,
@@ -241,9 +244,9 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const getSequenceStepCount = (lead: ChannelLead) => {
     let count = 0;
     if (lead.initialDM || lead.customPitch) count++;
-    if (lead.followupDM_Day7 || lead.followup3DM) count++;
-    if (lead.followupDM_Day14 || lead.followup7DM) count++;
-    if (lead.breakupDM_Day30) count++;
+    if (lead.followupDM_Day4 || lead.followupDM_Day7 || lead.followup3DM) count++;
+    if (lead.followupDM_Day8 || lead.followupDM_Day14 || lead.followup7DM) count++;
+    if (lead.breakupDM_Day14 || lead.breakupDM_Day30) count++;
     return count;
   };
 

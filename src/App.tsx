@@ -26,6 +26,7 @@ import {
   isTodaySunday,
   isLeadWarmedBeforeToday,
   isEmailOnlyLead,
+  resolveLeadCadenceStep,
 } from './utils/cadenceEngine';
 import { isPipelineFrozenNow, togglePipelineFreeze } from './utils/pipelineFreeze';
 import { runDiagnosticDataRepair } from './utils/dataRepair';
@@ -143,33 +144,23 @@ export default function App() {
       }
       if (isLeadDismissedToday(l)) return false;
 
+      const resolved = resolveLeadCadenceStep(l, todayStr);
+
       // 1. Initial outreach due today: Email-only leads dispatch directly on/after scheduled date;
       // social leads require today schedule + previous-day warm-up
-      if (!l.initialSentDate && l.scheduledDate) {
+      if (resolved.stageNumber === 0) {
+        if (!l.scheduledDate) return false;
         if (isEmailOnlyLead(l)) {
           return isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate);
         }
         if (isDateToday(l.scheduledDate)) {
           return isLeadWarmedBeforeToday(l, todayStr);
         }
+        return false;
       }
 
-      // 2. Follow-Up #1 (Day 4) due today or overdue
-      if (l.initialSentDate && (l.followupCount === 0 || l.followupCount === undefined) && l.followup1Date && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date))) {
-        return true;
-      }
-
-      // 3. Follow-Up #2 (Day 8) due today or overdue
-      if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date))) {
-        return true;
-      }
-
-      // 4. Follow-Up #3 (Day 14) due today or overdue
-      if (l.initialSentDate && l.followupCount === 2 && l.followup3Date && (isDateToday(l.followup3Date) || isDateOverdue(l.followup3Date))) {
-        return true;
-      }
-
-      return false;
+      // 2. Follow-ups (Day 4, Day 8, or Day 14 — handles skipped days automatically)
+      return resolved.isFollowupDue;
     }).length;
   }, [combinedLeads, instagramLeads, todayStr, isFrozen]);
 

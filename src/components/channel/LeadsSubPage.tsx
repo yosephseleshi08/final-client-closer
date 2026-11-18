@@ -146,9 +146,9 @@ function SortableLeadRow({
     (channel === 'combined' && numId <= 4);
 
   const initial = (lead.initialDM || lead.customPitch || '').trim();
-  const d4 = (lead.followupDM_Day7 || lead.followup3DM || '').trim();
-  const d8 = (lead.followupDM_Day14 || lead.followup7DM || '').trim();
-  const d14 = (lead.breakupDM_Day30 || '').trim();
+  const d4 = (lead.followupDM_Day4 || lead.followupDM_Day7 || lead.followup3DM || '').trim();
+  const d8 = (lead.followupDM_Day8 || lead.followupDM_Day14 || lead.followup7DM || '').trim();
+  const d14 = (lead.breakupDM_Day14 || lead.breakupDM_Day30 || '').trim();
 
   const hasAll4Sequences =
     initial.length > 0 &&
@@ -461,10 +461,13 @@ export function LeadsSubPage({
         initialDM: '',
         customPitch: '',
         stagedDmMiniPitch: '',
+        followupDM_Day4: '',
         followupDM_Day7: '',
         followup3DM: '',
+        followupDM_Day8: '',
         followupDM_Day14: '',
         followup7DM: '',
+        breakupDM_Day14: '',
         breakupDM_Day30: '',
         isSequenceConfigured: false,
         pitchSavedAt: undefined,
@@ -617,10 +620,10 @@ export function LeadsSubPage({
   // Open Edit Sequence Modal (starts empty unless operator has written text)
   const handleOpenEditSequence = (lead: ChannelLead) => {
     setEditingLead(lead);
-    setInitialDmText(lead.initialDM || '');
-    setDay4Text(lead.followupDM_Day7 || lead.followup3DM || '');
-    setDay8Text(lead.followupDM_Day14 || lead.followup7DM || '');
-    setDay14Text(lead.breakupDM_Day30 || '');
+    setInitialDmText(lead.initialDM || lead.customPitch || '');
+    setDay4Text(lead.followupDM_Day4 || lead.followupDM_Day7 || lead.followup3DM || '');
+    setDay8Text(lead.followupDM_Day8 || lead.followupDM_Day14 || lead.followup7DM || '');
+    setDay14Text(lead.breakupDM_Day14 || lead.breakupDM_Day30 || '');
     setCopiedPrompt(false);
     setSaveSuccess(false);
   };
@@ -655,10 +658,13 @@ export function LeadsSubPage({
           initialDM: trimmedInitial,
           customPitch: trimmedInitial,
           stagedDmMiniPitch: trimmedInitial,
+          followupDM_Day4: trimmedDay4,
           followupDM_Day7: trimmedDay4,
           followup3DM: trimmedDay4,
+          followupDM_Day8: trimmedDay8,
           followupDM_Day14: trimmedDay8,
           followup7DM: trimmedDay8,
+          breakupDM_Day14: trimmedDay14,
           breakupDM_Day30: trimmedDay14,
           pitchSavedAt: isComplete ? (l.pitchSavedAt || new Date().toISOString()) : undefined,
           isSequenceConfigured: isComplete,
@@ -1110,10 +1116,13 @@ export function LeadsSubPage({
       initialDM: '',
       customPitch: '',
       stagedDmMiniPitch: '',
+      followupDM_Day4: '',
       followupDM_Day7: '',
       followup3DM: '',
+      followupDM_Day8: '',
       followupDM_Day14: '',
       followup7DM: '',
+      breakupDM_Day14: '',
       breakupDM_Day30: '',
       isSequenceConfigured: false,
     };
