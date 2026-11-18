@@ -378,7 +378,14 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     const targetTomorrow = getTomorrowWarmupTargetDate(todayStr);
     let igNeedsUpdate = false;
     const nextIgLeads = instagramLeads.map((lead) => {
-      if (lead.isCompleted || lead.isArchived || lead.cadenceStatus === 'cancelled' || getEffectiveInitialSentDate(lead) || lead.dmSent) return lead;
+      if (
+        lead.isCompleted ||
+        lead.isArchived ||
+        lead.cadenceStatus === 'cancelled' ||
+        resolveLeadCadenceStep(lead, todayStr).stageNumber !== 0
+      ) {
+        return lead;
+      }
       if (!lead.scheduledDate) return lead;
       // If scheduled for today or overdue, but wasn't warmed up before today
       if (lead.scheduledDate <= todayStr && !isLeadWarmedBeforeToday(lead, todayStr)) {
@@ -401,7 +408,14 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     if (onUpdateCombinedLeads) {
       let combinedNeedsUpdate = false;
       const nextCombinedLeads = effectiveCombinedLeads.map((lead) => {
-        if (lead.isCompleted || lead.isArchived || lead.cadenceStatus === 'cancelled' || getEffectiveInitialSentDate(lead) || lead.dmSent) return lead;
+        if (
+          lead.isCompleted ||
+          lead.isArchived ||
+          lead.cadenceStatus === 'cancelled' ||
+          resolveLeadCadenceStep(lead, todayStr).stageNumber !== 0
+        ) {
+          return lead;
+        }
         if (!lead.scheduledDate) return lead;
         if (isEmailOnlyLead(lead)) return lead;
         if (lead.scheduledDate <= todayStr && !isLeadWarmedBeforeToday(lead, todayStr)) {
@@ -638,12 +652,42 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     return sortLeadsByWavePriority(filtered);
   }, [effectiveCombinedLeads, todayStr, warmupOverrideActive]);
 
-  // Quota and Stats
-  const igInitialDue = todayIgLeads.filter((l) => resolveLeadCadenceStep(l, todayStr).stageNumber === 0).length;
-  const igFollowupsDue = todayIgLeads.filter((l) => resolveLeadCadenceStep(l, todayStr).isFollowupDue).length;
+  // Quota and Stats: single-pass cadence resolution across every due lead in each dispatch queue
+  const summarizeDispatchQueue = (leads: ChannelLead[], targetDate: string) => {
+    let initialDue = 0;
+    let followupsDue = 0;
 
-  const combinedInitialDue = todayCombinedLeads.filter((l) => resolveLeadCadenceStep(l, todayStr).stageNumber === 0).length;
-  const combinedFollowupsDue = todayCombinedLeads.filter((l) => resolveLeadCadenceStep(l, todayStr).isFollowupDue).length;
+    for (const lead of leads) {
+      const resolved = resolveLeadCadenceStep(lead, targetDate);
+      if (
+        resolved.isFollowupDue ||
+        resolved.stageNumber === 4 ||
+        resolved.stageNumber === 8 ||
+        resolved.stageNumber === 14
+      ) {
+        followupsDue += 1;
+      } else if (resolved.stageNumber === 0) {
+        initialDue += 1;
+      }
+    }
+
+    return { initialDue, followupsDue };
+  };
+
+  const igQueueSummary = useMemo(
+    () => summarizeDispatchQueue(todayIgLeads, todayStr),
+    [todayIgLeads, todayStr]
+  );
+  const combinedQueueSummary = useMemo(
+    () => summarizeDispatchQueue(todayCombinedLeads, todayStr),
+    [todayCombinedLeads, todayStr]
+  );
+
+  const igInitialDue = igQueueSummary.initialDue;
+  const igFollowupsDue = igQueueSummary.followupsDue;
+
+  const combinedInitialDue = combinedQueueSummary.initialDue;
+  const combinedFollowupsDue = combinedQueueSummary.followupsDue;
 
   // Eligible leads ready for native bulk scheduling (respecting Previous-Day Warm-Up Law & Channel Isolation)
   const eligibleIgScheduledLeads = useMemo(() => {
@@ -1174,7 +1218,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
               </div>
               <p className="text-xs text-slate-300 leading-snug">
                 {todayIgLeads.length > 0
-                  ? `${igInitialDue} Initial DMs and ${igFollowupsDue} follow-ups scheduled for dispatch.`
+                  ? `${igInitialDue} Initial DMs and ${igFollowupsDue} Follow-Ups scheduled for dispatch.`
                   : 'All Instagram outreach tasks are finished for today.'}
               </p>
             </div>
@@ -1220,7 +1264,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
               </div>
               <p className="text-xs text-slate-300 leading-snug">
                 {todayCombinedLeads.length > 0
-                  ? `${combinedInitialDue} Initial DMs and ${combinedFollowupsDue} follow-ups (FB & Email).`
+                  ? `${combinedInitialDue} Initial DMs and ${combinedFollowupsDue} Follow-Ups scheduled for dispatch (FB & Email).`
                   : 'All Combined outreach tasks are finished for today.'}
               </p>
             </div>
@@ -1783,6 +1827,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                   <span className="text-xs font-mono text-pink-300/80 font-bold">
                     Quota: 6 DMs/Day
                   </span>
+                  <span className="text-[11px] font-mono font-bold text-slate-200 bg-white/5 px-2.5 py-0.5 rounded border border-white/10">
+                    {igInitialDue} Initial DMs · {igFollowupsDue} Follow-Ups
+                  </span>
                 </div>
                 <h3 className="text-xl font-black text-white font-['Outfit'] mt-1">
                   Today's Instagram Leads Queue ({todayIgLeads.length})
@@ -2084,6 +2131,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                   </span>
                   <span className="text-xs font-mono text-indigo-300/80 font-bold">
                     Quota: 4 Messages/Day (Email + FB)
+                  </span>
+                  <span className="text-[11px] font-mono font-bold text-slate-200 bg-white/5 px-2.5 py-0.5 rounded border border-white/10">
+                    {combinedInitialDue} Initial DMs · {combinedFollowupsDue} Follow-Ups
                   </span>
                 </div>
                 <h3 className="text-xl font-black text-white font-['Outfit'] mt-1">

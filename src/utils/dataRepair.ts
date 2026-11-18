@@ -349,42 +349,65 @@ export function normalizeExistingLeadCadence<T extends Partial<ChannelLead> & Re
 
   // 4. Resolve initialSentDate & align Day 4 / Day 8 / Day 14 schedule dates on sent existing leads
   const explicitInitial = normDateStr(next.initialSentDate);
+  const rawStatus = String(next.status || '').trim().toLowerCase();
+  const rawLeadStatus = String(next.leadStatus || '').trim().toLowerCase();
+  const normDmSentAt = normDateStr(next.dmSentAt);
+  const normDispatchDate = normDateStr(next.dispatchDate);
+  const normDispatchedAt = normDateStr(next.dispatchedAt);
+  const normLastContact = normDateStr(next.lastContactDate);
+  const normFirstContact = normDateStr(next.dateFirstContact);
+  const normF1Date = normDateStr(next.followup1Date);
+  const normF2Date = normDateStr(next.followup2Date);
+  const normF3Date = normDateStr(next.followup3Date);
+  const normF1Sent = normDateStr(next.followup1SentDate);
+  const normF2Sent = normDateStr(next.followup2SentDate);
+  const normF3Sent = normDateStr(next.followup3SentDate);
+
   const hasSentSignal = Boolean(
     explicitInitial ||
       next.dmSent ||
-      next.status === 'dispatched' ||
-      next.status === 'sent' ||
-      next.leadStatus === 'waiting_reply' ||
-      next.leadStatus === 'seen' ||
+      rawStatus === 'dispatched' ||
+      rawStatus === 'sent' ||
+      rawStatus === 'mockup_sent' ||
+      rawLeadStatus === 'waiting_reply' ||
+      rawLeadStatus === 'seen' ||
+      normDmSentAt ||
+      normDispatchDate ||
+      normDispatchedAt ||
+      normLastContact ||
+      normFirstContact ||
+      normF1Date ||
+      normF2Date ||
+      normF3Date ||
       fuCount > 0 ||
-      normDateStr(next.followup1SentDate) ||
-      normDateStr(next.followup2SentDate) ||
-      normDateStr(next.followup3SentDate)
+      normF1Sent ||
+      normF2Sent ||
+      normF3Sent
   );
 
   if (hasSentSignal) {
     const inferredInitial =
       explicitInitial ||
       (fuCount > 0
-        ? normDateStr(next.dmSentAt) ||
-          normDateStr(next.dateFirstContact) ||
-          (normDateStr(next.followup1SentDate)
-            ? addLocalCalendarDays(normDateStr(next.followup1SentDate)!, -4)
-            : undefined) ||
-          (normDateStr(next.followup2SentDate)
-            ? addLocalCalendarDays(normDateStr(next.followup2SentDate)!, -8)
-            : undefined) ||
-          (normDateStr(next.followup3SentDate)
-            ? addLocalCalendarDays(normDateStr(next.followup3SentDate)!, -14)
-            : undefined) ||
-          normDateStr(next.dispatchDate) ||
-          normDateStr(next.dispatchedAt) ||
-          normDateStr(next.lastContactDate)
-        : normDateStr(next.dispatchDate) ||
-          normDateStr(next.dmSentAt) ||
-          normDateStr(next.dispatchedAt) ||
-          normDateStr(next.lastContactDate) ||
-          normDateStr(next.dateFirstContact));
+        ? normDmSentAt ||
+          normFirstContact ||
+          (normF1Sent ? addLocalCalendarDays(normF1Sent, -4) : undefined) ||
+          (normF2Sent ? addLocalCalendarDays(normF2Sent, -8) : undefined) ||
+          (normF3Sent ? addLocalCalendarDays(normF3Sent, -14) : undefined) ||
+          (normF1Date ? addLocalCalendarDays(normF1Date, -4) : undefined) ||
+          (normF2Date ? addLocalCalendarDays(normF2Date, -8) : undefined) ||
+          (normF3Date ? addLocalCalendarDays(normF3Date, -14) : undefined) ||
+          normDispatchDate ||
+          normDispatchedAt ||
+          normLastContact
+        : normDispatchDate ||
+          normDmSentAt ||
+          normDispatchedAt ||
+          normLastContact ||
+          normFirstContact ||
+          (normF1Date ? addLocalCalendarDays(normF1Date, -4) : undefined) ||
+          (normF2Date ? addLocalCalendarDays(normF2Date, -8) : undefined) ||
+          (normF3Date ? addLocalCalendarDays(normF3Date, -14) : undefined));
 
     if (inferredInitial) {
       if (next.initialSentDate !== inferredInitial) {

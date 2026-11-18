@@ -364,13 +364,33 @@ export function getEffectiveInitialSentDate(lead: ChannelLead): string | null {
   const f1Sent = normalizeToLocalDateStr(lead.followup1SentDate);
   const f2Sent = normalizeToLocalDateStr(lead.followup2SentDate);
   const f3Sent = normalizeToLocalDateStr(lead.followup3SentDate);
+  const normDmSentAt = normalizeToLocalDateStr(lead.dmSentAt);
+  const normDispatchDate = normalizeToLocalDateStr(lead.dispatchDate);
+  const normDispatchedAt = normalizeToLocalDateStr(lead.dispatchedAt);
+  const normLastContact = normalizeToLocalDateStr(lead.lastContactDate);
+  const normFirstContact = normalizeToLocalDateStr((lead as any).dateFirstContact);
+  const normF1Date = normalizeToLocalDateStr(lead.followup1Date);
+  const normF2Date = normalizeToLocalDateStr(lead.followup2Date);
+  const normF3Date = normalizeToLocalDateStr(lead.followup3Date);
+
+  const rawStatus = String(lead.status || '').trim().toLowerCase();
+  const rawLeadStatus = String(lead.leadStatus || '').trim().toLowerCase();
 
   const hasSentSignal = Boolean(
     lead.dmSent ||
-      lead.status === 'dispatched' ||
-      lead.status === 'sent' ||
-      lead.leadStatus === 'waiting_reply' ||
-      lead.leadStatus === 'seen' ||
+      rawStatus === 'dispatched' ||
+      rawStatus === 'sent' ||
+      rawStatus === 'mockup_sent' ||
+      rawLeadStatus === 'waiting_reply' ||
+      rawLeadStatus === 'seen' ||
+      normDmSentAt ||
+      normDispatchDate ||
+      normDispatchedAt ||
+      normLastContact ||
+      normFirstContact ||
+      normF1Date ||
+      normF2Date ||
+      normF3Date ||
       fuCount > 0 ||
       f1Sent ||
       f2Sent ||
@@ -381,24 +401,30 @@ export function getEffectiveInitialSentDate(lead: ChannelLead): string | null {
 
   if (fuCount > 0 || f1Sent || f2Sent || f3Sent) {
     return (
-      normalizeToLocalDateStr(lead.dmSentAt) ||
-      normalizeToLocalDateStr((lead as any).dateFirstContact) ||
+      normDmSentAt ||
+      normFirstContact ||
       (f1Sent ? addDays(f1Sent, -4) : null) ||
       (f2Sent ? addDays(f2Sent, -8) : null) ||
       (f3Sent ? addDays(f3Sent, -14) : null) ||
-      normalizeToLocalDateStr(lead.dispatchDate) ||
-      normalizeToLocalDateStr(lead.dispatchedAt) ||
-      normalizeToLocalDateStr(lead.lastContactDate) ||
+      (normF1Date ? addDays(normF1Date, -4) : null) ||
+      (normF2Date ? addDays(normF2Date, -8) : null) ||
+      (normF3Date ? addDays(normF3Date, -14) : null) ||
+      normDispatchDate ||
+      normDispatchedAt ||
+      normLastContact ||
       null
     );
   }
 
   return (
-    normalizeToLocalDateStr(lead.dispatchDate) ||
-    normalizeToLocalDateStr(lead.dmSentAt) ||
-    normalizeToLocalDateStr(lead.dispatchedAt) ||
-    normalizeToLocalDateStr(lead.lastContactDate) ||
-    normalizeToLocalDateStr((lead as any).dateFirstContact) ||
+    normDispatchDate ||
+    normDmSentAt ||
+    normDispatchedAt ||
+    normLastContact ||
+    normFirstContact ||
+    (normF1Date ? addDays(normF1Date, -4) : null) ||
+    (normF2Date ? addDays(normF2Date, -8) : null) ||
+    (normF3Date ? addDays(normF3Date, -14) : null) ||
     null
   );
 }
@@ -446,13 +472,17 @@ export function resolveLeadCadenceStep(
   else if (lead.followup2SentDate) fuCount = Math.max(fuCount, 2);
   else if (lead.followup1SentDate) fuCount = Math.max(fuCount, 1);
 
+  const rawStatus = String(lead.status || '').trim().toLowerCase();
+  const rawLeadStatus = String(lead.leadStatus || '').trim().toLowerCase();
+
   const hasInitialSentFlag = Boolean(
     effectiveInitial ||
       lead.dmSent ||
-      lead.status === 'dispatched' ||
-      lead.status === 'sent' ||
-      lead.leadStatus === 'waiting_reply' ||
-      lead.leadStatus === 'seen' ||
+      rawStatus === 'dispatched' ||
+      rawStatus === 'sent' ||
+      rawStatus === 'mockup_sent' ||
+      rawLeadStatus === 'waiting_reply' ||
+      rawLeadStatus === 'seen' ||
       fuCount > 0
   );
 

@@ -82,16 +82,26 @@ export function shiftDueDateOffRestDay(
 }
 
 export function hasLeadSentHistory(lead: Partial<ChannelLead>): boolean {
+  const rawStatus = String(lead.status || '').trim().toLowerCase();
+  const rawLeadStatus = String(lead.leadStatus || '').trim().toLowerCase();
   return Boolean(
     lead.initialSentDate ||
       lead.followup1SentDate ||
       lead.followup2SentDate ||
       lead.followup3SentDate ||
+      lead.followup1Date ||
+      lead.followup2Date ||
+      lead.followup3Date ||
       lead.dispatchedAt ||
       lead.dispatchDate ||
       lead.dmSent ||
-      lead.status === 'dispatched' ||
-      lead.status === 'sent' ||
+      lead.dmSentAt ||
+      (lead.lastContactDate && String(lead.lastContactDate).trim()) ||
+      rawStatus === 'dispatched' ||
+      rawStatus === 'sent' ||
+      rawStatus === 'mockup_sent' ||
+      rawLeadStatus === 'waiting_reply' ||
+      rawLeadStatus === 'seen' ||
       (typeof lead.followupCount === 'number' && lead.followupCount > 0)
   );
 }

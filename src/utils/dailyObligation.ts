@@ -168,12 +168,33 @@ function resolveEffectiveInitialDate(lead: ChannelLead): string | null {
   const f1Sent = toLocalDateString(lead.followup1SentDate);
   const f2Sent = toLocalDateString(lead.followup2SentDate);
   const f3Sent = toLocalDateString(lead.followup3SentDate);
+  const normDmSentAt = toLocalDateString(lead.dmSentAt);
+  const normDispatchDate = toLocalDateString(lead.dispatchDate);
+  const normDispatchedAt = toLocalDateString(lead.dispatchedAt);
+  const normLastContact = toLocalDateString(lead.lastContactDate);
+  const normFirstContact = toLocalDateString((lead as any).dateFirstContact);
+  const normF1Date = toLocalDateString(lead.followup1Date);
+  const normF2Date = toLocalDateString(lead.followup2Date);
+  const normF3Date = toLocalDateString(lead.followup3Date);
+
+  const rawStatus = String(lead.status || '').trim().toLowerCase();
+  const rawLeadStatus = String(lead.leadStatus || '').trim().toLowerCase();
+
   const hasSentSignal = Boolean(
     lead.dmSent ||
-      lead.status === 'dispatched' ||
-      lead.status === 'sent' ||
-      lead.leadStatus === 'waiting_reply' ||
-      lead.leadStatus === 'seen' ||
+      rawStatus === 'dispatched' ||
+      rawStatus === 'sent' ||
+      rawStatus === 'mockup_sent' ||
+      rawLeadStatus === 'waiting_reply' ||
+      rawLeadStatus === 'seen' ||
+      normDmSentAt ||
+      normDispatchDate ||
+      normDispatchedAt ||
+      normLastContact ||
+      normFirstContact ||
+      normF1Date ||
+      normF2Date ||
+      normF3Date ||
       fuCount > 0 ||
       f1Sent ||
       f2Sent ||
@@ -182,23 +203,29 @@ function resolveEffectiveInitialDate(lead: ChannelLead): string | null {
   if (!hasSentSignal) return null;
   if (fuCount > 0 || f1Sent || f2Sent || f3Sent) {
     return (
-      toLocalDateString(lead.dmSentAt) ||
-      toLocalDateString((lead as any).dateFirstContact) ||
+      normDmSentAt ||
+      normFirstContact ||
       (f1Sent ? addLocalDays(f1Sent, -4) : null) ||
       (f2Sent ? addLocalDays(f2Sent, -8) : null) ||
       (f3Sent ? addLocalDays(f3Sent, -14) : null) ||
-      toLocalDateString(lead.dispatchDate) ||
-      toLocalDateString(lead.dispatchedAt) ||
-      toLocalDateString(lead.lastContactDate) ||
+      (normF1Date ? addLocalDays(normF1Date, -4) : null) ||
+      (normF2Date ? addLocalDays(normF2Date, -8) : null) ||
+      (normF3Date ? addLocalDays(normF3Date, -14) : null) ||
+      normDispatchDate ||
+      normDispatchedAt ||
+      normLastContact ||
       null
     );
   }
   return (
-    toLocalDateString(lead.dispatchDate) ||
-    toLocalDateString(lead.dmSentAt) ||
-    toLocalDateString(lead.dispatchedAt) ||
-    toLocalDateString(lead.lastContactDate) ||
-    toLocalDateString((lead as any).dateFirstContact) ||
+    normDispatchDate ||
+    normDmSentAt ||
+    normDispatchedAt ||
+    normLastContact ||
+    normFirstContact ||
+    (normF1Date ? addLocalDays(normF1Date, -4) : null) ||
+    (normF2Date ? addLocalDays(normF2Date, -8) : null) ||
+    (normF3Date ? addLocalDays(normF3Date, -14) : null) ||
     null
   );
 }
@@ -222,13 +249,17 @@ function countFollowupsDueForDate(leads: ChannelLead[], dateStr: string): number
     else if (lead.followup2SentDate) fuCount = Math.max(fuCount, 2);
     else if (lead.followup1SentDate) fuCount = Math.max(fuCount, 1);
 
+    const rawStatus = String(lead.status || '').trim().toLowerCase();
+    const rawLeadStatus = String(lead.leadStatus || '').trim().toLowerCase();
+
     const hasSentFlag = Boolean(
       effectiveInitial ||
         lead.dmSent ||
-        lead.status === 'dispatched' ||
-        lead.status === 'sent' ||
-        lead.leadStatus === 'waiting_reply' ||
-        lead.leadStatus === 'seen' ||
+        rawStatus === 'dispatched' ||
+        rawStatus === 'sent' ||
+        rawStatus === 'mockup_sent' ||
+        rawLeadStatus === 'waiting_reply' ||
+        rawLeadStatus === 'seen' ||
         fuCount > 0
     );
     if (!hasSentFlag) continue;
@@ -714,13 +745,17 @@ export function getLeadWaveRank(lead: ChannelLead, todayStr = getLocalTodayDateS
   else if (lead.followup2SentDate) fuCount = Math.max(fuCount, 2);
   else if (lead.followup1SentDate) fuCount = Math.max(fuCount, 1);
 
+  const rawStatus = String(lead.status || '').trim().toLowerCase();
+  const rawLeadStatus = String(lead.leadStatus || '').trim().toLowerCase();
+
   const hasSent = Boolean(
     effectiveInitial ||
       lead.dmSent ||
-      lead.status === 'dispatched' ||
-      lead.status === 'sent' ||
-      lead.leadStatus === 'waiting_reply' ||
-      lead.leadStatus === 'seen' ||
+      rawStatus === 'dispatched' ||
+      rawStatus === 'sent' ||
+      rawStatus === 'mockup_sent' ||
+      rawLeadStatus === 'waiting_reply' ||
+      rawLeadStatus === 'seen' ||
       fuCount > 0
   );
   if (hasSent) {
