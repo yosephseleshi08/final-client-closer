@@ -1,8 +1,5 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Mail,
-  Instagram,
-  Facebook,
   Send,
   Flame,
   Trophy,
@@ -10,11 +7,19 @@ import {
   ArrowRight,
   TrendingUp,
   Layers,
+  Instagram,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../types';
 import { exportChannelData, getChannelLabel } from '../utils/channelStorage';
-import { loadDailyHistory, calculateStreaks, isDateStringSunday } from '../utils/historyStorage';
-import { getLocalTodayStr, normalizeToLocalDateStr } from '../utils/cadenceEngine';
+import {
+  loadDailyHistory,
+  calculateStreaks,
+  isDateStringSunday,
+  calculateDailyExecutionScore,
+  getExecutionTierMeta,
+  getQuotaSettings,
+} from '../utils/historyStorage';
+import { getLocalTodayStr } from '../utils/cadenceEngine';
 
 interface ExecutiveDashboardProps {
   combinedLeads?: ChannelLead[];
@@ -36,9 +41,17 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   isFrozen = false,
   onToggleFreeze,
 }) => {
-  const todayStr = getLocalTodayStr();
-  const historyRecords = loadDailyHistory();
+  const [quotaSettings, setQuotaSettings] = useState(() => getQuotaSettings());
 
+  useEffect(() => {
+    const handleQuotaChanged = () => {
+      setQuotaSettings(getQuotaSettings());
+    };
+    window.addEventListener('crm_quota_settings_changed', handleQuotaChanged);
+    return () => window.removeEventListener('crm_quota_settings_changed', handleQuotaChanged);
+  }, []);
+
+  const todayStr = getLocalTodayStr();
   const effectiveCombinedLeads = combinedLeads ?? [...emailLeads, ...facebookLeads];
 
   const allLeads = [
@@ -46,32 +59,28 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
     ...instagramLeads.map((l) => ({ ...l, channelName: 'Instagram' as const })),
   ];
 
-  // Calculate DMs / Touchpoints Sent Today per channel
-  const igSentToday = instagramLeads.filter(
-    (l) =>
-      (l.dmSent && normalizeToLocalDateStr(l.dmSentAt) === todayStr) ||
-      normalizeToLocalDateStr(l.initialSentDate) === todayStr
-  ).length;
+  const historyRecords = loadDailyHistory(allLeads);
 
-  const combinedSentToday = effectiveCombinedLeads.filter(
-    (l) =>
-      (l.dmSent && normalizeToLocalDateStr(l.dmSentAt) === todayStr) ||
-      normalizeToLocalDateStr(l.initialSentDate) === todayStr
-  ).length;
+  // Auditable Execution Score for Today
+  const todayScore = calculateDailyExecutionScore(todayStr, allLeads, quotaSettings);
+  const todayTierMeta = getExecutionTierMeta(todayScore.percentage, {
+    isSunday: todayScore.isRestDay,
+    isFrozen: todayScore.isFrozen,
+    streakThreshold: quotaSettings.streakThreshold,
+  });
 
-  const dmsSentTodayCount = igSentToday + combinedSentToday;
-  const historyDmsSent = historyRecords.find((r) => r.date === todayStr)?.initialDmsSent || 0;
-  const effectiveDmsSentToday = Math.max(dmsSentTodayCount, historyDmsSent);
-  
-  // Unified Cross-Channel Quota: Global cap of 10 Combined Touchpoints/Day (IG target: 6, Others: 4)
-  const unifiedDailyQuotaTarget = 10;
-  const dmProgressPercent = Math.min(100, Math.round((effectiveDmsSentToday / unifiedDailyQuotaTarget) * 100));
+  const igSentToday = todayScore.igActual;
+  const combinedSentToday = todayScore.combinedActual;
+  const effectiveDmsSentToday = todayScore.actual;
+  const unifiedDailyQuotaTarget = todayScore.expected || quotaSettings.dailyQuota;
+  const dmProgressPercent = todayScore.percentage;
 
   // Count FB restricted leads needing email routing
   const fbRestrictedCount = effectiveCombinedLeads.filter((l) => l.fb_message_restricted).length;
 
-  // Streak Calculation (Sunday Rest Mode preserved)
+  // Auditable Streak Calculation (Protected/Active >= 70%, Rest Days 100% Protected)
   const streakStats = calculateStreaks(historyRecords, {
+    leads: allLeads,
     todayDmsSent: effectiveDmsSentToday,
   });
   const isTodaySunday = isDateStringSunday(todayStr);
@@ -140,15 +149,17 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
             Outreach Engine Pro
           </h1>
           <p className="text-xs text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
-            <span className="text-indigo-300 font-semibold">Unified Quota: 10 Combined Touchpoints/Day</span>
+            <span className="text-indigo-300 font-semibold font-mono tabular-nums">
+              Unified Quota: {quotaSettings.dailyQuota} Combined Touchpoints/Day
+            </span>
             <span>·</span>
-            <span className="text-pink-400">IG Target: 6</span>
+            <span className="text-pink-400 font-mono tabular-nums">IG Target: {quotaSettings.igQuota}</span>
             <span>+</span>
-            <span className="text-indigo-300">Email & FB: 4</span>
+            <span className="text-indigo-300 font-mono tabular-nums">Email &amp; FB: {quotaSettings.combinedQuota}</span>
             <span>·</span>
             <span className="text-emerald-400 font-medium">Sunday Rest Mode Active</span>
             <span>·</span>
-            <span className="text-slate-400 font-mono text-[11px]">
+            <span className="text-slate-400 font-mono text-[11px] tabular-nums">
               Total Leads across channels: {totalLeads}
             </span>
           </p>
@@ -209,67 +220,100 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
 
       {/* Top 3 Executive Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* 1. Unified Touchpoints Dispatched Today (Progress Bar X / 10) */}
-        <div className="rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-950/30 via-slate-900/80 to-slate-900 p-5 shadow-xl space-y-2.5">
-          <div className="flex items-center justify-between text-xs font-bold text-sky-400 uppercase tracking-wider">
-            <span>Touchpoints Today</span>
-            <Send className="w-4 h-4 text-sky-400" />
+        {/* 1. Unified Touchpoints Dispatched Today (Auditable Quota Score) */}
+        <div
+          className="rounded-2xl border bg-gradient-to-br from-sky-950/30 via-slate-900/80 to-slate-900 p-5 shadow-xl space-y-2.5"
+          style={{ borderColor: `${todayTierMeta.colorHex}55` }}
+          title={todayScore.shortfallReason}
+        >
+          <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider" style={{ color: todayTierMeta.colorHex }}>
+            <span>Audited Dispatches Today</span>
+            <Send className="w-4 h-4" />
           </div>
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-baseline gap-2 flex-wrap">
             <span className="text-3xl font-black text-white font-mono tabular-nums">
-              {effectiveDmsSentToday}
+              {todayScore.isRestDay || todayScore.isFrozen ? '100%' : `${dmProgressPercent}%`}
             </span>
-            <span className="text-sm font-bold text-slate-400 font-mono">/ 10</span>
-            {effectiveDmsSentToday >= 10 && (
-              <span className="ml-auto text-[10px] font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30 font-mono">
-                Daily Quota Met!
-              </span>
-            )}
+            <span className="text-xs font-bold text-slate-300 font-mono tabular-nums">
+              {todayScore.isRestDay || todayScore.isFrozen
+                ? '(Rest / Protected)'
+                : `(${effectiveDmsSentToday}/${unifiedDailyQuotaTarget} Dispatched)`}
+            </span>
+            <span
+              className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded border font-mono"
+              style={{
+                backgroundColor: `${todayTierMeta.colorHex}1F`,
+                borderColor: `${todayTierMeta.colorHex}55`,
+                color: todayTierMeta.colorHex,
+              }}
+            >
+              {todayTierMeta.shortLabel}
+            </span>
           </div>
           {/* Progress Bar */}
           <div className="w-full h-2.5 bg-slate-950 rounded-full overflow-hidden border border-white/10">
             <div
-              className="h-full bg-gradient-to-r from-pink-500 via-sky-500 to-indigo-500 transition-all duration-300"
-              style={{ width: `${dmProgressPercent}%` }}
+              className="h-full transition-all duration-300"
+              style={{
+                width: `${dmProgressPercent}%`,
+                backgroundColor: todayTierMeta.colorHex,
+              }}
             />
           </div>
           {/* Channel Allocation Breakdown */}
-          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-0.5">
-            <span className="text-pink-400" title="Instagram Sent Today">IG: {igSentToday}/6</span>
-            <span className="text-indigo-400" title="Combined Outreach (Email & FB) Sent Today">Combined: {combinedSentToday}/4</span>
-            <span className="text-slate-300 font-bold">{effectiveDmsSentToday}/10 total</span>
+          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-0.5 tabular-nums">
+            <span className="text-pink-400" title="Instagram Sent Today">
+              IG: {igSentToday}/{quotaSettings.igQuota}
+            </span>
+            <span className="text-indigo-400" title="Combined Outreach (Email & FB) Sent Today">
+              Combined: {combinedSentToday}/{quotaSettings.combinedQuota}
+            </span>
+            <span className="text-slate-300 font-bold">
+              {effectiveDmsSentToday}/{unifiedDailyQuotaTarget} total
+            </span>
           </div>
           <div className="text-[11px] text-slate-400 font-mono">
-            {isFrozen
-              ? '⏸️ Week Frozen (0 tasks due)'
-              : effectiveDmsSentToday >= 10
-              ? '🎯 Unified daily quota complete (10/10)'
-              : `${10 - effectiveDmsSentToday} more touchpoints to hit daily goal`}
+            {todayScore.shortfallReason}
           </div>
         </div>
 
         {/* 2. Current Streak */}
-        <div className="rounded-2xl border border-orange-500/30 bg-gradient-to-br from-orange-950/30 via-slate-900/80 to-slate-900 p-5 shadow-xl space-y-2.5">
+        <div
+          className={`rounded-2xl border p-5 shadow-xl space-y-2.5 ${
+            streakStats.streakStatus === 'at_risk' || streakStats.streakStatus === 'broken'
+              ? 'border-[#EF4444]/40 bg-gradient-to-br from-rose-950/30 via-slate-900/80 to-slate-900'
+              : 'border-orange-500/30 bg-gradient-to-br from-orange-950/30 via-slate-900/80 to-slate-900'
+          }`}
+        >
           <div className="flex items-center justify-between text-xs font-bold text-orange-400 uppercase tracking-wider">
             <span>Current Streak</span>
             <Flame className="w-4 h-4 text-orange-400" />
           </div>
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-baseline gap-2 flex-wrap">
             <span className="text-3xl font-black text-white font-mono tabular-nums">
               {streakStats.currentStreak}
             </span>
             <span className="text-xs text-orange-300 font-medium">
-              {streakStats.currentStreak === 1 ? 'Day Active' : 'Days Active'}
+              {streakStats.currentStreak === 1 ? 'Day' : 'Days'}
             </span>
+            {streakStats.streakStatus === 'at_risk' || streakStats.streakStatus === 'broken' ? (
+              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded border font-mono bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/40">
+                {streakStats.streakStatus === 'broken' ? 'Broken' : 'At Risk / Paused'}
+              </span>
+            ) : streakStats.streakStatus === 'active' || streakStats.streakStatus === 'protected' ? (
+              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded border font-mono bg-[#10B981]/15 text-[#10B981] border-[#10B981]/40">
+                Protected / Active
+              </span>
+            ) : null}
           </div>
           <div className="text-[11px] text-slate-400">
             {isFrozen
-              ? '❄️ Pipeline Frozen (Streak 100% Safe)'
+              ? '❄️ Pipeline Frozen (100% Streak Protected)'
               : isTodaySunday
-              ? '🌿 Sunday Rest Day (streak preserved)'
-              : effectiveDmsSentToday >= 6
-              ? '🔥 Daily goal met! Streak active'
-              : 'Send 6 DMs to maintain daily momentum'}
+              ? '🌿 Sunday Rest Day (100% Protected)'
+              : streakStats.atRiskReason
+              ? streakStats.atRiskReason
+              : `Maintain ≥${quotaSettings.streakThreshold}% verified dispatches/day to stay protected`}
           </div>
         </div>
 

@@ -32,7 +32,12 @@ import { ChannelLead, MultiChannelType } from '../types';
 import { QuickNoteModal } from './QuickNoteModal';
 import { SundayPrepView } from './SundayPrepView';
 import { TestLinkButton } from './TestLinkButton';
-import { recordTodayCompletion } from '../utils/historyStorage';
+import {
+  recordTodayCompletion,
+  calculateDailyExecutionScore,
+  getExecutionTierMeta,
+  getQuotaSettings,
+} from '../utils/historyStorage';
 import {
   playSuccessChime,
   playNotificationChime,
@@ -182,16 +187,24 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const [igWarmupCooldownMs, setIgWarmupCooldownMs] = useState<number>(() => getWarmupCooldownRemaining('instagram'));
   const [fbWarmupCooldownMs, setFbWarmupCooldownMs] = useState<number>(() => getWarmupCooldownRemaining('facebook'));
 
-  // Testing Override State for Midnight Warm-Up Protocol
+  // Testing Override & Execution Quota Settings State
   const [warmupOverrideActive, setWarmupOverrideActive] = useState<boolean>(() => isManualWarmupOverrideEnabled());
+  const [quotaSettings, setQuotaSettings] = useState(() => getQuotaSettings());
 
   useEffect(() => {
     const handleOverrideChanged = (e: Event) => {
       const customEvent = e as CustomEvent<{ enabled: boolean }>;
       setWarmupOverrideActive(customEvent.detail?.enabled ?? isManualWarmupOverrideEnabled());
     };
+    const handleQuotaChanged = () => {
+      setQuotaSettings(getQuotaSettings());
+    };
     window.addEventListener('crm_warmup_override_changed', handleOverrideChanged);
-    return () => window.removeEventListener('crm_warmup_override_changed', handleOverrideChanged);
+    window.addEventListener('crm_quota_settings_changed', handleQuotaChanged);
+    return () => {
+      window.removeEventListener('crm_warmup_override_changed', handleOverrideChanged);
+      window.removeEventListener('crm_quota_settings_changed', handleQuotaChanged);
+    };
   }, []);
 
   // Ticking cooldown timer for both DM spacing and Warm-Up cooling gaps
@@ -419,12 +432,14 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const newDueTodayCount = newOutreachDueToday.length;
   const followupsDueTodayCount = followupsDueToday.length;
   const totalTasksRemainingToday = newDueTodayCount + followupsDueTodayCount;
-  const dailyTargetTotal = totalTasksCompletedToday + totalTasksRemainingToday;
 
-  const progressPercent = dailyTargetTotal > 0
-    ? Math.min(100, Math.round((totalTasksCompletedToday / dailyTargetTotal) * 100))
-    : (totalTasksCompletedToday > 0 ? 100 : 100);
-  const isGoalFinished = dailyTargetTotal > 0 && totalTasksCompletedToday >= dailyTargetTotal;
+  // Auditable Execution Score: Verified Dispatches / Expected Daily Quota (no false 100% on empty queues)
+  const todayAuditScore = calculateDailyExecutionScore(todayStr, allLeads, quotaSettings);
+  const todayTierMeta = getExecutionTierMeta(todayAuditScore.percentage, {
+    isSunday: todayAuditScore.isRestDay,
+    isFrozen: todayAuditScore.isFrozen,
+    streakThreshold: quotaSettings.streakThreshold,
+  });
 
   // 4. WARM-UP NEEDS TODAY (Tracking for tomorrow's dispatch)
   const [schedY, schedM, schedD] = todayStr.split('-').map(Number);
@@ -721,11 +736,11 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     });
   };
 
-  // Sync today's full schedule progress to persistent daily history
+  // Sync today's auditable schedule execution to persistent daily history
   useEffect(() => {
     recordTodayCompletion({
-      totalCompleted: totalTasksCompletedToday,
-      totalRemainingDue: totalTasksRemainingToday,
+      totalCompleted: todayAuditScore.actual,
+      totalRemainingDue: Math.max(0, todayAuditScore.expected - todayAuditScore.actual),
       initialSent: initialSentTodayCount,
       initialRemainingDue: newDueTodayCount,
       followupsSent: followupsSentTodayCount,
@@ -735,8 +750,9 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       warmupPercentage: warmupPercent,
     });
   }, [
-    totalTasksCompletedToday,
-    totalTasksRemainingToday,
+    todayAuditScore.actual,
+    todayAuditScore.expected,
+    todayAuditScore.percentage,
     initialSentTodayCount,
     newDueTodayCount,
     followupsSentTodayCount,
@@ -1232,51 +1248,76 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       {/* SECTION 1: TWO PROGRESS BARS (Today's Progress + Warm-Up Progress)        */}
       {/* ========================================================================= */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Progress Bar 1: Today's Outreach Progress */}
-        <div className="rounded-3xl border border-emerald-500/30 bg-gradient-to-br from-emerald-950/40 via-slate-900/95 to-slate-900/95 p-5 sm:p-6 backdrop-blur-xl shadow-2xl space-y-3.5">
-          <div className="flex items-center justify-between gap-3">
+        {/* Progress Bar 1: Today's Auditable Outreach Progress vs Expected Quota */}
+        <div
+          className="rounded-3xl border bg-gradient-to-br from-slate-900/95 via-slate-900/95 to-slate-950/95 p-5 sm:p-6 backdrop-blur-xl shadow-2xl space-y-3.5"
+          style={{ borderColor: `${todayTierMeta.colorHex}55` }}
+          title={todayAuditScore.shortfallReason}
+        >
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 shadow-md">
+              <div
+                className="w-10 h-10 rounded-2xl border flex items-center justify-center shrink-0 shadow-md"
+                style={{
+                  backgroundColor: `${todayTierMeta.colorHex}22`,
+                  borderColor: `${todayTierMeta.colorHex}55`,
+                  color: todayTierMeta.colorHex,
+                }}
+              >
                 <Target className="w-5 h-5" />
               </div>
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block">
-                  Outreach Completion
+                  Auditable Daily Quota Execution
                 </span>
-                <h3 className="text-base sm:text-lg font-black text-white font-['Outfit'] flex items-center gap-2 mt-0.5">
-                  <span>Today's Progress:</span>
-                  <span className="font-mono text-emerald-400">
-                    {totalTasksCompletedToday} / {dailyTargetTotal}
+                <h3 className="text-base sm:text-lg font-black text-white font-['Outfit'] flex items-center gap-2 mt-0.5 flex-wrap">
+                  <span>Today&apos;s Progress:</span>
+                  <span
+                    className="font-mono tabular-nums"
+                    style={{ color: todayTierMeta.colorHex }}
+                  >
+                    {todayAuditScore.isRestDay || todayAuditScore.isFrozen
+                      ? '100%'
+                      : `${todayAuditScore.percentage}%`}
                   </span>
-                  <span className="text-xs font-mono text-slate-400 font-semibold">
-                    ({progressPercent}%)
+                  <span className="text-xs font-mono text-slate-300 font-semibold tabular-nums">
+                    {todayAuditScore.isRestDay || todayAuditScore.isFrozen
+                      ? '(Protected)'
+                      : `(${todayAuditScore.actual}/${todayAuditScore.expected} Dispatched)`}
                   </span>
                 </h3>
               </div>
             </div>
 
-            {isGoalFinished && dailyTargetTotal > 0 && (
-              <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold font-mono shrink-0">
-                <Trophy className="w-3.5 h-3.5 text-amber-400" />
-                <span>100% Hit</span>
-              </span>
-            )}
+            <span
+              className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg border text-xs font-bold font-mono shrink-0"
+              style={{
+                backgroundColor: `${todayTierMeta.colorHex}1F`,
+                borderColor: `${todayTierMeta.colorHex}55`,
+                color: todayTierMeta.colorHex,
+              }}
+            >
+              {todayTierMeta.tier === 'elite' && <Trophy className="w-3.5 h-3.5" />}
+              <span>{todayTierMeta.label}</span>
+            </span>
           </div>
 
           <div className="w-full h-3 bg-slate-950/80 rounded-full overflow-hidden border border-white/10 p-0.5 shadow-inner">
             <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                isGoalFinished && dailyTargetTotal > 0
-                  ? 'bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-300 shadow-lg shadow-emerald-500/60'
-                  : 'bg-gradient-to-r from-indigo-500 via-emerald-500 to-teal-400'
-              }`}
-              style={{ width: `${dailyTargetTotal === 0 ? 0 : progressPercent}%` }}
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${todayAuditScore.percentage}%`,
+                backgroundColor: todayTierMeta.colorHex,
+              }}
             />
           </div>
 
-          <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-            <span>{newDueTodayCount} Initial · {followupsDueTodayCount} Follow-Ups Due</span>
-            <span className="text-emerald-300">{initialSentTodayCount} Initial · {followupsSentTodayCount} Follow-Ups Sent</span>
+          <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400 font-mono flex-wrap">
+            <span className="tabular-nums">
+              IG: <strong className="text-pink-300">{todayAuditScore.igActual}/{todayAuditScore.igExpected}</strong> · Combined:{' '}
+              <strong className="text-indigo-300">{todayAuditScore.combinedActual}/{todayAuditScore.combinedExpected}</strong>
+            </span>
+            <span className="text-slate-300">{todayAuditScore.shortfallReason}</span>
           </div>
         </div>
 

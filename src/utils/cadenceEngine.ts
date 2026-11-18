@@ -171,11 +171,16 @@ export function markInitialSent(lead: ChannelLead, sentDate = getLocalTodayStr()
   const fu2 = addDays(normSentDate, 8);
   const fu3 = addDays(normSentDate, 14);
 
+  const nowIso = new Date().toISOString();
+
   return {
     ...lead,
     initialSentDate: normSentDate,
+    dispatchDate: normSentDate,
+    dispatchedAt: lead.dmSentAt || nowIso,
+    status: 'dispatched',
     dmSent: true,
-    dmSentAt: lead.dmSentAt || new Date().toISOString(),
+    dmSentAt: lead.dmSentAt || nowIso,
     followup1Date: fu1,
     followup2Date: fu2,
     followup3Date: fu3,
@@ -220,10 +225,15 @@ export function markFollowupSent(
 ): ChannelLead {
   const normSentDate = normalizeToLocalDateStr(sentDate) || getLocalTodayStr();
 
+  const nowIso = new Date().toISOString();
+
   if (step === 1) {
     return {
       ...lead,
       followup1SentDate: normSentDate,
+      dispatchDate: normSentDate,
+      dispatchedAt: nowIso,
+      status: 'dispatched',
       followupCount: 1,
       leadStatus: lead.isSeen ? 'seen' : 'waiting_reply',
       isCompleted: false,
@@ -235,6 +245,9 @@ export function markFollowupSent(
     return {
       ...lead,
       followup2SentDate: normSentDate,
+      dispatchDate: normSentDate,
+      dispatchedAt: nowIso,
+      status: 'dispatched',
       followupCount: 2,
       leadStatus: lead.isSeen ? 'seen' : 'waiting_reply',
       isCompleted: false,
@@ -246,10 +259,13 @@ export function markFollowupSent(
   return {
     ...lead,
     followup3SentDate: normSentDate,
+    dispatchDate: normSentDate,
+    dispatchedAt: nowIso,
+    status: 'dispatched',
     followupCount: 3,
     leadStatus: 'completed',
     isCompleted: true,
-    completedAt: new Date().toISOString(),
+    completedAt: nowIso,
     dismissedDate: undefined,
   };
 }
@@ -379,6 +395,9 @@ export function revertInitialSent(lead: ChannelLead): ChannelLead {
   return {
     ...lead,
     initialSentDate: undefined,
+    dispatchDate: undefined,
+    dispatchedAt: undefined,
+    status: undefined,
     dmSent: false,
     dmSentAt: undefined,
     followup1Date: undefined,

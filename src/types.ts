@@ -255,21 +255,33 @@ export type GlobalNavTab = 'combined' | 'instagram' | 'inbox' | 'today' | 'dashb
 
 export type DailyHistoryStatus = 'full' | 'partial' | 'zero' | 'sunday' | 'frozen' | 'pre_launch';
 
+export type ExecutionTier = 'elite' | 'partial' | 'critical' | 'protected' | 'pre_launch';
+
+export type StreakStatus = 'active' | 'protected' | 'in_progress' | 'at_risk' | 'broken' | 'ready';
+
 export interface DailyHistoryRecord {
   date: string; // 'YYYY-MM-DD'
   displayDate: string; // e.g. "Oct 26, 2026"
-  dmsSent: number; // Total tasks completed across today's schedule (Initial DM + Day 3 FU + Day 7 FU)
-  dmsTarget: number; // Total schedule tasks due today
-  percentage: number; // 0 to 100
+  dmsSent: number; // Actual verified dispatches on this date
+  dmsTarget: number; // Expected daily quota on this date (0 on Rest/Frozen days)
+  percentage: number; // Auditable completion % = Math.min(100, Math.round((actual / expected) * 100)) (100% if expected === 0)
   isSunday: boolean;
   isFrozen?: boolean;
   status: DailyHistoryStatus;
+  executionTier?: ExecutionTier;
+  actualDispatched?: number;
+  expectedQuota?: number;
+  igDispatched?: number;
+  igExpected?: number;
+  combinedDispatched?: number;
+  combinedExpected?: number;
+  shortfallReason?: string;
   notes?: string;
   updatedAt: string;
   // Breakdown of today's schedule tasks
-  initialDmsSent?: number; // Initial DM sends only (for Total DMs Dispatches tracking)
+  initialDmsSent?: number; // Initial DM sends only
   initialDmsTarget?: number;
-  followupsSent?: number; // Day 3 + Day 7 follow-ups completed
+  followupsSent?: number; // D4 + D8 + D14 follow-ups completed
   followupsTarget?: number;
   videosVerified?: number; // Count of videos verified today through the 2-second confirmation gate
   storiesPosted?: number; // Stories posted today
@@ -284,8 +296,12 @@ export interface HistoryStreakStats {
   currentStreak: number;
   bestStreak: number;
   completedDaysCount: number;
+  protectedDaysCount?: number;
   averageCompletionRate: number;
   totalDMsSent: number;
+  streakStatus?: StreakStatus;
+  streakThreshold?: number;
+  atRiskReason?: string;
   videosVerifiedToday?: number;
   storiesPostedToday?: number;
   reelsPostedToday?: number;
@@ -391,6 +407,9 @@ export interface ChannelLead {
   isCompleted?: boolean;
   completedAt?: string;
   leadStatus?: CadenceLeadStatus; // 'not_sent' | 'waiting_reply' | 'seen' | 'replied' | 'completed'
+  status?: string; // Compatibility alias (e.g. 'sent' | 'dispatched')
+  dispatchDate?: string; // Explicit local YYYY-MM-DD dispatch date
+  dispatchedAt?: string; // ISO dispatch timestamp
   isSeen?: boolean; // 👀 Seen toggle (retains cadence timers)
   initialSentDate?: string; // YYYY-MM-DD
   followup1Date?: string; // Day 7 follow-up date

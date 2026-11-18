@@ -1,27 +1,46 @@
-import { DailyHistoryRecord, DailyHistoryStatus, HistoryStreakStats, MultiChannelType, ChannelLead } from '../types';
+import {
+  DailyHistoryRecord,
+  DailyHistoryStatus,
+  HistoryStreakStats,
+  MultiChannelType,
+  ChannelLead,
+} from '../types';
 import { getLocalTodayStr, normalizeToLocalDateStr } from './cadenceEngine';
 import { loadChannelLeads } from './channelStorage';
-import { getVideosVerifiedTodayCount, getVideosVerifiedOnDate } from './videoVerification';
+import { getVideosVerifiedTodayCount } from './videoVerification';
 import { isPipelineFrozenNow, isDateFrozen } from './pipelineFreeze';
+import {
+  calculateDailyExecutionScore,
+  DailyExecutionScore,
+  evaluateStreakStats,
+  findEarliestDispatchDate,
+  getExecutionTierMeta,
+  getQuotaSettings,
+  saveQuotaSettings,
+  loadAllAuditLeads,
+  isSundayDateStr,
+  countLeadVerifiedDispatchesOnDate,
+} from './streakManager';
 
 export const HISTORY_STORAGE_KEY = 'outreach_daily_history';
 export const OUTREACH_START_DATE = '2026-10-26';
 
+export {
+  calculateDailyExecutionScore,
+  getExecutionTierMeta,
+  getQuotaSettings,
+  saveQuotaSettings,
+  loadAllAuditLeads,
+};
+export type { DailyExecutionScore };
+
 /**
- * Finds the earliest verified initial DM dispatch date across leads.
+ * Finds the earliest verified outreach dispatch date across active/archived leads.
  * Returns null if no outreach dispatches have been executed yet.
  */
 export function getEarliestOutreachDate(providedLeads?: ChannelLead[]): string | null {
   try {
-    const allLeads = providedLeads ?? [
-      ...loadChannelLeads('combined'),
-      ...loadChannelLeads('instagram'),
-    ];
-    const dates = allLeads
-      .map((l) => (l.initialSentDate ? normalizeToLocalDateStr(l.initialSentDate) : null))
-      .filter((d): d is string => Boolean(d))
-      .sort();
-    return dates.length > 0 ? dates[0] : null;
+    return findEarliestDispatchDate(providedLeads);
   } catch {
     return null;
   }
@@ -48,13 +67,7 @@ export function formatDisplayDate(dateStr: string): string {
  * Checks if a YYYY-MM-DD string falls on a Sunday
  */
 export function isDateStringSunday(dateStr: string): boolean {
-  try {
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const date = new Date(y, m - 1, d);
-    return date.getDay() === 0;
-  } catch {
-    return false;
-  }
+  return isSundayDateStr(dateStr);
 }
 
 /**
@@ -72,43 +85,20 @@ export function getLeadsSentOnDate(dateStr: string): {
   let followupCount = 0;
   const channelBreakdown: Record<string, number> = { combined: 0, instagram: 0 };
 
+  const normDate = normalizeToLocalDateStr(dateStr) || getLocalTodayStr();
+  const [y, m, d] = normDate.split('-').map(Number);
+  const dayStartMs = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+  const dayEndMs = new Date(y, m - 1, d + 1, 0, 0, 0, 0).getTime();
+
   for (const ch of channels) {
     const leads = loadChannelLeads(ch);
     for (const lead of leads) {
-      const initDate = normalizeToLocalDateStr(lead.initialSentDate);
-      const f1Date = normalizeToLocalDateStr(lead.followup1SentDate);
-      const f2Date = normalizeToLocalDateStr(lead.followup2SentDate);
-      const f3Date = normalizeToLocalDateStr(lead.followup3SentDate);
-
-      let channelHit = false;
-      if (initDate === dateStr) {
-        count++;
-        initialCount++;
-        channelBreakdown[ch] = (channelBreakdown[ch] || 0) + 1;
-        channelHit = true;
-      }
-      if (f1Date === dateStr) {
-        count++;
-        followupCount++;
-        if (!channelHit) {
-          channelBreakdown[ch] = (channelBreakdown[ch] || 0) + 1;
-          channelHit = true;
-        }
-      }
-      if (f2Date === dateStr) {
-        count++;
-        followupCount++;
-        if (!channelHit) {
-          channelBreakdown[ch] = (channelBreakdown[ch] || 0) + 1;
-          channelHit = true;
-        }
-      }
-      if (f3Date === dateStr) {
-        count++;
-        followupCount++;
-        if (!channelHit) {
-          channelBreakdown[ch] = (channelBreakdown[ch] || 0) + 1;
-        }
+      const counts = countLeadVerifiedDispatchesOnDate(lead, normDate, dayStartMs, dayEndMs);
+      if (counts.total > 0) {
+        count += counts.total;
+        initialCount += counts.initial;
+        followupCount += counts.followup;
+        channelBreakdown[ch] = (channelBreakdown[ch] || 0) + counts.total;
       }
     }
   }
@@ -117,11 +107,124 @@ export function getLeadsSentOnDate(dateStr: string): {
 }
 
 /**
- * Loads daily history from localStorage.
- * Initialized clean without auto-seeding fake mock data.
- * Records only exist when manually performed by the user.
+ * Maps an Auditable Execution Score into a standardized DailyHistoryRecord.
  */
-export function loadDailyHistory(): DailyHistoryRecord[] {
+function buildAuditedHistoryRecord(
+  dateStr: string,
+  score: DailyExecutionScore,
+  earliestDate: string | null,
+  existing?: Partial<DailyHistoryRecord>
+): DailyHistoryRecord {
+  const isPreLaunch =
+    !score.isFrozen &&
+    !score.isRestDay &&
+    score.actual === 0 &&
+    (!earliestDate || dateStr < earliestDate);
+
+  let status: DailyHistoryStatus = 'zero';
+  if (score.isFrozen) {
+    status = 'frozen';
+  } else if (score.isRestDay) {
+    status = 'sunday';
+  } else if (isPreLaunch) {
+    status = 'pre_launch';
+  } else if (score.percentage >= 90) {
+    status = 'full';
+  } else if (score.percentage > 0) {
+    status = 'partial';
+  } else {
+    status = 'zero';
+  }
+
+  return {
+    date: dateStr,
+    displayDate: formatDisplayDate(dateStr),
+    dmsSent: score.actual,
+    dmsTarget: score.expected,
+    percentage: isPreLaunch ? 0 : score.percentage,
+    isSunday: score.isRestDay,
+    isFrozen: score.isFrozen,
+    status,
+    executionTier: isPreLaunch ? 'pre_launch' : score.tier,
+    actualDispatched: score.actual,
+    expectedQuota: score.expected,
+    igDispatched: score.igActual,
+    igExpected: score.igExpected,
+    combinedDispatched: score.combinedActual,
+    combinedExpected: score.combinedExpected,
+    shortfallReason: isPreLaunch
+      ? !earliestDate
+        ? 'Pre-Launch (Outreach Not Started)'
+        : 'Pre-Launch (Prior to Kickoff)'
+      : score.shortfallReason,
+    notes: score.isFrozen
+      ? 'Pipeline Frozen (Streak Protected)'
+      : score.isRestDay
+      ? 'Sunday Rest Day'
+      : existing?.notes,
+    updatedAt: existing?.updatedAt || new Date().toISOString(),
+    initialDmsSent: score.initialCount,
+    initialDmsTarget: score.expected,
+    followupsSent: score.followupCount,
+    followupsTarget: 0,
+    videosVerified: existing?.videosVerified,
+    storiesPosted: existing?.storiesPosted,
+    reelsPosted: existing?.reelsPosted,
+    warmupCompleted: existing?.warmupCompleted,
+    warmupTarget: existing?.warmupTarget,
+    warmupPercentage: existing?.warmupPercentage,
+  };
+}
+
+/**
+ * Backfill & Migration Engine:
+ * Recalculates stored historical entries against actual verified dispatches in lead storage
+ * so legacy inflated task-marked 100% entries immediately reflect true quota execution.
+ */
+export function migrateAndBackfillHistory(
+  rawRecords: DailyHistoryRecord[],
+  providedLeads?: ChannelLead[]
+): { records: DailyHistoryRecord[]; didMigrate: boolean } {
+  const allLeads = providedLeads ?? loadAllAuditLeads();
+  const earliestDate = findEarliestDispatchDate(allLeads, rawRecords);
+  const quota = getQuotaSettings();
+
+  let didMigrate = false;
+  const migrated: DailyHistoryRecord[] = rawRecords.map((record) => {
+    const score = calculateDailyExecutionScore(record.date, allLeads, quota);
+    const nextRecord = buildAuditedHistoryRecord(record.date, score, earliestDate, record);
+
+    if (
+      record.dmsSent !== nextRecord.dmsSent ||
+      record.dmsTarget !== nextRecord.dmsTarget ||
+      record.percentage !== nextRecord.percentage ||
+      record.status !== nextRecord.status ||
+      record.executionTier !== nextRecord.executionTier ||
+      record.expectedQuota !== nextRecord.expectedQuota ||
+      record.actualDispatched !== nextRecord.actualDispatched ||
+      record.shortfallReason !== nextRecord.shortfallReason
+    ) {
+      didMigrate = true;
+      return {
+        ...nextRecord,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    return record;
+  });
+
+  return {
+    records: migrated.sort((a, b) => b.date.localeCompare(a.date)),
+    didMigrate,
+  };
+}
+
+/**
+ * Loads daily history from localStorage and automatically runs backfill/migration
+ * against real lead dispatch timestamps.
+ */
+export function loadDailyHistory(providedLeads?: ChannelLead[]): DailyHistoryRecord[] {
   let records: DailyHistoryRecord[] = [];
   try {
     const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
@@ -135,8 +238,16 @@ export function loadDailyHistory(): DailyHistoryRecord[] {
     console.error('Failed to load daily history from localStorage:', err);
   }
 
-  // Sort by date descending (newest first)
-  return records.sort((a, b) => b.date.localeCompare(a.date));
+  if (records.length === 0) {
+    return [];
+  }
+
+  const { records: audited, didMigrate } = migrateAndBackfillHistory(records, providedLeads);
+  if (didMigrate) {
+    saveDailyHistory(audited);
+  }
+
+  return audited;
 }
 
 /**
@@ -166,11 +277,10 @@ export interface TodayCompletionDetails {
   notes?: string;
 }
 
-
 /**
- * Records or updates today's completion progress into the history array.
- * Decoupled from lead creation: ONLY records when verified manual outreach actions occur.
- * If totalCompleted is 0 and no manual actions have occurred, no false 100% record is created.
+ * Records or updates today's auditable completion progress into the history array.
+ * Percentage strictly measures (Actual Verified Dispatches / Expected Daily Quota) * 100.
+ * Never awards 100% on an active working day simply because scheduled tasks ran out.
  */
 export function recordTodayCompletion(
   completedCountOrDetails: number | TodayCompletionDetails,
@@ -178,14 +288,11 @@ export function recordTodayCompletion(
   legacyNotes?: string
 ): DailyHistoryRecord[] {
   const todayStr = getLocalTodayStr();
-  const isSunday = isDateStringSunday(todayStr);
+  const auditLeads = loadAllAuditLeads();
+  const quota = getQuotaSettings();
+  const score = calculateDailyExecutionScore(todayStr, auditLeads, quota);
+  const earliestOutreach = findEarliestDispatchDate(auditLeads);
 
-  let totalCompleted: number;
-  let totalRemainingDue: number;
-  let initialSent: number | undefined;
-  let initialRemainingDue: number | undefined;
-  let followupsSent: number | undefined;
-  let followupsRemainingDue: number | undefined;
   let videosVerified: number | undefined;
   let storiesPosted: number | undefined;
   let reelsPosted: number | undefined;
@@ -195,12 +302,6 @@ export function recordTodayCompletion(
   let notes: string | undefined;
 
   if (typeof completedCountOrDetails === 'object') {
-    totalCompleted = completedCountOrDetails.totalCompleted;
-    totalRemainingDue = completedCountOrDetails.totalRemainingDue;
-    initialSent = completedCountOrDetails.initialSent;
-    initialRemainingDue = completedCountOrDetails.initialRemainingDue;
-    followupsSent = completedCountOrDetails.followupsSent;
-    followupsRemainingDue = completedCountOrDetails.followupsRemainingDue;
     videosVerified = completedCountOrDetails.videosVerified ?? getVideosVerifiedTodayCount();
     storiesPosted = completedCountOrDetails.storiesPosted;
     reelsPosted = completedCountOrDetails.reelsPosted;
@@ -209,76 +310,12 @@ export function recordTodayCompletion(
     warmupPercentage = completedCountOrDetails.warmupPercentage;
     notes = completedCountOrDetails.notes;
   } else {
-    totalCompleted = completedCountOrDetails;
-    totalRemainingDue = legacyRemainingDue || 0;
-    initialSent = completedCountOrDetails;
-    initialRemainingDue = legacyRemainingDue || 0;
-    followupsSent = 0;
-    followupsRemainingDue = 0;
+    void legacyRemainingDue;
     videosVerified = getVideosVerifiedTodayCount();
     notes = legacyNotes;
   }
 
-  const isFrozen = isPipelineFrozenNow();
-
-  // If no manual outreach has happened today (totalCompleted === 0) and it's not a frozen or sunday rest day:
-  // We do not award 100% if nothing was scheduled or completed. It stays at 0% unless at least 1 verified action occurred.
-  const totalTarget = Math.max(totalCompleted + totalRemainingDue, totalCompleted);
-  let percentage: number;
-  if (isFrozen || isSunday) {
-    percentage = 100;
-  } else if (totalCompleted === 0) {
-    percentage = 0;
-  } else if (totalTarget > 0) {
-    percentage = Math.min(100, Math.round((totalCompleted / totalTarget) * 100));
-  } else {
-    percentage = 100;
-  }
-
-  const earliestOutreach = getEarliestOutreachDate();
-  const isPreLaunchNow = !earliestOutreach && totalCompleted === 0;
-
-  let status: DailyHistoryStatus = 'zero';
-  if (isFrozen) {
-    status = 'frozen';
-  } else if (isSunday) {
-    status = 'sunday';
-  } else if (isPreLaunchNow) {
-    status = 'pre_launch';
-  } else if (percentage >= 100) {
-    status = 'full';
-  } else if (percentage > 0) {
-    status = 'partial';
-  } else {
-    status = 'zero';
-  }
-
-  const initialTarget =
-    initialSent !== undefined && initialRemainingDue !== undefined
-      ? Math.max(initialSent + initialRemainingDue, initialSent, 0)
-      : undefined;
-  const followupsTarget =
-    followupsSent !== undefined && followupsRemainingDue !== undefined
-      ? Math.max(followupsSent + followupsRemainingDue, followupsSent, 0)
-      : undefined;
-
-  const records = loadDailyHistory();
-  const existingIdx = records.findIndex((r) => r.date === todayStr);
-
-  const entry: DailyHistoryRecord = {
-    date: todayStr,
-    displayDate: formatDisplayDate(todayStr),
-    dmsSent: totalCompleted,
-    dmsTarget: totalTarget,
-    percentage,
-    isSunday,
-    status,
-    notes: notes || (isSunday ? 'Sunday Rest Day' : undefined),
-    updatedAt: new Date().toISOString(),
-    initialDmsSent: initialSent,
-    initialDmsTarget: initialTarget,
-    followupsSent,
-    followupsTarget,
+  const entry = buildAuditedHistoryRecord(todayStr, score, earliestOutreach, {
     videosVerified,
     storiesPosted,
     reelsPosted,
@@ -290,7 +327,12 @@ export function recordTodayCompletion(
         : warmupTarget !== undefined && warmupTarget > 0
         ? Math.min(100, Math.round(((warmupCompleted || 0) / warmupTarget) * 100))
         : undefined,
-  };
+    notes,
+    updatedAt: new Date().toISOString(),
+  });
+
+  const records = loadDailyHistory(auditLeads);
+  const existingIdx = records.findIndex((r) => r.date === todayStr);
 
   if (existingIdx >= 0) {
     records[existingIdx] = entry;
@@ -315,6 +357,7 @@ export function getDateOffset(daysFromToday: number): string {
 }
 
 export interface CalculateStreaksOptions {
+  leads?: ChannelLead[];
   todayDmsSent?: number;
   todayVideosVerified?: number;
   todayReelsPosted?: number;
@@ -322,261 +365,72 @@ export interface CalculateStreaksOptions {
 }
 
 /**
- * Calculates current streak and best streak from the history records.
- * Rules:
- * 1. A streak day is a non-Sunday day where tasks were actually executed and reached >= 100%.
- * 2. Sunday is a rest day and DOES NOT break the streak (preserves streak unbroken).
- * 3. All streak stats initialize at 0 until the first verified manual completion action occurs.
+ * Delegates streak calculation to the Auditable Streak Manager:
+ * - Protected/Active ONLY when execution score >= 70% (or user-defined threshold in settings).
+ * - Days <70% pause/flag streak as "At Risk" and never masquerade as green 100% days.
+ * - Sunday Rest Days & Frozen Days remain auto-protected at 100%.
  */
 export function calculateStreaks(
   records: DailyHistoryRecord[],
   options?: CalculateStreaksOptions
 ): HistoryStreakStats {
-  const mapByDate = new Map<string, DailyHistoryRecord>();
-  for (const r of records) {
-    mapByDate.set(r.date, r);
-  }
-
-  const todayStr = getLocalTodayStr();
-  const todayEntry = mapByDate.get(todayStr);
-  const isTodaySun = isDateStringSunday(todayStr);
-
-  const effectiveTodayTasksCompleted =
-    options?.todayDmsSent !== undefined
-      ? options.todayDmsSent
-      : (todayEntry?.dmsSent ?? 0);
-
-  const earliestLeadOutreachDate = getEarliestOutreachDate();
-
-  // If no outreach has begun (no initial DMs sent) and today has 0 completions, return clean zero stats
-  if (!earliestLeadOutreachDate && effectiveTodayTasksCompleted === 0) {
-    return {
-      currentStreak: 0,
-      bestStreak: 0,
-      completedDaysCount: 0,
-      averageCompletionRate: 0,
-      totalDMsSent: 0,
-      videosVerifiedToday: options?.todayVideosVerified ?? 0,
-      storiesPostedToday: options?.todayStoriesPosted ?? 0,
-      reelsPostedToday: options?.todayReelsPosted ?? 0,
-    };
-  }
-
-  // Today completes streak if it reached 100% and has at least 1 verified task completed
-  const isTodayCompleted =
-    !isTodaySun &&
-    todayEntry !== undefined &&
-    todayEntry.percentage >= 100 &&
-    todayEntry.dmsSent > 0;
-
-  // 1. Calculate Current Streak
-  let currentStreak = 0;
-  let startOffset = 0;
-
-  const isTodayFrozen = isPipelineFrozenNow() || isDateFrozen(todayStr);
-
-  if (isTodaySun || isTodayFrozen) {
-    // Sunday or Frozen day is a rest mode: streak continues unbroken up to the last active day
-    startOffset = -1;
-  } else if (!isTodayCompleted) {
-    // Weekday in progress: streak counts consecutive completed days up to yesterday
-    startOffset = -1;
-  } else {
-    // Today has 100% completion verified!
-    startOffset = 0;
-  }
-
-  // Find the earliest active outreach date
-  const recordedDates = records.filter((r) => (r.dmsSent ?? 0) > 0).map((r) => r.date).filter(Boolean).sort();
-  const earliestDate = earliestLeadOutreachDate || (recordedDates.length > 0 ? recordedDates[0] : todayStr);
-
-  // Iterate backwards day by day up to 365 days or earliest recorded date
-  for (let offset = startOffset; offset >= -365; offset--) {
-    const dateStr = getDateOffset(offset);
-
-    if (dateStr < earliestDate) {
-      break;
-    }
-
-    const isSunday = isDateStringSunday(dateStr);
-    const isFrozen = isDateFrozen(dateStr);
-    if (isSunday || isFrozen) {
-      // Sunday or Frozen day continues the streak without incrementing or breaking
-      continue;
-    }
-
-    if (offset === 0) {
-      if (isTodayCompleted) {
-        currentStreak++;
-      }
-      continue;
-    }
-
-    const entry = mapByDate.get(dateStr);
-    if (entry && entry.dmsSent > 0 && (entry.percentage >= 100 || entry.status === 'frozen')) {
-      currentStreak++;
-    } else {
-      // Missing or incomplete working day breaks current streak
-      break;
-    }
-  }
-
-  // 2. Calculate Best Streak across all recorded days
-  let bestStreak = currentStreak;
-  let tempStreak = 0;
-
-  if (recordedDates.length > 0) {
-    const allDates: string[] = [];
-    let d = new Date(earliestDate);
-    const end = new Date(todayStr);
-
-    while (d <= end) {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      allDates.push(`${y}-${m}-${day}`);
-      d.setDate(d.getDate() + 1);
-    }
-
-    for (const dateStr of allDates) {
-      if (isDateStringSunday(dateStr) || isDateFrozen(dateStr)) {
-        continue;
-      }
-
-      if (dateStr === todayStr) {
-        if (isTodayCompleted) {
-          tempStreak++;
-          if (tempStreak > bestStreak) bestStreak = tempStreak;
-        }
-        continue;
-      }
-
-      const entry = mapByDate.get(dateStr);
-      if (entry && entry.dmsSent > 0 && entry.percentage >= 100) {
-        tempStreak++;
-        if (tempStreak > bestStreak) {
-          bestStreak = tempStreak;
-        }
-      } else {
-        tempStreak = 0;
-      }
-    }
-  }
-
-  // 3. Aggregate 30-day stats
-  let totalDMs = 0;
-  let totalPercentages = 0;
-  let activeDaysEvaluated = 0;
-  let completedDaysCount = 0;
-
-  for (let i = 0; i < 30; i++) {
-    const dateStr = getDateOffset(-i);
-    const entry = mapByDate.get(dateStr);
-    const isSunday = isDateStringSunday(dateStr);
-
-    if (entry && entry.dmsSent > 0) {
-      const initialSends =
-        entry.initialDmsSent !== undefined ? entry.initialDmsSent : entry.dmsSent || 0;
-      totalDMs += initialSends;
-      if (!isSunday) {
-        totalPercentages += entry.percentage;
-        activeDaysEvaluated++;
-        if (entry.percentage >= 100) completedDaysCount++;
-      }
-    }
-  }
-
-  const avgCompletion =
-    activeDaysEvaluated > 0 ? Math.round(totalPercentages / activeDaysEvaluated) : 0;
-
-  return {
-    currentStreak,
-    bestStreak,
-    completedDaysCount,
-    averageCompletionRate: avgCompletion,
-    totalDMsSent: totalDMs,
-    videosVerifiedToday: options?.todayVideosVerified ?? 0,
-    storiesPostedToday: options?.todayStoriesPosted ?? 0,
-    reelsPostedToday: options?.todayReelsPosted ?? 0,
-  };
+  return evaluateStreakStats(records, options);
 }
 
 /**
- * Builds the complete 30-day view window (today back to 29 days ago).
- * Days prior to the first verified initial outreach day are marked as 'pre_launch'
- * with neutral styling and zero failure penalties.
+ * Builds the complete 30-day auditable history view window (today back to 29 days ago).
+ * Every date is freshly reconciled with calculateDailyExecutionScore so historical records
+ * and the 30-day calendar matrix strictly reflect actual verified dispatches vs daily quota.
  */
 export function get30DayHistoryView(
   records: DailyHistoryRecord[],
   leads?: ChannelLead[]
 ): DailyHistoryRecord[] {
+  const auditLeads = leads !== undefined ? leads : loadAllAuditLeads();
+  const quota = getQuotaSettings();
+
   const mapByDate = new Map<string, DailyHistoryRecord>();
   for (const r of records) {
     mapByDate.set(r.date, r);
   }
 
-  const earliestDate = getEarliestOutreachDate(leads);
-  const todayStr = getLocalTodayStr();
+  const earliestDate = findEarliestDispatchDate(auditLeads, records);
   const result: DailyHistoryRecord[] = [];
 
   for (let i = 0; i < 30; i++) {
     const dateStr = getDateOffset(-i);
-    const isSunday = isDateStringSunday(dateStr);
-    const isFrozen = isDateFrozen(dateStr);
     const existing = mapByDate.get(dateStr);
+    const score = calculateDailyExecutionScore(dateStr, auditLeads, quota);
 
-    if (earliestDate && existing && existing.dmsSent > 0) {
-      result.push({
-        ...existing,
-        isFrozen: isFrozen || existing.status === 'frozen',
-        status: isFrozen ? 'frozen' : existing.status,
-        percentage: isFrozen ? 100 : existing.percentage,
-        notes: isFrozen ? 'Pipeline Frozen (Streak Protected)' : existing.notes,
-        warmupCompleted: existing.warmupCompleted,
-        warmupTarget: existing.warmupTarget,
-        warmupPercentage: existing.warmupPercentage,
-      });
-    } else {
-      const isPreLaunch = !earliestDate || dateStr < earliestDate;
-
-      let status: DailyHistoryStatus;
-      let notes: string;
-      let percentage = 0;
-
-      if (isFrozen) {
-        status = 'frozen';
-        percentage = 100;
-        notes = 'Pipeline Frozen (Streak Protected)';
-      } else if (isSunday) {
-        status = 'sunday';
-        percentage = 100;
-        notes = 'Sunday Rest Day';
-      } else if (isPreLaunch) {
-        status = 'pre_launch';
-        percentage = 0;
-        notes = !earliestDate ? 'Pre-Launch (Outreach Not Started)' : 'Pre-Launch (Prior to Kickoff)';
-      } else {
-        status = dateStr === todayStr ? 'partial' : 'zero';
-        percentage = 0;
-        notes = dateStr === todayStr ? 'Pending today dispatches' : 'Missed scheduled outreach';
-      }
-
-      result.push({
-        date: dateStr,
-        displayDate: formatDisplayDate(dateStr),
-        dmsSent: existing?.dmsSent ?? 0,
-        dmsTarget: existing?.dmsTarget ?? 0,
-        percentage,
-        isSunday,
-        isFrozen,
-        status,
-        notes,
-        updatedAt: new Date().toISOString(),
-        warmupCompleted: existing?.warmupCompleted,
-        warmupTarget: existing?.warmupTarget,
-        warmupPercentage: existing?.warmupPercentage,
-      });
+    // If lead array wasn't complete for an archived past date that recorded verified dispatches,
+    // still enforce expectedQuota normalization on that stored actual count.
+    if (
+      score.actual === 0 &&
+      !score.isRestDay &&
+      !score.isFrozen &&
+      existing &&
+      (existing.actualDispatched ?? existing.dmsSent ?? 0) > 0 &&
+      leads === undefined
+    ) {
+      const preservedActual = existing.actualDispatched ?? existing.dmsSent;
+      const expected = quota.dailyQuota;
+      const pct = expected > 0 ? Math.min(100, Math.round((preservedActual / expected) * 100)) : 100;
+      const fallbackScore: DailyExecutionScore = {
+        ...score,
+        actual: preservedActual,
+        expected,
+        percentage: pct,
+        tier: pct >= 90 ? 'elite' : pct >= quota.streakThreshold ? 'partial' : 'critical',
+        shortfallReason:
+          preservedActual >= expected
+            ? `Quota met: ${preservedActual}/${expected} dispatches`
+            : `Expected ${expected} daily dispatches, ${preservedActual} logged`,
+      };
+      result.push(buildAuditedHistoryRecord(dateStr, fallbackScore, earliestDate, existing));
+      continue;
     }
+
+    result.push(buildAuditedHistoryRecord(dateStr, score, earliestDate, existing));
   }
 
   return result;
