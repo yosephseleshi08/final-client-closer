@@ -2,6 +2,7 @@ import { InboxLead, MultiChannelType, ChannelLead } from '../types';
 import { getNextLeadId, saveChannelLeads, loadChannelLeads, findDuplicateLead, hasSocialWarmupLink } from './channelStorage';
 import { getNextAvailableScheduleDate } from './cadenceEngine';
 import { getStrictVoiceTypeForId, recalculateAllVoiceTypes } from './voiceTypeEngine';
+import { findNormalizedDuplicateMatches, getHistoricalSentDateForName } from './leadLifecycle';
 
 export const INBOX_STORAGE_KEY = 'outreach_engine_lead_inbox_v1';
 
@@ -276,6 +277,7 @@ export function acceptInboxLeadIntoCrm(
   newLead: ChannelLead;
   updatedLeads: ChannelLead[];
   isDuplicate?: boolean;
+  duplicateReason?: string;
 } {
   let targetChannel: MultiChannelType = 'instagram';
   if (lead.platform === 'Facebook' || lead.platform === 'Email') {
@@ -286,19 +288,46 @@ export function acceptInboxLeadIntoCrm(
 
   // Load existing leads for this channel if not provided
   const currentLeads = existingChannelLeads?.[targetChannel] ?? loadChannelLeads(targetChannel);
+  const combinedListForDup = existingChannelLeads?.combined ?? loadChannelLeads('combined');
+  const igListForDup = existingChannelLeads?.instagram ?? loadChannelLeads('instagram');
 
   // CRITICAL RULE: Never modify the platformLink value on import.
-  // Store the exact raw platformLink / profileLink provided without prepending https://, mangling, or stripping underscores.
   const rawPlatformLink =
     (typeof lead.platformLink === 'string' && lead.platformLink.trim()) ||
     (typeof lead.profileLink === 'string' && lead.profileLink.trim()) ||
     extractRawPlatformLink(lead.rawDetails) ||
     '';
 
-  // Store the EXACT link without regex stripping, character alteration, or appending words from business name
   const storedLink = rawPlatformLink;
 
-  // Strict duplicate check before adding (if link provided)
+  // Normalized duplicate guard across link, active CRM, Backstage archive, and immutable dispatchLog
+  const normalizedMatch = findNormalizedDuplicateMatches(
+    {
+      name: lead.name,
+      link: storedLink,
+      platformLink: storedLink,
+      email: lead.email,
+      facebook: lead.facebook,
+      instagram: lead.instagram,
+    },
+    {
+      activeCombined: combinedListForDup,
+      activeInstagram: igListForDup,
+    }
+  );
+
+  if (normalizedMatch.hasMatch) {
+    return {
+      targetChannel,
+      newLead: normalizedMatch.bestMatch || currentLeads[0],
+      updatedLeads: currentLeads,
+      isDuplicate: true,
+      duplicateReason:
+        normalizedMatch.summaryReason ||
+        `Matches existing or previously dispatched lead "${lead.name}"`,
+    };
+  }
+
   if (storedLink) {
     const duplicate = findDuplicateLead(storedLink, currentLeads);
     if (duplicate) {
@@ -307,6 +336,7 @@ export function acceptInboxLeadIntoCrm(
         newLead: duplicate,
         updatedLeads: currentLeads,
         isDuplicate: true,
+        duplicateReason: `Link already exists on ${duplicate.id} (${duplicate.name})`,
       };
     }
   }
@@ -448,6 +478,25 @@ export function acceptAllInboxLeadsIntoCrm(
       '';
 
     const storedLink = rawPlatformLink;
+
+    const normMatch = findNormalizedDuplicateMatches(
+      {
+        name: lead.name,
+        link: storedLink,
+        platformLink: storedLink,
+        email: lead.email,
+        facebook: lead.facebook,
+        instagram: lead.instagram,
+      },
+      {
+        activeCombined: combinedList,
+        activeInstagram: instagramList,
+      }
+    );
+    if (normMatch.hasMatch || getHistoricalSentDateForName(lead.name)) {
+      duplicateCount++;
+      continue;
+    }
 
     if (storedLink) {
       const duplicate = findDuplicateLead(storedLink, currentTargetList);

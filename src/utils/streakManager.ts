@@ -3,12 +3,20 @@ import {
   DailyHistoryRecord,
   ExecutionTier,
   HistoryStreakStats,
+  ObligationZeroState,
   StreakStatus,
 } from '../types';
 import { addDays, getLocalTodayStr, normalizeToLocalDateStr } from './cadenceEngine';
-import { isDateFrozen, isPipelineFrozenNow } from './pipelineFreeze';
 import { loadChannelLeads } from './channelStorage';
 import { loadBackstageLeads } from './backstageStorage';
+import {
+  countDispatchesByChannel,
+  countDispatchesByStep,
+  getEarliestDispatchLogDate,
+  getLifetimeDispatchCount,
+} from './dispatchLog';
+import { evaluateDateObligationGrade } from './dailyObligation';
+import { ExecutionTierMeta, getExecutionTierMeta } from './executionTiers';
 
 export const QUOTA_SETTINGS_STORAGE_KEY = 'outreach_execution_quota_settings_v1';
 
@@ -16,21 +24,33 @@ export interface ExecutionQuotaSettings {
   igQuota: number;
   combinedQuota: number;
   dailyQuota: number;
+  dailyCapacity: number;
   streakThreshold: number;
+  streakMinPercent: number;
 }
 
 export const DEFAULT_EXECUTION_QUOTA_SETTINGS: ExecutionQuotaSettings = {
   igQuota: 6,
   combinedQuota: 4,
   dailyQuota: 10,
-  streakThreshold: 70,
+  dailyCapacity: 20,
+  streakThreshold: 50,
+  streakMinPercent: 50,
 };
 
 export interface DailyExecutionScore {
   date: string;
   actual: number;
   expected: number;
+  expectedTotal: number;
+  capacityTarget: number;
+  backlog: number;
+  supplyGap: boolean;
+  removedMidDay: number;
+  zeroState: ObligationZeroState;
+  frozen: boolean;
   percentage: number;
+  percentageOrNull: number | null;
   isRestDay: boolean;
   isFrozen: boolean;
   tier: ExecutionTier;
@@ -43,20 +63,12 @@ export interface DailyExecutionScore {
   shortfallReason: string;
 }
 
-export interface ExecutionTierMeta {
-  tier: ExecutionTier;
-  label: string;
-  shortLabel: string;
-  colorHex: string;
-  dotClass: string;
-  badgeClass: string;
-  barClass: string;
-  cardBorderClass: string;
-}
+export type { ExecutionTierMeta };
+export { getExecutionTierMeta };
 
 /**
- * Reads user-configured Daily Quota & Streak Threshold from localStorage.
- * Defaults to 10/day (6 Instagram + 4 Combined) and 70% streak protection threshold.
+ * Reads user-configured Daily Capacity, Quotas & Streak Min % from localStorage.
+ * Defaults: 6 IG + 4 Combined (10/day), 20 Daily Capacity Cap, 50% Streak Min.
  */
 export function getQuotaSettings(): ExecutionQuotaSettings {
   try {
@@ -69,13 +81,20 @@ export function getQuotaSettings(): ExecutionQuotaSettings {
     const igQuota = Math.max(0, Math.round(Number(parsed.igQuota ?? 6)));
     const combinedQuota = Math.max(0, Math.round(Number(parsed.combinedQuota ?? 4)));
     const computedTotal = igQuota + combinedQuota;
-    const dailyQuota = computedTotal > 0 ? computedTotal : Math.max(1, Math.round(Number(parsed.dailyQuota ?? 10)));
-    const streakThreshold = Math.min(100, Math.max(1, Math.round(Number(parsed.streakThreshold ?? 70))));
+    const dailyQuota =
+      computedTotal > 0 ? computedTotal : Math.max(1, Math.round(Number(parsed.dailyQuota ?? 10)));
+    const dailyCapacity = Math.max(1, Math.round(Number(parsed.dailyCapacity ?? 20)));
+    const streakMinPercent = Math.min(
+      100,
+      Math.max(1, Math.round(Number(parsed.streakMinPercent ?? 50)))
+    );
     return {
       igQuota,
       combinedQuota,
       dailyQuota,
-      streakThreshold,
+      dailyCapacity,
+      streakThreshold: streakMinPercent,
+      streakMinPercent,
     };
   } catch {
     return { ...DEFAULT_EXECUTION_QUOTA_SETTINGS };
@@ -83,7 +102,7 @@ export function getQuotaSettings(): ExecutionQuotaSettings {
 }
 
 /**
- * Persists Daily Quota & Streak Threshold settings and dispatches a live update event.
+ * Persists Daily Capacity, Quota & Streak Min % settings and dispatches live update event.
  */
 export function saveQuotaSettings(
   partial: Partial<ExecutionQuotaSettings>
@@ -92,16 +111,22 @@ export function saveQuotaSettings(
   const igQuota = Math.max(0, Math.round(partial.igQuota ?? current.igQuota));
   const combinedQuota = Math.max(0, Math.round(partial.combinedQuota ?? current.combinedQuota));
   const dailyQuota = Math.max(1, igQuota + combinedQuota);
-  const streakThreshold = Math.min(
+  const dailyCapacity = Math.max(1, Math.round(partial.dailyCapacity ?? current.dailyCapacity));
+  const streakMinPercent = Math.min(
     100,
-    Math.max(1, Math.round(partial.streakThreshold ?? current.streakThreshold))
+    Math.max(
+      1,
+      Math.round(partial.streakMinPercent ?? partial.streakThreshold ?? current.streakMinPercent)
+    )
   );
 
   const next: ExecutionQuotaSettings = {
     igQuota,
     combinedQuota,
     dailyQuota,
-    streakThreshold,
+    dailyCapacity,
+    streakThreshold: streakMinPercent,
+    streakMinPercent,
   };
 
   try {
@@ -132,9 +157,6 @@ export function isSundayDateStr(dateStr: string): boolean {
   }
 }
 
-/**
- * Checks if a timestamp or date string falls inside the local 24-hour calendar window of targetDate (YYYY-MM-DD).
- */
 function isWithinLocalCalendarDay(
   rawValue: string | undefined | null,
   targetDate: string,
@@ -145,12 +167,10 @@ function isWithinLocalCalendarDay(
   const trimmed = String(rawValue).trim();
   if (!trimmed) return false;
 
-  // Exact calendar date string without time
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
     return trimmed === targetDate;
   }
 
-  // ISO timestamp / datetime string: test strictly against local 24-hour calendar window
   if (trimmed.includes('T') || trimmed.includes(':') || trimmed.includes('Z')) {
     const ms = new Date(trimmed).getTime();
     if (!Number.isNaN(ms)) {
@@ -162,8 +182,7 @@ function isWithinLocalCalendarDay(
 }
 
 /**
- * Loads all leads across active channels + legacy storage + archived sent leads in Backstage
- * so historical audits retain verified dispatches even if a contacted lead was later archived.
+ * Loads all active + Backstage leads for queue/backfill inspection.
  */
 export function loadAllAuditLeads(): ChannelLead[] {
   const seen = new Set<string>();
@@ -185,7 +204,6 @@ export function loadAllAuditLeads(): ChannelLead[] {
     appendUnique(loadChannelLeads('combined'), 'combined');
     appendUnique(loadChannelLeads('instagram'), 'instagram');
 
-    // Legacy standalone channel keys if still present
     if (typeof localStorage !== 'undefined') {
       for (const legacyKey of ['outreach_channel_leads_email', 'outreach_channel_leads_facebook']) {
         const raw = localStorage.getItem(legacyKey);
@@ -198,22 +216,8 @@ export function loadAllAuditLeads(): ChannelLead[] {
       }
     }
 
-    // Include archived leads ONLY if they have verified dispatch metadata
     const backstage = loadBackstageLeads();
-    const sentBackstage = backstage.filter((l) =>
-      Boolean(
-        l.initialSentDate ||
-          l.followup1SentDate ||
-          l.followup2SentDate ||
-          l.followup3SentDate ||
-          l.dispatchedAt ||
-          l.dispatchDate ||
-          l.dmSent ||
-          l.status === 'dispatched' ||
-          l.status === 'sent'
-      )
-    );
-    appendUnique(sentBackstage);
+    appendUnique(backstage);
   } catch (err) {
     console.error('Failed to collect leads for execution audit:', err);
   }
@@ -223,7 +227,6 @@ export function loadAllAuditLeads(): ChannelLead[] {
 
 /**
  * Resolves verified dispatch counts for a single lead on targetDate (local calendar day).
- * Prevents double-counting when both step dates (initialSentDate) and dispatchedAt/dispatchDate exist.
  */
 export function countLeadVerifiedDispatchesOnDate(
   lead: ChannelLead,
@@ -262,7 +265,6 @@ export function countLeadVerifiedDispatchesOnDate(
   const followup = (hitD4 ? 1 : 0) + (hitD8 ? 1 : 0) + (hitD14 ? 1 : 0);
   let initial = hitInitial ? 1 : 0;
 
-  // Fallback for leads stamped strictly with dispatchDate + status='dispatched' or dispatchedAt
   if (initial === 0 && followup === 0 && hitDispatchField) {
     initial = 1;
   }
@@ -276,10 +278,12 @@ export function countLeadVerifiedDispatchesOnDate(
 }
 
 /**
- * Auditable Daily Execution Calculator:
- * Completion % = (Actual Verified Dispatches / Expected Daily Quota) * 100
- * - Checks Rest Day (Sunday) / Pipeline Freeze -> expected = 0, percentage = 100
- * - Never inflates completion to 100% when scheduled tasks run out below Expected Daily Quota
+ * Model A Daily Execution Calculator:
+ * Reads verified dispatches strictly from immutable 'ridge_dispatch_log'
+ * and due obligation targets from immutable/locked 'ridge_daily_obligations'.
+ * - Capacity-capped denominator: capacityTarget = min(expectedTotal, dailyCapacity)
+ * - Percentage capped at 100% (never >100%, never numerator > denominator on primary grade)
+ * - Deletion of leads NEVER alters past verified dispatch counts or snapshots.
  */
 export function calculateDailyExecutionScore(
   date: string,
@@ -287,46 +291,37 @@ export function calculateDailyExecutionScore(
   customQuotaSettings?: ExecutionQuotaSettings
 ): DailyExecutionScore {
   const targetDate = normalizeToLocalDateStr(date) || getLocalTodayStr();
-  const [y, m, d] = targetDate.split('-').map(Number);
-  const dayStartMs = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
-  const dayEndMs = new Date(y, m - 1, d + 1, 0, 0, 0, 0).getTime();
-
   const quota = customQuotaSettings ?? getQuotaSettings();
-  const isRestDay = isSundayDateStr(targetDate);
-  const isFrozen =
-    isDateFrozen(targetDate) ||
-    (targetDate === getLocalTodayStr() && isPipelineFrozenNow());
-
   const leads = providedLeads ?? loadAllAuditLeads();
 
-  let actual = 0;
-  let igActual = 0;
-  let combinedActual = 0;
-  let initialCount = 0;
-  let followupCount = 0;
+  const grade = evaluateDateObligationGrade(targetDate, leads, quota);
+  const stepCounts = countDispatchesByStep(targetDate);
+  const chCounts = countDispatchesByChannel(targetDate);
 
-  for (const lead of leads) {
-    const counts = countLeadVerifiedDispatchesOnDate(lead, targetDate, dayStartMs, dayEndMs);
-    if (counts.total > 0) {
-      actual += counts.total;
-      initialCount += counts.initial;
-      followupCount += counts.followup;
-      if (counts.isInstagram) {
-        igActual += counts.total;
-      } else {
-        combinedActual += counts.total;
-      }
-    }
-  }
+  const igActual = chCounts.instagram;
+  const combinedActual = chCounts.combined;
+  const initialCount = stepCounts.D0;
+  const followupCount = stepCounts.D4 + stepCounts.D8 + stepCounts.D14;
 
-  if (isRestDay || isFrozen) {
+  const isRestDay = grade.isRestDay;
+  const isFrozen = grade.isFrozenDay;
+
+  if (isFrozen) {
     return {
       date: targetDate,
-      actual,
+      actual: grade.actual,
       expected: 0,
+      expectedTotal: 0,
+      capacityTarget: 0,
+      backlog: 0,
+      supplyGap: false,
+      removedMidDay: grade.removedMidDay,
+      zeroState: 'frozen',
+      frozen: grade.frozen,
       percentage: 100,
-      isRestDay,
-      isFrozen,
+      percentageOrNull: 100,
+      isRestDay: false,
+      isFrozen: true,
       tier: 'protected',
       igActual,
       igExpected: 0,
@@ -334,54 +329,124 @@ export function calculateDailyExecutionScore(
       combinedExpected: 0,
       initialCount,
       followupCount,
-      shortfallReason: isFrozen
-        ? 'Pipeline Frozen · 100% Streak Protected'
-        : 'Sunday Rest Day · 100% Streak Protected',
+      shortfallReason: 'Pipeline Frozen · Protected 100%',
     };
   }
 
-  const igExpected = quota.igQuota;
-  const combinedExpected = quota.combinedQuota;
-  const expected = quota.dailyQuota;
-  const percentage = expected > 0 ? Math.min(100, Math.round((actual / expected) * 100)) : 100;
-
-  let tier: ExecutionTier;
-  if (percentage >= 90) {
-    tier = 'elite';
-  } else if (percentage >= quota.streakThreshold) {
-    tier = 'partial';
-  } else {
-    tier = 'critical';
+  if (isRestDay) {
+    return {
+      date: targetDate,
+      actual: grade.actual,
+      expected: 0,
+      expectedTotal: 0,
+      capacityTarget: 0,
+      backlog: 0,
+      supplyGap: false,
+      removedMidDay: grade.removedMidDay,
+      zeroState: 'rest',
+      frozen: grade.frozen,
+      percentage: 100,
+      percentageOrNull: 100,
+      isRestDay: true,
+      isFrozen: false,
+      tier: 'protected',
+      igActual,
+      igExpected: 0,
+      combinedActual,
+      combinedExpected: 0,
+      initialCount,
+      followupCount,
+      shortfallReason: 'Sunday Rest Day · Protected 100%',
+    };
   }
 
-  const igGap = Math.max(0, igExpected - igActual);
-  const combinedGap = Math.max(0, combinedExpected - combinedActual);
+  if (grade.zeroState === 'pre_launch') {
+    return {
+      date: targetDate,
+      actual: 0,
+      expected: 0,
+      expectedTotal: 0,
+      capacityTarget: 0,
+      backlog: 0,
+      supplyGap: false,
+      removedMidDay: 0,
+      zeroState: 'pre_launch',
+      frozen: grade.frozen,
+      percentage: 0,
+      percentageOrNull: null,
+      isRestDay: false,
+      isFrozen: false,
+      tier: 'pre_launch',
+      igActual: 0,
+      igExpected: 0,
+      combinedActual: 0,
+      combinedExpected: 0,
+      initialCount: 0,
+      followupCount: 0,
+      shortfallReason: 'Pre-Launch · No obligations scheduled yet',
+    };
+  }
 
+  if (grade.zeroState === 'empty') {
+    return {
+      date: targetDate,
+      actual: 0,
+      expected: 0,
+      expectedTotal: 0,
+      capacityTarget: 0,
+      backlog: 0,
+      supplyGap: grade.supplyGap,
+      removedMidDay: grade.removedMidDay,
+      zeroState: 'empty',
+      frozen: grade.frozen,
+      percentage: 0,
+      percentageOrNull: null,
+      isRestDay: false,
+      isFrozen: false,
+      tier: 'empty',
+      igActual: 0,
+      igExpected: quota.igQuota,
+      combinedActual: 0,
+      combinedExpected: quota.combinedQuota,
+      initialCount: 0,
+      followupCount: 0,
+      shortfallReason: 'Pipeline Empty — Refill Required',
+    };
+  }
+
+  const pct = grade.percentage ?? 0;
   let shortfallReason = '';
-  if (actual >= expected) {
-    shortfallReason = `Quota met: ${actual}/${expected} verified dispatches (IG ${igActual}/${igExpected} · Combined ${combinedActual}/${combinedExpected})`;
-  } else if (igGap > 0 && combinedGap > 0) {
-    shortfallReason = `Expected ${igExpected} IG & ${combinedExpected} Email/FB dispatches — only ${igActual} IG & ${combinedActual} Combined verified`;
-  } else if (igGap > 0) {
-    shortfallReason = `Expected ${igExpected} Instagram dispatches, only ${igActual} verified`;
-  } else if (combinedGap > 0) {
-    shortfallReason = `Expected ${combinedExpected} Email/Combined dispatches, only ${combinedActual} verified`;
+  if (grade.actual >= grade.capacityTarget) {
+    shortfallReason =
+      grade.backlog > 0
+        ? `Daily cap met (${grade.actual}/${grade.capacityTarget}) · ${grade.backlog} remaining in backlog`
+        : `Target met: ${grade.actual}/${grade.capacityTarget} dispatches verified (IG ${igActual} · Combined ${combinedActual})`;
   } else {
-    shortfallReason = `Verified ${actual}/${expected} total dispatches against daily quota`;
+    shortfallReason =
+      `Verified ${grade.actual}/${grade.capacityTarget} daily target (IG ${igActual} · Combined ${combinedActual})` +
+      (grade.supplyGap ? ' · Supply Gap' : '');
   }
 
   return {
     date: targetDate,
-    actual,
-    expected,
-    percentage,
+    actual: grade.actual,
+    expected: grade.capacityTarget,
+    expectedTotal: grade.expectedTotal,
+    capacityTarget: grade.capacityTarget,
+    backlog: grade.backlog,
+    supplyGap: grade.supplyGap,
+    removedMidDay: grade.removedMidDay,
+    zeroState: 'normal',
+    frozen: grade.frozen,
+    percentage: pct,
+    percentageOrNull: grade.percentage,
     isRestDay: false,
     isFrozen: false,
-    tier,
+    tier: grade.tier,
     igActual,
-    igExpected,
+    igExpected: quota.igQuota,
     combinedActual,
-    combinedExpected,
+    combinedExpected: quota.combinedQuota,
     initialCount,
     followupCount,
     shortfallReason,
@@ -389,122 +454,31 @@ export function calculateDailyExecutionScore(
 }
 
 /**
- * Returns the standardized 3-tier visual metadata using exact semantic palette:
- * - 90–100%: Emerald (#10B981) — "Elite Execution"
- * - 70–89%: Amber (#F59E0B) — "Partial Execution (Supply Gap)"
- * - <70%: Red (#EF4444) — "Critical Miss"
- */
-export function getExecutionTierMeta(
-  percentage: number,
-  options?: {
-    isSunday?: boolean;
-    isFrozen?: boolean;
-    isPreLaunch?: boolean;
-    streakThreshold?: number;
-  }
-): ExecutionTierMeta {
-  const threshold = options?.streakThreshold ?? getQuotaSettings().streakThreshold;
-
-  if (options?.isFrozen) {
-    return {
-      tier: 'protected',
-      label: '100% Protected (Frozen)',
-      shortLabel: 'Frozen',
-      colorHex: '#22D3EE',
-      dotClass: 'bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]',
-      badgeClass: 'bg-cyan-950/60 text-cyan-300 border-cyan-500/40',
-      barClass: 'bg-cyan-400',
-      cardBorderClass: 'border-cyan-500/40 bg-cyan-950/30 hover:border-cyan-400/60',
-    };
-  }
-
-  if (options?.isSunday) {
-    return {
-      tier: 'protected',
-      label: '100% Protected (Rest Day)',
-      shortLabel: 'Rest Day',
-      colorHex: '#94A3B8',
-      dotClass: 'bg-slate-400',
-      badgeClass: 'bg-slate-800/80 text-slate-300 border-slate-700/60',
-      barClass: 'bg-slate-400',
-      cardBorderClass: 'border-slate-700/40 bg-slate-800/30 hover:border-slate-600',
-    };
-  }
-
-  if (options?.isPreLaunch) {
-    return {
-      tier: 'pre_launch',
-      label: 'Pre-Launch',
-      shortLabel: 'Pre-Launch',
-      colorHex: '#475569',
-      dotClass: 'bg-slate-600',
-      badgeClass: 'bg-slate-900/60 text-slate-400 border-white/10',
-      barClass: 'bg-slate-600',
-      cardBorderClass: 'border-white/5 bg-slate-900/30 hover:border-white/10 opacity-70 hover:opacity-100',
-    };
-  }
-
-  if (percentage >= 90) {
-    return {
-      tier: 'elite',
-      label: 'Elite Execution',
-      shortLabel: 'Elite',
-      colorHex: '#10B981',
-      dotClass: 'bg-[#10B981] shadow-[0_0_8px_rgba(16,185,129,0.55)]',
-      badgeClass: 'bg-[#10B981]/15 text-[#10B981] border-[#10B981]/35',
-      barClass: 'bg-[#10B981]',
-      cardBorderClass: 'border-[#10B981]/35 bg-[#10B981]/10 hover:border-[#10B981]/60',
-    };
-  }
-
-  if (percentage >= threshold) {
-    return {
-      tier: 'partial',
-      label: 'Partial Execution (Supply Gap)',
-      shortLabel: 'Supply Gap',
-      colorHex: '#F59E0B',
-      dotClass: 'bg-[#F59E0B] shadow-[0_0_8px_rgba(245,158,11,0.45)]',
-      badgeClass: 'bg-[#F59E0B]/15 text-[#F59E0B] border-[#F59E0B]/35',
-      barClass: 'bg-[#F59E0B]',
-      cardBorderClass: 'border-[#F59E0B]/35 bg-[#F59E0B]/10 hover:border-[#F59E0B]/60',
-    };
-  }
-
-  return {
-    tier: 'critical',
-    label: 'Critical Miss',
-    shortLabel: 'Critical Miss',
-    colorHex: '#EF4444',
-    dotClass: 'bg-[#EF4444] shadow-[0_0_8px_rgba(239,68,68,0.45)]',
-    badgeClass: 'bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/35',
-    barClass: 'bg-[#EF4444]',
-    cardBorderClass: 'border-[#EF4444]/35 bg-[#EF4444]/10 hover:border-[#EF4444]/60',
-  };
-}
-
-/**
- * Extracts the earliest verified dispatch date across leads or history records.
+ * Extracts earliest verified dispatch date from immutable 'ridge_dispatch_log' or records/leads.
  */
 export function findEarliestDispatchDate(
   leads?: ChannelLead[],
   records?: DailyHistoryRecord[]
 ): string | null {
   const candidates: string[] = [];
-  const auditLeads = leads ?? loadAllAuditLeads();
+  const logEarliest = getEarliestDispatchLogDate();
+  if (logEarliest) candidates.push(logEarliest);
 
-  for (const lead of auditLeads) {
-    const possibleDates = [
-      lead.initialSentDate,
-      lead.dispatchDate,
-      lead.dispatchedAt,
-      lead.dmSent ? lead.dmSentAt : undefined,
-      lead.followup1SentDate,
-      lead.followup2SentDate,
-      lead.followup3SentDate,
-    ];
-    for (const raw of possibleDates) {
-      const norm = normalizeToLocalDateStr(raw);
-      if (norm) candidates.push(norm);
+  if (leads) {
+    for (const lead of leads) {
+      const possibleDates = [
+        lead.initialSentDate,
+        lead.dispatchDate,
+        lead.dispatchedAt,
+        lead.dmSent ? lead.dmSentAt : undefined,
+        lead.followup1SentDate,
+        lead.followup2SentDate,
+        lead.followup3SentDate,
+      ];
+      for (const raw of possibleDates) {
+        const norm = normalizeToLocalDateStr(raw);
+        if (norm) candidates.push(norm);
+      }
     }
   }
 
@@ -530,52 +504,27 @@ export interface EvaluateStreakOptions {
 }
 
 /**
- * Auditable Streak Evaluation Engine:
- * - Only working days scoring >= 70% (or user-defined threshold in Settings) count as Protected/Active.
- * - Rest days (Sundays) & Frozen days are 100% auto-protected and preserve the streak.
- * - If a working day drops below 70%, it NEVER registers as a 100% green day; it flags/pauses streak as "At Risk"
- *   (a single <70% miss pauses streak & warns "At Risk"; two consecutive <70% working misses reset current streak to 0).
+ * Model A Auditable Streak Evaluation Engine:
+ * - Evaluates streak using immutable 'ridge_dispatch_log' + 'ridge_daily_obligations'
+ * - Threshold defaults to 50% (configurable in Settings)
+ * - Rest days (Sundays) & Frozen days stay Protected 100% and preserve streak
+ * - Pre-Launch & Pipeline Empty (percentage === null) never falsely trigger a streak break
+ * - totalDMsSent returns immutable lifetime D0 count from dispatchLog (never drops on lead delete)
  */
 export function evaluateStreakStats(
   records: DailyHistoryRecord[],
   options?: EvaluateStreakOptions
 ): HistoryStreakStats {
   const quota = getQuotaSettings();
-  const threshold = quota.streakThreshold;
+  const minPct = quota.streakMinPercent;
   const todayStr = options?.referenceDateStr || getLocalTodayStr();
   const leads = options?.leads ?? loadAllAuditLeads();
 
-  const mapByDate = new Map<string, DailyHistoryRecord>();
-  for (const r of records) {
-    mapByDate.set(r.date, r);
-  }
-
-  const getScoreForDate = (dateStr: string): DailyExecutionScore => {
-    const score = calculateDailyExecutionScore(dateStr, leads, quota);
-    if (score.actual > 0 || score.isRestDay || score.isFrozen) {
-      return score;
-    }
-    const existing = mapByDate.get(dateStr);
-    if (existing && (existing.actualDispatched ?? existing.dmsSent ?? 0) > 0) {
-      const actual = existing.actualDispatched ?? existing.dmsSent;
-      const expected = existing.expectedQuota ?? existing.dmsTarget ?? quota.dailyQuota;
-      const pct = expected > 0 ? Math.min(100, Math.round((actual / expected) * 100)) : 100;
-      return {
-        ...score,
-        actual,
-        expected,
-        percentage: pct,
-        tier: pct >= 90 ? 'elite' : pct >= threshold ? 'partial' : 'critical',
-      };
-    }
-    return score;
-  };
-
-  const todayScore = getScoreForDate(todayStr);
-  const effectiveTodayActual = Math.max(todayScore.actual, options?.todayDmsSent ?? 0);
+  const todayScore = calculateDailyExecutionScore(todayStr, leads, quota);
+  const lifetimeD0Count = getLifetimeDispatchCount('D0');
   const earliestDate = findEarliestDispatchDate(leads, records);
 
-  if (!earliestDate && effectiveTodayActual === 0) {
+  if (!earliestDate && todayScore.actual === 0 && lifetimeD0Count === 0) {
     return {
       currentStreak: 0,
       bestStreak: 0,
@@ -584,7 +533,7 @@ export function evaluateStreakStats(
       averageCompletionRate: 0,
       totalDMsSent: 0,
       streakStatus: 'ready',
-      streakThreshold: threshold,
+      streakThreshold: minPct,
       videosVerifiedToday: options?.todayVideosVerified ?? 0,
       storiesPostedToday: options?.todayStoriesPosted ?? 0,
       reelsPostedToday: options?.todayReelsPosted ?? 0,
@@ -593,9 +542,11 @@ export function evaluateStreakStats(
 
   const startBound = earliestDate && earliestDate <= todayStr ? earliestDate : todayStr;
   const isTodayProtected = todayScore.isRestDay || todayScore.isFrozen;
-  const isTodayQualified = !isTodayProtected && todayScore.percentage >= threshold;
+  const isTodayQualified =
+    !isTodayProtected &&
+    todayScore.percentageOrNull !== null &&
+    todayScore.percentage >= minPct;
 
-  // Walk chronologically from startBound to todayStr to compute Best Streak & Current Streak state accurately
   let runningStreak = 0;
   let bestStreak = 0;
   let consecutiveMisses = 0;
@@ -607,15 +558,14 @@ export function evaluateStreakStats(
   while (cursor <= todayStr && guard < 400) {
     guard++;
     const isTodayCursor = cursor === todayStr;
-    const score = getScoreForDate(cursor);
+    const score = calculateDailyExecutionScore(cursor, leads, quota);
 
-    if (score.isRestDay || score.isFrozen) {
-      // Rest/Frozen day: auto-protected at 100%, preserves streak cleanly
+    if (score.isRestDay || score.isFrozen || score.zeroState === 'pre_launch' || score.zeroState === 'empty') {
       cursor = addDays(cursor, 1);
       continue;
     }
 
-    if (score.percentage >= threshold) {
+    if (score.percentageOrNull !== null && score.percentage >= minPct) {
       runningStreak += 1;
       consecutiveMisses = 0;
       pausedAtRiskDate = null;
@@ -624,8 +574,6 @@ export function evaluateStreakStats(
         bestStreak = runningStreak;
       }
     } else if (!isTodayCursor) {
-      // Past working day missed (<70%): first miss pauses streak & flags "At Risk";
-      // second consecutive working-day miss breaks streak cleanly to 0.
       consecutiveMisses += 1;
       if (consecutiveMisses === 1 && runningStreak > 0) {
         pausedAtRiskDate = cursor;
@@ -645,28 +593,29 @@ export function evaluateStreakStats(
   if (isTodayProtected) {
     streakStatus = pausedAtRiskDate ? 'at_risk' : 'protected';
     if (pausedAtRiskDate) {
-      atRiskReason = `Paused · ${pausedAtRiskDate} scored ${pausedAtRiskPct}% (<${threshold}% threshold)`;
+      atRiskReason = `Paused · ${pausedAtRiskDate} scored ${pausedAtRiskPct}% (<${minPct}% threshold)`;
     }
+  } else if (todayScore.zeroState === 'empty') {
+    streakStatus = runningStreak > 0 ? 'in_progress' : 'ready';
+    atRiskReason = 'Pipeline Empty — Refill Required to continue dispatches';
   } else if (isTodayQualified) {
     streakStatus = 'active';
   } else if (pausedAtRiskDate) {
     streakStatus = consecutiveMisses >= 2 ? 'broken' : 'at_risk';
     atRiskReason =
       consecutiveMisses >= 2
-        ? `Broken · Consecutive <${threshold}% days (latest ${pausedAtRiskDate}: ${pausedAtRiskPct}%)`
-        : `At Risk · ${pausedAtRiskDate} scored ${pausedAtRiskPct}% (<${threshold}% threshold)`;
-  } else if (todayScore.actual > 0 && todayScore.percentage < threshold) {
+        ? `Broken · Consecutive <${minPct}% days (latest ${pausedAtRiskDate}: ${pausedAtRiskPct}%)`
+        : `At Risk · ${pausedAtRiskDate} scored ${pausedAtRiskPct}% (<${minPct}% threshold)`;
+  } else if (todayScore.actual > 0 && todayScore.percentage < minPct) {
     streakStatus = 'at_risk';
-    atRiskReason = `Today at ${todayScore.percentage}% (${todayScore.actual}/${todayScore.expected}) — reach ${threshold}%+ to lock streak day`;
+    atRiskReason = `Today at ${todayScore.percentage}% (${todayScore.actual}/${todayScore.capacityTarget}) — reach ${minPct}%+ to lock streak day`;
   } else if (runningStreak > 0) {
     streakStatus = 'in_progress';
   } else {
     streakStatus = 'at_risk';
-    atRiskReason = `0/${todayScore.expected} dispatched today — reach ${threshold}%+ to activate streak`;
+    atRiskReason = `0/${todayScore.capacityTarget} dispatched today — reach ${minPct}%+ to activate streak`;
   }
 
-  // 30-day rolling aggregates
-  let totalDispatched30 = 0;
   let totalPercentages = 0;
   let activeDaysEvaluated = 0;
   let completedDaysCount = 0;
@@ -677,14 +626,15 @@ export function evaluateStreakStats(
     const isPreLaunch = !earliestDate || dateStr < earliestDate;
     if (isPreLaunch) continue;
 
-    const score = getScoreForDate(dateStr);
-    totalDispatched30 += score.initialCount;
-
-    if (!score.isRestDay && !score.isFrozen) {
+    const score = calculateDailyExecutionScore(dateStr, leads, quota);
+    if (score.isRestDay || score.isFrozen || score.zeroState === 'pre_launch' || score.zeroState === 'empty') {
+      continue;
+    }
+    if (score.percentageOrNull !== null) {
       totalPercentages += score.percentage;
       activeDaysEvaluated++;
       if (score.percentage >= 90) completedDaysCount++;
-      if (score.percentage >= threshold) protectedDaysCount++;
+      if (score.percentage >= minPct) protectedDaysCount++;
     }
   }
 
@@ -697,9 +647,9 @@ export function evaluateStreakStats(
     completedDaysCount,
     protectedDaysCount,
     averageCompletionRate,
-    totalDMsSent: totalDispatched30,
+    totalDMsSent: lifetimeD0Count,
     streakStatus,
-    streakThreshold: threshold,
+    streakThreshold: minPct,
     atRiskReason,
     videosVerifiedToday: options?.todayVideosVerified ?? 0,
     storiesPostedToday: options?.todayStoriesPosted ?? 0,

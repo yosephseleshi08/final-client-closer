@@ -8,6 +8,7 @@ import {
   TrendingUp,
   Layers,
   Instagram,
+  AlertTriangle,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../types';
 import { exportChannelData, getChannelLabel } from '../utils/channelStorage';
@@ -20,6 +21,8 @@ import {
   getQuotaSettings,
 } from '../utils/historyStorage';
 import { getLocalTodayStr } from '../utils/cadenceEngine';
+import { getSupplyGapBadgeMeta } from '../utils/executionTiers';
+import { getOrphanedCadences } from '../utils/leadLifecycle';
 
 interface ExecutiveDashboardProps {
   combinedLeads?: ChannelLead[];
@@ -28,6 +31,7 @@ interface ExecutiveDashboardProps {
   facebookLeads?: ChannelLead[];
   onNavigateToChannel: (channel: MultiChannelType) => void;
   onNavigateToToday?: () => void;
+  onNavigateToBackstage?: () => void;
   isFrozen?: boolean;
   onToggleFreeze?: () => void;
 }
@@ -38,17 +42,32 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
   instagramLeads,
   facebookLeads = [],
   onNavigateToChannel,
+  onNavigateToBackstage,
   isFrozen = false,
   onToggleFreeze,
 }) => {
   const [quotaSettings, setQuotaSettings] = useState(() => getQuotaSettings());
+  const [, setLedgerTick] = useState(0);
 
   useEffect(() => {
     const handleQuotaChanged = () => {
       setQuotaSettings(getQuotaSettings());
     };
+    const handleLedgerChanged = () => {
+      setLedgerTick((t) => t + 1);
+    };
     window.addEventListener('crm_quota_settings_changed', handleQuotaChanged);
-    return () => window.removeEventListener('crm_quota_settings_changed', handleQuotaChanged);
+    window.addEventListener('ridge_dispatch_log_changed', handleLedgerChanged);
+    window.addEventListener('ridge_daily_obligations_changed', handleLedgerChanged);
+    window.addEventListener('backstage_leads_changed', handleLedgerChanged);
+    window.addEventListener('crm_data_repaired', handleLedgerChanged);
+    return () => {
+      window.removeEventListener('crm_quota_settings_changed', handleQuotaChanged);
+      window.removeEventListener('ridge_dispatch_log_changed', handleLedgerChanged);
+      window.removeEventListener('ridge_daily_obligations_changed', handleLedgerChanged);
+      window.removeEventListener('backstage_leads_changed', handleLedgerChanged);
+      window.removeEventListener('crm_data_repaired', handleLedgerChanged);
+    };
   }, []);
 
   const todayStr = getLocalTodayStr();
@@ -61,24 +80,28 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
 
   const historyRecords = loadDailyHistory(allLeads);
 
-  // Auditable Execution Score for Today
+  // Auditable Model A Execution Score for Today
   const todayScore = calculateDailyExecutionScore(todayStr, allLeads, quotaSettings);
-  const todayTierMeta = getExecutionTierMeta(todayScore.percentage, {
+  const todayTierMeta = getExecutionTierMeta(todayScore.percentageOrNull, {
     isSunday: todayScore.isRestDay,
     isFrozen: todayScore.isFrozen,
-    streakThreshold: quotaSettings.streakThreshold,
+    isEmpty: todayScore.zeroState === 'empty',
+    isPreLaunch: todayScore.zeroState === 'pre_launch',
+    streakMinPercent: quotaSettings.streakMinPercent,
   });
 
   const igSentToday = todayScore.igActual;
   const combinedSentToday = todayScore.combinedActual;
   const effectiveDmsSentToday = todayScore.actual;
-  const unifiedDailyQuotaTarget = todayScore.expected || quotaSettings.dailyQuota;
+  const unifiedDailyQuotaTarget = todayScore.capacityTarget || quotaSettings.dailyCapacity;
   const dmProgressPercent = todayScore.percentage;
+  const supplyGapBadge = getSupplyGapBadgeMeta(todayScore.supplyGap);
+  const orphanedCadences = getOrphanedCadences(todayStr);
 
   // Count FB restricted leads needing email routing
-  const fbRestrictedCount = effectiveCombinedLeads.filter((l) => l.fb_message_restricted).length;
+  const fbRestrictedCount = effectiveCombinedLeads.filter((l) => l.fb_message_restricted && l.cadenceStatus !== 'cancelled').length;
 
-  // Auditable Streak Calculation (Protected/Active >= 70%, Rest Days 100% Protected)
+  // Auditable Streak Calculation (Immutable ledger + >=50% default min, Rest/Frozen 100% Protected)
   const streakStats = calculateStreaks(historyRecords, {
     leads: allLeads,
     todayDmsSent: effectiveDmsSentToday,
@@ -150,17 +173,17 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
           </h1>
           <p className="text-xs text-slate-400 mt-1 flex items-center gap-2 flex-wrap">
             <span className="text-indigo-300 font-semibold font-mono tabular-nums">
-              Unified Quota: {quotaSettings.dailyQuota} Combined Touchpoints/Day
+              Daily Cap: {quotaSettings.dailyCapacity}/day ({quotaSettings.igQuota} IG · {quotaSettings.combinedQuota} Combined)
             </span>
             <span>·</span>
-            <span className="text-pink-400 font-mono tabular-nums">IG Target: {quotaSettings.igQuota}</span>
-            <span>+</span>
-            <span className="text-indigo-300 font-mono tabular-nums">Email &amp; FB: {quotaSettings.combinedQuota}</span>
+            <span className="text-emerald-400 font-mono tabular-nums">
+              Lifetime D0: {streakStats.totalDMsSent}
+            </span>
             <span>·</span>
             <span className="text-emerald-400 font-medium">Sunday Rest Mode Active</span>
             <span>·</span>
             <span className="text-slate-400 font-mono text-[11px] tabular-nums">
-              Total Leads across channels: {totalLeads}
+              Active Leads: {totalLeads}
             </span>
           </p>
         </div>
@@ -218,9 +241,30 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
         </div>
       )}
 
+      {/* Orphaned Cadences Warning Banner */}
+      {orphanedCadences.length > 0 && (
+        <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-3.5 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 text-amber-200">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>
+              <strong>Orphaned Cadences ({orphanedCadences.length}):</strong> Archived leads in Backstage still have active D4/D8/D14 follow-ups scheduled or due within 7 days.
+            </span>
+          </div>
+          {onNavigateToBackstage && (
+            <button
+              type="button"
+              onClick={onNavigateToBackstage}
+              className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-semibold cursor-pointer shrink-0"
+            >
+              Review in Backstage
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Top 3 Executive Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* 1. Unified Touchpoints Dispatched Today (Auditable Quota Score) */}
+        {/* 1. Unified Touchpoints Dispatched Today (Model A Quota Score) */}
         <div
           className="rounded-2xl border bg-gradient-to-br from-sky-950/30 via-slate-900/80 to-slate-900 p-5 shadow-xl space-y-2.5"
           style={{ borderColor: `${todayTierMeta.colorHex}55` }}
@@ -232,11 +276,17 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
           </div>
           <div className="flex items-baseline gap-2 flex-wrap">
             <span className="text-3xl font-black text-white font-mono tabular-nums">
-              {todayScore.isRestDay || todayScore.isFrozen ? '100%' : `${dmProgressPercent}%`}
+              {todayScore.isRestDay || todayScore.isFrozen
+                ? '100%'
+                : todayScore.zeroState === 'empty'
+                ? 'Empty'
+                : `${dmProgressPercent}%`}
             </span>
             <span className="text-xs font-bold text-slate-300 font-mono tabular-nums">
               {todayScore.isRestDay || todayScore.isFrozen
                 ? '(Rest / Protected)'
+                : todayScore.zeroState === 'empty'
+                ? '— Refill Required'
                 : `(${effectiveDmsSentToday}/${unifiedDailyQuotaTarget} Dispatched)`}
             </span>
             <span
@@ -255,22 +305,34 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
             <div
               className="h-full transition-all duration-300"
               style={{
-                width: `${dmProgressPercent}%`,
+                width: `${todayScore.zeroState === 'empty' ? 0 : dmProgressPercent}%`,
                 backgroundColor: todayTierMeta.colorHex,
               }}
             />
           </div>
-          {/* Channel Allocation Breakdown */}
-          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-0.5 tabular-nums">
+          {/* Channel Allocation Breakdown + Backlog / Supply Gap pills */}
+          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-0.5 tabular-nums flex-wrap gap-1.5">
             <span className="text-pink-400" title="Instagram Sent Today">
               IG: {igSentToday}/{quotaSettings.igQuota}
             </span>
             <span className="text-indigo-400" title="Combined Outreach (Email & FB) Sent Today">
               Combined: {combinedSentToday}/{quotaSettings.combinedQuota}
             </span>
-            <span className="text-slate-300 font-bold">
-              {effectiveDmsSentToday}/{unifiedDailyQuotaTarget} total
-            </span>
+            <div className="flex items-center gap-1.5">
+              {todayScore.backlog > 0 && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/35">
+                  +{todayScore.backlog} backlog
+                </span>
+              )}
+              {supplyGapBadge && (
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${supplyGapBadge.badgeClass}`}
+                  title={supplyGapBadge.tooltip}
+                >
+                  {supplyGapBadge.label}
+                </span>
+              )}
+            </div>
           </div>
           <div className="text-[11px] text-slate-400 font-mono">
             {todayScore.shortfallReason}

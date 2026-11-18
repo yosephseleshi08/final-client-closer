@@ -15,6 +15,7 @@ import {
   Facebook,
   Mail,
   ArrowRight,
+  AlertTriangle,
 } from 'lucide-react';
 import { InboxLead, MultiChannelType, ChannelLead } from '../types';
 import {
@@ -27,6 +28,7 @@ import {
   clearAllInboxLeads,
 } from '../utils/inboxStorage';
 import { getPlatformLink } from '../utils/channelStorage';
+import { findNormalizedDuplicateMatches } from '../utils/leadLifecycle';
 import { TestLinkButton } from './TestLinkButton';
 
 interface LeadInboxViewProps {
@@ -164,7 +166,7 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
       const result = acceptInboxLeadIntoCrm(lead, channelLeads);
 
       if (result.isDuplicate) {
-        showToast('Lead already exists in the pipeline.', 'error');
+        showToast(result.duplicateReason || 'Lead already exists in the pipeline.', 'error');
         return;
       }
       
@@ -462,6 +464,20 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
                     const displayLink = lead.platformLink || lead.profileLink || '';
                     const resolvedHref = getPlatformLink(displayLink, lead.platform);
                     const isMail = resolvedHref.startsWith('mailto:');
+                    const dupCheck = findNormalizedDuplicateMatches(
+                      {
+                        name: lead.name,
+                        link: displayLink,
+                        platformLink: displayLink,
+                        email: lead.email,
+                        facebook: lead.facebook,
+                        instagram: lead.instagram,
+                      },
+                      {
+                        activeCombined: channelLeads?.combined,
+                        activeInstagram: channelLeads?.instagram,
+                      }
+                    );
 
                     return (
                       <div
@@ -479,7 +495,23 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
                               {lead.name}
                             </h2>
                             {getPlatformBadge(lead.platform, lead.rawPlatform)}
+                            {dupCheck.hasMatch && (
+                              <span
+                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/40"
+                                title={dupCheck.summaryReason || 'Matches an existing active, archived, or previously dispatched lead'}
+                              >
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                <span>Previously Contacted / Duplicate Guard</span>
+                              </span>
+                            )}
                           </div>
+
+                          {dupCheck.hasMatch && dupCheck.summaryReason && (
+                            <div className="rounded-lg border border-amber-500/30 bg-amber-950/30 px-3 py-1.5 text-[11px] text-amber-200 flex items-center gap-2">
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                              <span>{dupCheck.summaryReason}</span>
+                            </div>
+                          )}
 
                           {/* Profile Link */}
                           {displayLink && (

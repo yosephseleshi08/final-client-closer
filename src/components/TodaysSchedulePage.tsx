@@ -38,6 +38,9 @@ import {
   getExecutionTierMeta,
   getQuotaSettings,
 } from '../utils/historyStorage';
+import { getSupplyGapBadgeMeta } from '../utils/executionTiers';
+import { getOrphanedCadences } from '../utils/leadLifecycle';
+import { sortLeadsByWavePriority, getIntakeThrottleWarning } from '../utils/dailyObligation';
 import {
   playSuccessChime,
   playNotificationChime,
@@ -91,6 +94,7 @@ interface TodaysSchedulePageProps {
   onUpdateInstagramLeads: (leads: ChannelLead[]) => void;
   onUpdateFacebookLeads?: (leads: ChannelLead[]) => void;
   onNavigateToChannel: (channel: MultiChannelType) => void;
+  onNavigateToBackstage?: () => void;
   isFrozen?: boolean;
   onToggleFreeze?: () => void;
 }
@@ -105,6 +109,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   onUpdateInstagramLeads,
   onUpdateFacebookLeads,
   onNavigateToChannel,
+  onNavigateToBackstage,
   isFrozen = false,
   onToggleFreeze,
 }) => {
@@ -190,6 +195,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   // Testing Override & Execution Quota Settings State
   const [warmupOverrideActive, setWarmupOverrideActive] = useState<boolean>(() => isManualWarmupOverrideEnabled());
   const [quotaSettings, setQuotaSettings] = useState(() => getQuotaSettings());
+  const [ledgerTick, setLedgerTick] = useState(0);
 
   useEffect(() => {
     const handleOverrideChanged = (e: Event) => {
@@ -198,12 +204,24 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     };
     const handleQuotaChanged = () => {
       setQuotaSettings(getQuotaSettings());
+      setLedgerTick((t) => t + 1);
+    };
+    const handleLedgerRefresh = () => {
+      setLedgerTick((t) => t + 1);
     };
     window.addEventListener('crm_warmup_override_changed', handleOverrideChanged);
     window.addEventListener('crm_quota_settings_changed', handleQuotaChanged);
+    window.addEventListener('ridge_dispatch_log_changed', handleLedgerRefresh);
+    window.addEventListener('ridge_daily_obligations_changed', handleLedgerRefresh);
+    window.addEventListener('backstage_leads_changed', handleLedgerRefresh);
+    window.addEventListener('crm_data_repaired', handleLedgerRefresh);
     return () => {
       window.removeEventListener('crm_warmup_override_changed', handleOverrideChanged);
       window.removeEventListener('crm_quota_settings_changed', handleQuotaChanged);
+      window.removeEventListener('ridge_dispatch_log_changed', handleLedgerRefresh);
+      window.removeEventListener('ridge_daily_obligations_changed', handleLedgerRefresh);
+      window.removeEventListener('backstage_leads_changed', handleLedgerRefresh);
+      window.removeEventListener('crm_data_repaired', handleLedgerRefresh);
     };
   }, []);
 
@@ -357,7 +375,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     const targetTomorrow = getTomorrowWarmupTargetDate(todayStr);
     let igNeedsUpdate = false;
     const nextIgLeads = instagramLeads.map((lead) => {
-      if (lead.isCompleted || lead.initialSentDate) return lead;
+      if (lead.isCompleted || lead.isArchived || lead.cadenceStatus === 'cancelled' || lead.initialSentDate) return lead;
       if (!lead.scheduledDate) return lead;
       // If scheduled for today or overdue, but wasn't warmed up before today
       if (lead.scheduledDate <= todayStr && !isLeadWarmedBeforeToday(lead, todayStr)) {
@@ -380,7 +398,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     if (onUpdateCombinedLeads) {
       let combinedNeedsUpdate = false;
       const nextCombinedLeads = effectiveCombinedLeads.map((lead) => {
-        if (lead.isCompleted || lead.initialSentDate) return lead;
+        if (lead.isCompleted || lead.isArchived || lead.cadenceStatus === 'cancelled' || lead.initialSentDate) return lead;
         if (!lead.scheduledDate) return lead;
         if (isEmailOnlyLead(lead)) return lead;
         if (lead.scheduledDate <= todayStr && !isLeadWarmedBeforeToday(lead, todayStr)) {
@@ -405,41 +423,65 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   // 2. Initial Outreach Due Today
   // STRICT RULE: Social leads (IG / FB) MUST have been warmed up BEFORE today (yesterday or older).
   // Same-day warm-up or un-warmed leads cannot be dispatched today.
-  const newOutreachDueToday = allLeads.filter((l) => {
-    if (l.isCompleted || l.initialSentDate) return false;
-    if (isLeadDismissedToday(l)) return false;
-    if (!l.scheduledDate) return false;
-    if (isEmailOnlyLead(l)) {
-      return isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate);
-    }
-    if (!isDateToday(l.scheduledDate)) return false;
-    return isLeadWarmedBeforeToday(l, todayStr);
-  });
+  const newOutreachDueToday = sortLeadsByWavePriority(
+    allLeads.filter((l) => {
+      if (l.isCompleted || l.isArchived || l.cadenceStatus === 'cancelled' || l.initialSentDate) return false;
+      if (isLeadDismissedToday(l)) return false;
+      if (!l.scheduledDate) return false;
+      if (isEmailOnlyLead(l)) {
+        return isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate);
+      }
+      if (!isDateToday(l.scheduledDate)) return false;
+      return isLeadWarmedBeforeToday(l, todayStr);
+    })
+  );
 
   // 3. Follow-Ups Due Today
-  const followupsDueToday = allLeads.filter((l) => {
-    if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
-    if (isLeadDismissedToday(l)) return false;
-    if (!l.initialSentDate) return false;
+  const followupsDueToday = sortLeadsByWavePriority(
+    allLeads.filter((l) => {
+      if (
+        l.isCompleted ||
+        l.isArchived ||
+        l.cadenceStatus === 'cancelled' ||
+        l.leadStatus === 'replied' ||
+        l.leadStatus === 'completed'
+      ) {
+        return false;
+      }
+      if (isLeadDismissedToday(l)) return false;
+      if (!l.initialSentDate) return false;
 
-    if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date) || isDay4FollowupDue(l, todayStr))) return true;
-    if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date) || isDay8FollowupDue(l, todayStr))) return true;
-    if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDateOverdue(l.followup3Date) || isDay14FollowupDue(l, todayStr))) return true;
+      if (l.followupCount === 0 && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date) || isDay4FollowupDue(l, todayStr))) return true;
+      if (l.followupCount === 1 && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date) || isDay8FollowupDue(l, todayStr))) return true;
+      if (l.followupCount === 2 && (isDateToday(l.followup3Date) || isDateOverdue(l.followup3Date) || isDay14FollowupDue(l, todayStr))) return true;
 
-    return false;
-  });
+      return false;
+    })
+  );
 
   const newDueTodayCount = newOutreachDueToday.length;
   const followupsDueTodayCount = followupsDueToday.length;
   const totalTasksRemainingToday = newDueTodayCount + followupsDueTodayCount;
 
-  // Auditable Execution Score: Verified Dispatches / Expected Daily Quota (no false 100% on empty queues)
-  const todayAuditScore = calculateDailyExecutionScore(todayStr, allLeads, quotaSettings);
-  const todayTierMeta = getExecutionTierMeta(todayAuditScore.percentage, {
+  // Model A Auditable Execution Score (from immutable ridge_dispatch_log + daily_obligations)
+  const todayAuditScore = useMemo(
+    () => calculateDailyExecutionScore(todayStr, allLeads, quotaSettings),
+    [todayStr, allLeads, quotaSettings, ledgerTick]
+  );
+  const todayTierMeta = getExecutionTierMeta(todayAuditScore.percentageOrNull, {
     isSunday: todayAuditScore.isRestDay,
     isFrozen: todayAuditScore.isFrozen,
+    isPreLaunch: todayAuditScore.zeroState === 'pre_launch',
+    isEmpty: todayAuditScore.zeroState === 'empty',
     streakThreshold: quotaSettings.streakThreshold,
+    streakMinPercent: quotaSettings.streakMinPercent,
   });
+  const supplyGapMeta = getSupplyGapBadgeMeta(todayAuditScore.supplyGap);
+  const orphanedCadences = useMemo(() => getOrphanedCadences(todayStr), [todayStr, ledgerTick]);
+  const intakeThrottle = useMemo(
+    () => getIntakeThrottleWarning(todayStr, allLeads),
+    [todayStr, allLeads, ledgerTick]
+  );
 
   // 4. WARM-UP NEEDS TODAY (Tracking for tomorrow's dispatch)
   const [schedY, schedM, schedD] = todayStr.split('-').map(Number);
@@ -456,7 +498,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       ...instagramLeads.map((l) => ({ ...l, channelLabel: 'Instagram' })),
     ];
     return combinedAll.filter((l) => {
-      if (l.isCompleted || l.initialSentDate) return false;
+      if (l.isCompleted || l.isArchived || l.cadenceStatus === 'cancelled' || l.initialSentDate) return false;
       if (normalizeToLocalDateStr(l.scheduledDate) !== warmupTargetDateStr) return false;
       if (isEmailOnlyLead(l)) return false;
       return getBlindRouteLink(l, 'warmup') !== null;
@@ -542,10 +584,18 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     });
   };
 
-  // Channel Specific Lists for Dedicated Modals
+  // Channel Specific Lists for Dedicated Modals (Sorted strictly D14 -> D8 -> D4 -> D0)
   const todayIgLeads = useMemo(() => {
-    return instagramLeads.filter((l) => {
-      if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+    const filtered = instagramLeads.filter((l) => {
+      if (
+        l.isCompleted ||
+        l.isArchived ||
+        l.cadenceStatus === 'cancelled' ||
+        l.leadStatus === 'replied' ||
+        l.leadStatus === 'completed'
+      ) {
+        return false;
+      }
       if (isLeadDismissedToday(l)) return false;
       // Initial due: scheduled for today OR warmed today (showing midnight lock)
       if (!l.initialSentDate) {
@@ -562,11 +612,20 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       }
       return false;
     });
+    return sortLeadsByWavePriority(filtered);
   }, [instagramLeads, todayStr, warmupOverrideActive]);
 
   const todayCombinedLeads = useMemo(() => {
-    return effectiveCombinedLeads.filter((l) => {
-      if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+    const filtered = effectiveCombinedLeads.filter((l) => {
+      if (
+        l.isCompleted ||
+        l.isArchived ||
+        l.cadenceStatus === 'cancelled' ||
+        l.leadStatus === 'replied' ||
+        l.leadStatus === 'completed'
+      ) {
+        return false;
+      }
       if (isLeadDismissedToday(l)) return false;
       // Initial due: scheduled for today OR warmed today
       if (!l.initialSentDate) {
@@ -584,6 +643,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       }
       return false;
     });
+    return sortLeadsByWavePriority(filtered);
   }, [effectiveCombinedLeads, todayStr, warmupOverrideActive]);
 
   // Quota and Stats
@@ -1244,11 +1304,56 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
         </div>
       </div>
 
+      {/* Orphaned Cadences & 3-Day Intake Throttle Alerts */}
+      {(orphanedCadences.length > 0 || intakeThrottle.active) && (
+        <div className="space-y-3">
+          {orphanedCadences.length > 0 && (
+            <div className="rounded-2xl border border-amber-500/40 bg-amber-950/25 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5 text-xs text-amber-200">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="font-bold text-amber-100">
+                    Orphaned Cadences ({orphanedCadences.length})
+                  </strong>
+                  <p className="text-[11px] text-amber-200/80 mt-0.5">
+                    Archived leads in Backstage still have active D4/D8/D14 follow-ups due within 7 days. Review to restore or cancel.
+                  </p>
+                </div>
+              </div>
+              {onNavigateToBackstage && (
+                <button
+                  type="button"
+                  onClick={onNavigateToBackstage}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-bold transition cursor-pointer shrink-0 flex items-center gap-1.5"
+                >
+                  <span>Review in Backstage</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {intakeThrottle.active && (
+            <div className="rounded-2xl border border-rose-500/40 bg-rose-950/25 p-4 flex items-start gap-2.5 text-xs text-rose-200">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="font-bold text-rose-100">
+                  Intake Throttle Recommended · Backlog &gt; 15 for {intakeThrottle.consecutiveDays} Working Days
+                </strong>
+                <p className="text-[11px] text-rose-200/80 mt-0.5">
+                  Latest backlog sits at {intakeThrottle.latestBacklog} queued touchpoints. Clear D14/D8/D4 waves before importing new D0 leads.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ========================================================================= */}
       {/* SECTION 1: TWO PROGRESS BARS (Today's Progress + Warm-Up Progress)        */}
       {/* ========================================================================= */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Progress Bar 1: Today's Auditable Outreach Progress vs Expected Quota */}
+        {/* Progress Bar 1: Today's Model A Auditable Outreach Progress */}
         <div
           className="rounded-3xl border bg-gradient-to-br from-slate-900/95 via-slate-900/95 to-slate-950/95 p-5 sm:p-6 backdrop-blur-xl shadow-2xl space-y-3.5"
           style={{ borderColor: `${todayTierMeta.colorHex}55` }}
@@ -1268,7 +1373,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
               </div>
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono block">
-                  Auditable Daily Quota Execution
+                  Model A Daily Capacity Execution
                 </span>
                 <h3 className="text-base sm:text-lg font-black text-white font-['Outfit'] flex items-center gap-2 mt-0.5 flex-wrap">
                   <span>Today&apos;s Progress:</span>
@@ -1278,35 +1383,60 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                   >
                     {todayAuditScore.isRestDay || todayAuditScore.isFrozen
                       ? '100%'
+                      : todayAuditScore.zeroState === 'empty'
+                      ? 'Empty'
+                      : todayAuditScore.zeroState === 'pre_launch'
+                      ? '—'
                       : `${todayAuditScore.percentage}%`}
                   </span>
                   <span className="text-xs font-mono text-slate-300 font-semibold tabular-nums">
                     {todayAuditScore.isRestDay || todayAuditScore.isFrozen
                       ? '(Protected)'
-                      : `(${todayAuditScore.actual}/${todayAuditScore.expected} Dispatched)`}
+                      : todayAuditScore.zeroState === 'empty' || todayAuditScore.zeroState === 'pre_launch'
+                      ? '(0/0 Due)'
+                      : `(${todayAuditScore.actual}/${todayAuditScore.capacityTarget} Cap)`}
                   </span>
+                  {todayAuditScore.backlog > 0 && (
+                    <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-mono font-bold">
+                      +{todayAuditScore.backlog} backlog
+                    </span>
+                  )}
                 </h3>
               </div>
             </div>
 
-            <span
-              className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg border text-xs font-bold font-mono shrink-0"
-              style={{
-                backgroundColor: `${todayTierMeta.colorHex}1F`,
-                borderColor: `${todayTierMeta.colorHex}55`,
-                color: todayTierMeta.colorHex,
-              }}
-            >
-              {todayTierMeta.tier === 'elite' && <Trophy className="w-3.5 h-3.5" />}
-              <span>{todayTierMeta.label}</span>
-            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {supplyGapMeta && todayAuditScore.zeroState === 'normal' && (
+                <span
+                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold font-mono ${supplyGapMeta.badgeClass}`}
+                  title={supplyGapMeta.tooltip}
+                >
+                  {supplyGapMeta.label}
+                </span>
+              )}
+              <span
+                className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg border text-xs font-bold font-mono shrink-0"
+                style={{
+                  backgroundColor: `${todayTierMeta.colorHex}1F`,
+                  borderColor: `${todayTierMeta.colorHex}55`,
+                  color: todayTierMeta.colorHex,
+                }}
+              >
+                {todayTierMeta.tier === 'elite' && <Trophy className="w-3.5 h-3.5" />}
+                <span>{todayTierMeta.label}</span>
+              </span>
+            </div>
           </div>
 
           <div className="w-full h-3 bg-slate-950/80 rounded-full overflow-hidden border border-white/10 p-0.5 shadow-inner">
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{
-                width: `${todayAuditScore.percentage}%`,
+                width: `${
+                  todayAuditScore.zeroState === 'empty' || todayAuditScore.zeroState === 'pre_launch'
+                    ? 0
+                    : Math.min(100, todayAuditScore.percentage)
+                }%`,
                 backgroundColor: todayTierMeta.colorHex,
               }}
             />

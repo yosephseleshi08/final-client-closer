@@ -1,6 +1,9 @@
 import { ChannelLead, MultiChannelType } from '../types';
-import { getRoundRobinVoiceType, getStrictVoiceTypeForId } from './voiceTypeEngine';
+import { getStrictVoiceTypeForId } from './voiceTypeEngine';
 import { getLeadInstagram, getLeadFacebook } from './channelStorage';
+import { shiftDueDateOffRestDay } from './leadLifecycle';
+import { appendDispatchEntry, resolveLeadDispatchChannel } from './dispatchLog';
+import { lockObligationOnFirstDispatch } from './dailyObligation';
 
 /**
  * Returns today's date formatted as YYYY-MM-DD strictly in user's local timezone
@@ -167,11 +170,22 @@ export function isLeadDismissedToday(lead: ChannelLead): boolean {
  */
 export function markInitialSent(lead: ChannelLead, sentDate = getLocalTodayStr()): ChannelLead {
   const normSentDate = normalizeToLocalDateStr(sentDate) || getLocalTodayStr();
-  const fu1 = addDays(normSentDate, 4);
-  const fu2 = addDays(normSentDate, 8);
-  const fu3 = addDays(normSentDate, 14);
+  const fu1 = shiftDueDateOffRestDay(addDays(normSentDate, 4));
+  const fu2 = shiftDueDateOffRestDay(addDays(normSentDate, 8));
+  const fu3 = shiftDueDateOffRestDay(addDays(normSentDate, 14));
 
   const nowIso = new Date().toISOString();
+
+  lockObligationOnFirstDispatch(normSentDate);
+  appendDispatchEntry({
+    leadId: lead.id,
+    leadName: lead.name,
+    channel: resolveLeadDispatchChannel(lead),
+    step: 'D0',
+    localDate: normSentDate,
+    timestamp: nowIso,
+    source: 'live',
+  });
 
   return {
     ...lead,
@@ -186,6 +200,9 @@ export function markInitialSent(lead: ChannelLead, sentDate = getLocalTodayStr()
     followup3Date: fu3,
     followupCount: 0,
     leadStatus: lead.isSeen ? 'seen' : 'waiting_reply',
+    cadenceStatus: 'running',
+    cancelledReason: undefined,
+    cancelledAt: undefined,
     isCompleted: false,
     dismissedDate: undefined, // Clear dismissal on action
   };
@@ -226,6 +243,18 @@ export function markFollowupSent(
   const normSentDate = normalizeToLocalDateStr(sentDate) || getLocalTodayStr();
 
   const nowIso = new Date().toISOString();
+  const dispatchStep = step === 1 ? 'D4' : step === 2 ? 'D8' : 'D14';
+
+  lockObligationOnFirstDispatch(normSentDate);
+  appendDispatchEntry({
+    leadId: lead.id,
+    leadName: lead.name,
+    channel: resolveLeadDispatchChannel(lead),
+    step: dispatchStep,
+    localDate: normSentDate,
+    timestamp: nowIso,
+    source: 'live',
+  });
 
   if (step === 1) {
     return {
@@ -236,6 +265,7 @@ export function markFollowupSent(
       status: 'dispatched',
       followupCount: 1,
       leadStatus: lead.isSeen ? 'seen' : 'waiting_reply',
+      cadenceStatus: 'running',
       isCompleted: false,
       dismissedDate: undefined,
     };
@@ -250,6 +280,7 @@ export function markFollowupSent(
       status: 'dispatched',
       followupCount: 2,
       leadStatus: lead.isSeen ? 'seen' : 'waiting_reply',
+      cadenceStatus: 'running',
       isCompleted: false,
       dismissedDate: undefined,
     };
@@ -264,6 +295,7 @@ export function markFollowupSent(
     status: 'dispatched',
     followupCount: 3,
     leadStatus: 'completed',
+    cadenceStatus: 'completed',
     isCompleted: true,
     completedAt: nowIso,
     dismissedDate: undefined,
@@ -277,6 +309,7 @@ export function markLeadReplied(lead: ChannelLead): ChannelLead {
   return {
     ...lead,
     leadStatus: 'replied',
+    cadenceStatus: 'completed',
     isCompleted: true,
     completedAt: new Date().toISOString(),
     repliedAt: new Date().toISOString(),
@@ -321,6 +354,7 @@ export function isInitialSentToday(lead: ChannelLead, today = getLocalTodayStr()
  * Returns true ONLY if today is on or after (initialSentDate + 4 days) and Follow-Up 1 is pending.
  */
 export function isDay4FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
+  if (lead.cadenceStatus === 'cancelled' || lead.cadenceStatus === 'completed') return false;
   if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
   if (!lead.initialSentDate && !lead.dmSent) return false;
   if (lead.followupCount !== undefined && lead.followupCount > 0) return false;
@@ -337,6 +371,7 @@ export function isDay4FollowupDue(lead: ChannelLead, today = getLocalTodayStr())
  * Returns true ONLY if today is on or after (initialSentDate + 8 days) and Follow-Up 1 is completed.
  */
 export function isDay8FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
+  if (lead.cadenceStatus === 'cancelled' || lead.cadenceStatus === 'completed') return false;
   if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
   if (!lead.initialSentDate && !lead.dmSent) return false;
   if (lead.followupCount !== 1) return false;
@@ -353,6 +388,7 @@ export function isDay8FollowupDue(lead: ChannelLead, today = getLocalTodayStr())
  * Returns true ONLY if today is on or after (initialSentDate + 14 days) and Follow-Up 2 is completed.
  */
 export function isDay14FollowupDue(lead: ChannelLead, today = getLocalTodayStr()): boolean {
+  if (lead.cadenceStatus === 'cancelled' || lead.cadenceStatus === 'completed') return false;
   if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') return false;
   if (!lead.initialSentDate && !lead.dmSent) return false;
   if (lead.followupCount !== 2) return false;
@@ -377,11 +413,11 @@ export const isDay30FollowupDue = isDay14FollowupDue;
 export const isDay3FollowupDue = isDay4FollowupDue;
 
 /**
- * Auto-calculates and persists the exact Day 4 reminder date.
+ * Auto-calculates and persists the exact Day 4 reminder date (shifted off Sunday/Frozen).
  */
 export function setDay3Reminder(lead: ChannelLead, daysAhead = 4): ChannelLead {
   const baseDate = getLeadBaseContactDate(lead);
-  const reminderDate = addDays(baseDate, daysAhead);
+  const reminderDate = shiftDueDateOffRestDay(addDays(baseDate, daysAhead));
   return {
     ...lead,
     followup1Date: reminderDate,
@@ -844,45 +880,38 @@ export function autoScheduleLeads(
   // Quota definition: Instagram = 6/day, Combined Outreach = 4/day
   const dailyQuota = channel === 'instagram' ? 6 : 4;
 
-  // Requirement 4: Auto-schedule starts TOMORROW, never today!
+  // Starts TOMORROW by default, shifted off Sundays & frozen days
   const tomorrowStr = addDays(getLocalTodayStr(), 1);
-  const baseToday = startDateStr || tomorrowStr;
-  const [year, month, day] = baseToday.split('-').map(Number);
-  const cursor = new Date(year, month - 1, day);
+  let cursorDateStr = shiftDueDateOffRestDay(
+    normalizeToLocalDateStr(startDateStr) || tomorrowStr
+  );
 
-  // Skip Sundays entirely. If start falls on Sunday, advance to Monday.
-  if (cursor.getDay() === 0) {
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  // Preserve leads where initial outreach was already sent in real life
-  const unsentLeads = leads.filter((l) => !l.initialSentDate);
+  // Preserve leads where initial outreach was already sent OR cadence was cancelled
+  const unsentLeads = leads.filter(
+    (l) =>
+      !l.initialSentDate &&
+      !l.dmSent &&
+      !l.dispatchedAt &&
+      l.cadenceStatus !== 'cancelled' &&
+      !l.isArchived
+  );
   const assignments: Record<string, string> = {};
 
   let currentSlotCount = 0;
 
   for (const lead of unsentLeads) {
-    // Skip any Sundays
-    while (cursor.getDay() === 0) {
-      cursor.setDate(cursor.getDate() + 1);
+    const safeDate = shiftDueDateOffRestDay(cursorDateStr);
+    if (safeDate !== cursorDateStr) {
+      cursorDateStr = safeDate;
       currentSlotCount = 0;
     }
 
-    const y = cursor.getFullYear();
-    const m = String(cursor.getMonth() + 1).padStart(2, '0');
-    const d = String(cursor.getDate()).padStart(2, '0');
-    const dateStr = `${y}-${m}-${d}`;
-
-    assignments[lead.id] = dateStr;
+    assignments[lead.id] = cursorDateStr;
     currentSlotCount++;
 
     if (currentSlotCount >= dailyQuota) {
-      cursor.setDate(cursor.getDate() + 1);
+      cursorDateStr = shiftDueDateOffRestDay(addDays(cursorDateStr, 1));
       currentSlotCount = 0;
-      // Skip next Sunday if we landed on it
-      while (cursor.getDay() === 0) {
-        cursor.setDate(cursor.getDate() + 1);
-      }
     }
   }
 
@@ -913,8 +942,7 @@ export function autoScheduleLeads(
 
 /**
  * Calculates the next available schedule date for a new lead based on current channel leads.
- * Requirement 4: Starts TOMORROW (never today). Today is reserved for warming up tomorrow's leads.
- * Respects the daily quota (Instagram: 6/day, Combined: 4/day) and skips Sundays.
+ * Starts TOMORROW (never today). Skips Sundays and frozen pipeline days.
  */
 export function getNextAvailableScheduleDate(
   currentLeads: ChannelLead[],
@@ -923,40 +951,36 @@ export function getNextAvailableScheduleDate(
 ): string {
   const dailyQuota = channel === 'instagram' ? 6 : 4;
 
-  // Requirement 4: Schedule starts TOMORROW, never today!
   const tomorrowStr = addDays(getLocalTodayStr(), 1);
-  const baseToday = startDateStr || tomorrowStr;
-  const [year, month, day] = baseToday.split('-').map(Number);
-  const cursor = new Date(year, month - 1, day);
+  let cursorDateStr = shiftDueDateOffRestDay(
+    normalizeToLocalDateStr(startDateStr) || tomorrowStr
+  );
 
-  // Skip Sunday to Monday
-  if (cursor.getDay() === 0) {
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  // Count scheduled unsent leads by date
+  // Count scheduled unsent leads by date (excluding cancelled / archived)
   const countsByDate: Record<string, number> = {};
   currentLeads.forEach((l) => {
-    if (l.scheduledDate && !l.initialSentDate) {
+    if (
+      l.scheduledDate &&
+      !l.initialSentDate &&
+      !l.dmSent &&
+      l.cadenceStatus !== 'cancelled' &&
+      !l.isArchived
+    ) {
       countsByDate[l.scheduledDate] = (countsByDate[l.scheduledDate] || 0) + 1;
     }
   });
 
-  while (true) {
-    while (cursor.getDay() === 0) {
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    const y = cursor.getFullYear();
-    const m = String(cursor.getMonth() + 1).padStart(2, '0');
-    const d = String(cursor.getDate()).padStart(2, '0');
-    const dateStr = `${y}-${m}-${d}`;
-
-    const count = countsByDate[dateStr] || 0;
+  let guard = 0;
+  while (guard < 365) {
+    guard++;
+    cursorDateStr = shiftDueDateOffRestDay(cursorDateStr);
+    const count = countsByDate[cursorDateStr] || 0;
     if (count < dailyQuota) {
-      return dateStr;
+      return cursorDateStr;
     }
-    cursor.setDate(cursor.getDate() + 1);
+    cursorDateStr = shiftDueDateOffRestDay(addDays(cursorDateStr, 1));
   }
+  return cursorDateStr;
 }
 
 /**

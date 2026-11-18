@@ -253,9 +253,9 @@ export type MultiChannelType = 'combined' | 'instagram' | 'email' | 'facebook';
 
 export type GlobalNavTab = 'combined' | 'instagram' | 'inbox' | 'today' | 'dashboard' | 'history' | 'backstage';
 
-export type DailyHistoryStatus = 'full' | 'partial' | 'zero' | 'sunday' | 'frozen' | 'pre_launch';
+export type DailyHistoryStatus = 'full' | 'partial' | 'zero' | 'sunday' | 'frozen' | 'pre_launch' | 'empty';
 
-export type ExecutionTier = 'elite' | 'partial' | 'critical' | 'protected' | 'pre_launch';
+export type ExecutionTier = 'elite' | 'partial' | 'critical' | 'protected' | 'pre_launch' | 'empty';
 
 export type StreakStatus = 'active' | 'protected' | 'in_progress' | 'at_risk' | 'broken' | 'ready';
 
@@ -290,6 +290,13 @@ export interface DailyHistoryRecord {
   warmupCompleted?: number;
   warmupTarget?: number;
   warmupPercentage?: number;
+  // Model A Obligation Ledger fields
+  expectedTotal?: number;
+  capacityTarget?: number;
+  backlog?: number;
+  supplyGap?: boolean;
+  removedMidDay?: number;
+  zeroState?: ObligationZeroState;
 }
 
 export interface HistoryStreakStats {
@@ -441,6 +448,64 @@ export interface ChannelLead {
   archivedAt?: string;
   archivedFromChannel?: MultiChannelType;
   archiveUid?: string;
+
+  // Archive-First Lifecycle & Cancellation
+  lifecycle?: 'active' | 'archived';
+  cadenceStatus?: 'running' | 'completed' | 'cancelled';
+  cancelledReason?: string;
+  cancelledAt?: string;
+
+  // Normalized Duplicate Detection & Historical Restoration
+  possibleDuplicateOf?: string;
+  restoredAt?: string;
+  restoredNote?: string;
+}
+
+export type DispatchStep = 'D0' | 'D4' | 'D8' | 'D14';
+export type DispatchSource = 'live' | 'backfill' | 'reconstruction' | 'restore';
+export type DispatchChannel = 'instagram' | 'email' | 'facebook';
+
+export interface DispatchLogEntry {
+  id: string;
+  leadId: string;
+  leadName: string;
+  channel: DispatchChannel;
+  step: DispatchStep;
+  localDate: string; // 'YYYY-MM-DD' strictly in local calendar timezone
+  timestamp: string; // ISO string
+  source: DispatchSource;
+}
+
+export type ObligationStatus = 'open' | 'locked' | 'frozen';
+export type ObligationZeroState = 'normal' | 'rest' | 'frozen' | 'pre_launch' | 'empty';
+
+export interface DailyObligationSnapshot {
+  date: string; // 'YYYY-MM-DD'
+  expectedTotal: number;
+  expectedInitialIG: number;
+  expectedInitialCombined: number;
+  expectedFollowups: number;
+  isRestDay: boolean;
+  isFrozenDay: boolean;
+  status: ObligationStatus;
+  lockedAt?: string;
+  frozenAt?: string;
+  removedMidDay: number;
+  supplyGap: boolean;
+  zeroState: ObligationZeroState;
+  updatedAt: string;
+}
+
+export interface DeletionLogEntry {
+  id: string;
+  leadId: string;
+  leadName: string;
+  channel: MultiChannelType;
+  action: 'archive' | 'cancel_cadence' | 'permanent_delete';
+  reason?: string;
+  timestamp: string;
+  localDate: string;
+  hadSentHistory: boolean;
 }
 
 

@@ -29,15 +29,23 @@ import {
 } from './utils/cadenceEngine';
 import { isPipelineFrozenNow, togglePipelineFreeze } from './utils/pipelineFreeze';
 import { runDiagnosticDataRepair } from './utils/dataRepair';
+import { backfillDispatchLogFromLeads } from './utils/dispatchLog';
+import { checkAndFreezeRolloverObligations } from './utils/dailyObligation';
 
 export default function App() {
   const [activeNavTab, setActiveNavTab] = useState<GlobalNavTab>('today');
   const [isFrozen, setIsFrozen] = useState<boolean>(() => isPipelineFrozenNow());
   const [inboxCount, setInboxCount] = useState<number>(() => loadInboxLeads().length);
 
-  // Run one-time/auto-clean Diagnostic Data Repair on initialization before reading leads
+  // Run auto-clean Diagnostic Data Repair, immutable dispatch backfill, and rollover freeze on startup
   useState(() => {
     runDiagnosticDataRepair(false);
+    backfillDispatchLogFromLeads([
+      ...loadChannelLeads('combined'),
+      ...loadChannelLeads('instagram'),
+      ...loadBackstageLeads(),
+    ]);
+    checkAndFreezeRolloverObligations(getLocalTodayStr());
   });
 
   // Channel Leads State (Instagram & Unified Combined Outreach)
@@ -124,7 +132,15 @@ export default function App() {
     if (isTodaySunday() || isFrozen) return 0; // Paused on Sunday Rest Mode or Pipeline Freeze Mode
     const all = [...combinedLeads, ...instagramLeads];
     return all.filter((l) => {
-      if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+      if (
+        l.isCompleted ||
+        l.isArchived ||
+        l.cadenceStatus === 'cancelled' ||
+        l.leadStatus === 'replied' ||
+        l.leadStatus === 'completed'
+      ) {
+        return false;
+      }
       if (isLeadDismissedToday(l)) return false;
 
       // 1. Initial outreach due today: Email-only leads dispatch directly on/after scheduled date;
@@ -138,13 +154,18 @@ export default function App() {
         }
       }
 
-      // 2. Follow-Up #1 due today or overdue
+      // 2. Follow-Up #1 (Day 4) due today or overdue
       if (l.initialSentDate && (l.followupCount === 0 || l.followupCount === undefined) && l.followup1Date && (isDateToday(l.followup1Date) || isDateOverdue(l.followup1Date))) {
         return true;
       }
 
-      // 3. Follow-Up #2 due today or overdue
+      // 3. Follow-Up #2 (Day 8) due today or overdue
       if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && (isDateToday(l.followup2Date) || isDateOverdue(l.followup2Date))) {
+        return true;
+      }
+
+      // 4. Follow-Up #3 (Day 14) due today or overdue
+      if (l.initialSentDate && l.followupCount === 2 && l.followup3Date && (isDateToday(l.followup3Date) || isDateOverdue(l.followup3Date))) {
         return true;
       }
 
@@ -233,6 +254,7 @@ export default function App() {
                   setActiveNavTab(channel as GlobalNavTab);
                 }
               }}
+              onNavigateToBackstage={() => setActiveNavTab('backstage')}
               isFrozen={isFrozen}
               onToggleFreeze={handleToggleFreeze}
             />
@@ -250,6 +272,7 @@ export default function App() {
                 }
               }}
               onNavigateToToday={() => setActiveNavTab('today')}
+              onNavigateToBackstage={() => setActiveNavTab('backstage')}
               isFrozen={isFrozen}
               onToggleFreeze={handleToggleFreeze}
             />

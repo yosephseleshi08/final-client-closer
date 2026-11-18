@@ -41,6 +41,16 @@ import { loadChannelLeads } from '../utils/channelStorage';
 import { loadBackstageLeads } from '../utils/backstageStorage';
 import { getVideosVerifiedTodayCount } from '../utils/videoVerification';
 import { getStoriesPostedTodayCount } from '../utils/growthCurve';
+import {
+  getDispatchEntriesForDate,
+  getLifetimeDispatchCount,
+  loadDispatchLog,
+} from '../utils/dispatchLog';
+import { exportObligationLedgerCsv } from '../utils/dailyObligation';
+import {
+  getRemovedMidDayBadgeMeta,
+  getSupplyGapBadgeMeta,
+} from '../utils/executionTiers';
 
 interface HistoryPageProps {
   onNavigateToToday: () => void;
@@ -59,6 +69,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
 }) => {
   const [quotaSettings, setQuotaSettings] = useState(() => getQuotaSettings());
   const [backstageLeads, setBackstageLeads] = useState<ChannelLead[]>(() => loadBackstageLeads());
+  const [ledgerTick, setLedgerTick] = useState(0);
   const [filterStatus, setFilterStatus] = useState<'all' | 'elite' | 'partial' | 'critical' | 'sunday'>('all');
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [inspectedDate, setInspectedDate] = useState<string | null>(null);
@@ -66,7 +77,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
 
   const todayStr = getLocalTodayStr();
 
-  // Combine active leads across channels + sent archived leads so historical audits stay truthful
+  // Combine active leads across channels + sent archived leads for queue/backstage inspection
   const allLeads = useMemo(() => {
     const combined = combinedLeads || loadChannelLeads('combined');
     const ig = instagramLeads || loadChannelLeads('instagram');
@@ -102,91 +113,64 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
     loadDailyHistory(allLeads)
   );
 
-  // Live sync with Quota Settings changes & Storage updates (including Backstage)
+  // Live sync with Quota Settings, immutable dispatch log, daily obligations, & Backstage updates
   useEffect(() => {
     const refreshAudit = () => {
       setQuotaSettings(getQuotaSettings());
       setBackstageLeads(loadBackstageLeads());
+      setLedgerTick((t) => t + 1);
     };
     window.addEventListener('crm_quota_settings_changed', refreshAudit);
     window.addEventListener('backstage_leads_changed', refreshAudit);
     window.addEventListener('pipeline_freeze_changed', refreshAudit);
+    window.addEventListener('ridge_dispatch_log_changed', refreshAudit);
+    window.addEventListener('ridge_daily_obligations_changed', refreshAudit);
+    window.addEventListener('crm_data_repaired', refreshAudit);
     return () => {
       window.removeEventListener('crm_quota_settings_changed', refreshAudit);
       window.removeEventListener('backstage_leads_changed', refreshAudit);
       window.removeEventListener('pipeline_freeze_changed', refreshAudit);
+      window.removeEventListener('ridge_dispatch_log_changed', refreshAudit);
+      window.removeEventListener('ridge_daily_obligations_changed', refreshAudit);
+      window.removeEventListener('crm_data_repaired', refreshAudit);
     };
   }, []);
 
   useEffect(() => {
     setHistoryRecords(loadDailyHistory(allLeads));
-  }, [allLeads, quotaSettings]);
+  }, [allLeads, quotaSettings, ledgerTick]);
 
-  // Actual verified Initial DM dispatches (lifetime count)
+  // Immutable lifetime D0 dispatches strictly from ridge_dispatch_log (never drops on delete)
   const totalInitialDMsDispatched = useMemo(() => {
-    return allLeads.filter(
-      (l) =>
-        Boolean(l.initialSentDate) ||
-        Boolean(l.dispatchedAt) ||
-        l.status === 'dispatched' ||
-        l.status === 'sent' ||
-        Boolean(l.dmSent)
-    ).length;
-  }, [allLeads]);
+    return getLifetimeDispatchCount('D0');
+  }, [ledgerTick]);
 
   const todayAuditScore = useMemo(
     () => calculateDailyExecutionScore(todayStr, allLeads, quotaSettings),
-    [todayStr, allLeads, quotaSettings]
+    [todayStr, allLeads, quotaSettings, ledgerTick]
   );
 
-  // Map touchpoints per date: Initial (Blue), D4 (Purple), D8 (Amber), D14 (Red)
+  // Map touchpoints per date strictly from immutable ridge_dispatch_log
   const touchpointsByDate = useMemo(() => {
     const map: Record<
       string,
       { initial: number; d4: number; d8: number; d14: number }
     > = {};
 
-    allLeads.forEach((l) => {
-      const initDate =
-        normalizeToLocalDateStr(l.initialSentDate) ||
-        (!l.followup1SentDate && !l.followup2SentDate && !l.followup3SentDate
-          ? normalizeToLocalDateStr(l.dispatchDate) ||
-            normalizeToLocalDateStr(l.dispatchedAt) ||
-            (l.dmSent ? normalizeToLocalDateStr(l.dmSentAt) : null)
-          : null);
-
-      if (initDate) {
-        if (!map[initDate]) map[initDate] = { initial: 0, d4: 0, d8: 0, d14: 0 };
-        map[initDate].initial += 1;
+    const entries = loadDispatchLog();
+    for (const entry of entries) {
+      if (!entry.localDate) continue;
+      if (!map[entry.localDate]) {
+        map[entry.localDate] = { initial: 0, d4: 0, d8: 0, d14: 0 };
       }
-
-      if (l.followup1SentDate) {
-        const d4Date = normalizeToLocalDateStr(l.followup1SentDate);
-        if (d4Date) {
-          if (!map[d4Date]) map[d4Date] = { initial: 0, d4: 0, d8: 0, d14: 0 };
-          map[d4Date].d4 += 1;
-        }
-      }
-
-      if (l.followup2SentDate) {
-        const d8Date = normalizeToLocalDateStr(l.followup2SentDate);
-        if (d8Date) {
-          if (!map[d8Date]) map[d8Date] = { initial: 0, d4: 0, d8: 0, d14: 0 };
-          map[d8Date].d8 += 1;
-        }
-      }
-
-      if (l.followup3SentDate) {
-        const d14Date = normalizeToLocalDateStr(l.followup3SentDate);
-        if (d14Date) {
-          if (!map[d14Date]) map[d14Date] = { initial: 0, d4: 0, d8: 0, d14: 0 };
-          map[d14Date].d14 += 1;
-        }
-      }
-    });
+      if (entry.step === 'D0') map[entry.localDate].initial += 1;
+      else if (entry.step === 'D4') map[entry.localDate].d4 += 1;
+      else if (entry.step === 'D8') map[entry.localDate].d8 += 1;
+      else if (entry.step === 'D14') map[entry.localDate].d14 += 1;
+    }
 
     return map;
-  }, [allLeads]);
+  }, [ledgerTick]);
 
   // Auditable Streak calculations & aggregates
   const streakStats = useMemo(
@@ -197,13 +181,13 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
         todayVideosVerified: getVideosVerifiedTodayCount(),
         todayStoriesPosted: getStoriesPostedTodayCount(),
       }),
-    [historyRecords, allLeads, todayAuditScore.actual]
+    [historyRecords, allLeads, todayAuditScore.actual, ledgerTick]
   );
 
-  // 30-day window (every day recalculated via calculateDailyExecutionScore)
+  // 30-day window reconciled against immutable ridge_dispatch_log & ridge_daily_obligations
   const thirtyDayWindow = useMemo(
     () => get30DayHistoryView(historyRecords, allLeads),
-    [historyRecords, allLeads]
+    [historyRecords, allLeads, ledgerTick]
   );
 
   // Filtered chronological entries
@@ -214,18 +198,27 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
       }
       if (filterStatus === 'all') return true;
       if (filterStatus === 'sunday') return record.isSunday || Boolean(record.isFrozen);
-      if (record.isSunday || record.isFrozen || record.status === 'pre_launch') return false;
+      if (
+        record.isSunday ||
+        record.isFrozen ||
+        record.status === 'pre_launch' ||
+        record.status === 'empty' ||
+        record.executionTier === 'empty'
+      ) {
+        return false;
+      }
       const tier =
         record.executionTier ||
         getExecutionTierMeta(record.percentage, {
           streakThreshold: quotaSettings.streakThreshold,
+          streakMinPercent: quotaSettings.streakMinPercent,
         }).tier;
       if (filterStatus === 'elite') return tier === 'elite';
       if (filterStatus === 'partial') return tier === 'partial';
       if (filterStatus === 'critical') return tier === 'critical';
       return true;
     });
-  }, [thirtyDayWindow, filterStatus, selectedDate, quotaSettings.streakThreshold]);
+  }, [thirtyDayWindow, filterStatus, selectedDate, quotaSettings.streakThreshold, quotaSettings.streakMinPercent]);
 
   const handleResetConfirm = () => {
     const refreshed = resetDailyHistory();
@@ -235,92 +228,11 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
   };
 
   /**
-   * Requirement 3: Download History CSV
-   * Columns: Date, Completion % (Outreach), Completion % (Warm-Up), Initial DMs Sent, Day 4 Sent, Day 8 Sent, Day 14 Sent
+   * Model A Ledger CSV Export (strict 10 columns):
+   * date,expected_total,capacity_target,actual,percentage,tier,backlog,supply_gap,removed_mid_day,frozen
    */
   const handleDownloadCsv = () => {
-    const headers = [
-      'Date',
-      'Completion % (Outreach)',
-      'Completion % (Warm-Up)',
-      'Initial DMs Sent',
-      'Day 4 Sent',
-      'Day 8 Sent',
-      'Day 14 Sent',
-    ];
-
-    // Calculate live warmup metrics for today from current leads
-    const warmupTargetDateStr = isDateStringSunday(todayStr)
-      ? null
-      : getTomorrowWarmupTargetDate(todayStr);
-    const warmupLeadsForTomorrow = warmupTargetDateStr
-      ? allLeads.filter(
-          (l) =>
-            !l.isCompleted &&
-            !l.initialSentDate &&
-            l.scheduledDate === warmupTargetDateStr &&
-            !isEmailOnlyLead(l)
-        )
-      : [];
-    const warmupCompletedTodayCount = warmupLeadsForTomorrow.filter(
-      (l) => l.warmupStatus === 'warmed' || l.isWarmedUp
-    ).length;
-    const warmupTotalNeededToday = warmupLeadsForTomorrow.length;
-    const liveWarmupPctToday =
-      warmupTotalNeededToday > 0
-        ? Math.min(100, Math.round((warmupCompletedTodayCount / warmupTotalNeededToday) * 100))
-        : 100;
-
-    const rows = thirtyDayWindow.map((day) => {
-      const tp = touchpointsByDate[day.date] || { initial: 0, d4: 0, d8: 0, d14: 0 };
-      const actual = day.actualDispatched ?? day.dmsSent ?? 0;
-      const expected = day.expectedQuota ?? day.dmsTarget ?? quotaSettings.dailyQuota;
-      const outreachPct =
-        day.isSunday || day.isFrozen
-          ? 'Rest (100% Protected)'
-          : day.status === 'pre_launch'
-          ? '0%'
-          : `${day.percentage}% (${actual}/${expected} Dispatched)`;
-
-      // Accurate calculated maths for warm-up completion percentage:
-      let warmupPct: string;
-      if (day.isSunday) {
-        warmupPct = 'Rest';
-      } else if (day.status === 'pre_launch') {
-        warmupPct = '0%';
-      } else if (day.date === todayStr) {
-        // Today: prioritize live real-time calculated warm-up progress (100% when all are completed)
-        warmupPct = `${liveWarmupPctToday}%`;
-      } else if (day.warmupPercentage !== undefined) {
-        warmupPct = `${day.warmupPercentage}%`;
-      } else if (day.status === 'full') {
-        warmupPct = '100%';
-      } else if (day.warmupTarget !== undefined && day.warmupTarget > 0) {
-        warmupPct = `${Math.min(100, Math.round(((day.warmupCompleted || 0) / day.warmupTarget) * 100))}%`;
-      } else {
-        // For past historical days without explicit record, check social leads warmed on that date
-        const warmedOnDate = allLeads.filter(
-          (l) => !isEmailOnlyLead(l) && l.warmedUpAt && normalizeToLocalDateStr(l.warmedUpAt) === day.date
-        ).length;
-        if (warmedOnDate > 0) {
-          warmupPct = `${Math.min(100, Math.round((warmedOnDate / 10) * 100))}%`;
-        } else {
-          warmupPct = '0%';
-        }
-      }
-
-      return [
-        `"${day.date}"`,
-        `"${outreachPct}"`,
-        `"${warmupPct}"`,
-        tp.initial,
-        tp.d4,
-        tp.d8,
-        tp.d14,
-      ].join(',');
-    });
-
-    const csvContent = [headers.join(','), ...rows].join('\n');
+    const csvContent = exportObligationLedgerCsv(30, todayStr, allLeads);
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -337,66 +249,61 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
     const normalized = normalizeToLocalDateStr(targetDate);
     if (!normalized) return { initial: [], d4: [], d8: [], d14: [] };
 
-    const d4 = allLeads.filter((l) => normalizeToLocalDateStr(l.followup1SentDate) === normalized);
-    const d8 = allLeads.filter((l) => normalizeToLocalDateStr(l.followup2SentDate) === normalized);
-    const d14 = allLeads.filter((l) => normalizeToLocalDateStr(l.followup3SentDate) === normalized);
-    const followupHitIds = new Set([...d4, ...d8, ...d14].map((l) => `${l.channel}::${l.id}`));
-
-    const initial = allLeads.filter((l) => {
-      if (normalizeToLocalDateStr(l.initialSentDate) === normalized) return true;
-      if (followupHitIds.has(`${l.channel}::${l.id}`)) return false;
-      if (
-        (l.status === 'dispatched' || l.status === 'sent') &&
-        normalizeToLocalDateStr(l.dispatchDate) === normalized
-      ) {
-        return true;
-      }
-      if (normalizeToLocalDateStr(l.dispatchedAt) === normalized) return true;
-      if (l.dmSent && normalizeToLocalDateStr(l.dmSentAt) === normalized) return true;
-      return false;
+    const entries = getDispatchEntriesForDate(normalized);
+    const toRow = (entry: ReturnType<typeof getDispatchEntriesForDate>[number]) => ({
+      id: entry.leadId,
+      name: entry.leadName,
+      channel: entry.channel,
+      source: entry.source,
     });
 
     return {
-      initial,
-      d4,
-      d8,
-      d14,
+      initial: entries.filter((e) => e.step === 'D0').map(toRow),
+      d4: entries.filter((e) => e.step === 'D4').map(toRow),
+      d8: entries.filter((e) => e.step === 'D8').map(toRow),
+      d14: entries.filter((e) => e.step === 'D14').map(toRow),
     };
   };
 
-  // Helper for dynamic 3-tier status styling, fractions, & shortfall descriptions
+  // Helper for Model A execution tier status styling, capacity fractions, & flags
   const getStatusDisplay = (record: DailyHistoryRecord) => {
     const actual = record.actualDispatched ?? record.dmsSent ?? 0;
-    const expected = record.expectedQuota ?? record.dmsTarget ?? quotaSettings.dailyQuota;
+    const capacityTarget =
+      record.capacityTarget ?? record.expectedQuota ?? record.dmsTarget ?? quotaSettings.dailyCapacity;
+    const backlog = record.backlog ?? 0;
     const igActual = record.igDispatched ?? 0;
     const igExpected = record.igExpected ?? quotaSettings.igQuota;
     const combActual = record.combinedDispatched ?? 0;
     const combExpected = record.combinedExpected ?? quotaSettings.combinedQuota;
+    const isEmpty = record.status === 'empty' || record.executionTier === 'empty' || record.zeroState === 'empty';
+    const isPreLaunch = record.status === 'pre_launch' || record.executionTier === 'pre_launch';
 
-    const tierMeta = getExecutionTierMeta(record.percentage, {
+    const tierMeta = getExecutionTierMeta(isEmpty || isPreLaunch ? null : record.percentage, {
       isSunday: record.isSunday,
       isFrozen: record.isFrozen || record.status === 'frozen',
-      isPreLaunch: record.status === 'pre_launch' || record.executionTier === 'pre_launch',
+      isPreLaunch,
+      isEmpty,
       streakThreshold: quotaSettings.streakThreshold,
+      streakMinPercent: quotaSettings.streakMinPercent,
     });
 
     if (record.status === 'frozen' || record.isFrozen) {
       return {
         ...tierMeta,
-        label: '100% Protected (Frozen)',
+        label: 'Protected 100% (Frozen)',
         icon: <span className="text-xs">❄️</span>,
-        desc: 'Pipeline frozen for the week · Expected 0 · 100% streak immunity preserved',
+        desc: 'Pipeline frozen · Expected 0 · 100% streak immunity preserved',
       };
     }
     if (record.isSunday) {
       return {
         ...tierMeta,
-        label: 'Rest Day · 100% Protected',
-        icon: <Coffee className="w-3.5 h-3.5 text-slate-400" />,
+        label: 'Protected 100% (Rest Day)',
+        icon: <Coffee className="w-3.5 h-3.5 text-slate-300" />,
         desc: 'Sunday rest protocol · Expected 0 · Streak auto-protected',
       };
     }
-    if (record.status === 'pre_launch' || record.executionTier === 'pre_launch') {
+    if (isPreLaunch) {
       return {
         ...tierMeta,
         label: 'Pre-Launch',
@@ -404,15 +311,23 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
         desc: 'Prior to first verified dispatch · Zero failure penalty',
       };
     }
+    if (isEmpty) {
+      return {
+        ...tierMeta,
+        label: 'Pipeline Empty — Refill Required',
+        icon: <Clock className="w-3.5 h-3.5 text-[#F59E0B]" />,
+        desc: '0 due today · Add/schedule prospects to resume capacity execution',
+      };
+    }
 
-    const fraction = `${actual}/${expected} Dispatched`;
+    const fraction = `${actual}/${capacityTarget}${backlog > 0 ? ` (+${backlog} backlog)` : ''}`;
     const splitLine = `IG ${igActual}/${igExpected} · Combined ${combActual}/${combExpected}`;
     const reason = record.shortfallReason || splitLine;
 
     if (tierMeta.tier === 'elite') {
       return {
         ...tierMeta,
-        label: `${record.percentage}% (${fraction}) · Elite Execution`,
+        label: `${record.percentage}% (${fraction}) · Elite`,
         icon: <CheckCircle2 className="w-3.5 h-3.5 text-[#10B981]" />,
         desc: `${splitLine} · ${reason}`,
       };
@@ -421,7 +336,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
     if (tierMeta.tier === 'partial') {
       return {
         ...tierMeta,
-        label: `${record.percentage}% (${fraction}) · Partial Execution (Supply Gap)`,
+        label: `${record.percentage}% (${fraction}) · Partial`,
         icon: <Clock className="w-3.5 h-3.5 text-[#F59E0B]" />,
         desc: reason,
       };
@@ -449,7 +364,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
             </h2>
           </div>
           <p className="mt-1 text-xs text-slate-400">
-            Auditable execution ledger ({quotaSettings.dailyQuota}/day quota: {quotaSettings.igQuota} IG + {quotaSettings.combinedQuota} Combined) · Streak min {quotaSettings.streakThreshold}% · Sundays protected
+            Immutable Model A ledger (Capacity cap {quotaSettings.dailyCapacity}/day · Quotas {quotaSettings.igQuota} IG + {quotaSettings.combinedQuota} Combined) · Streak min {quotaSettings.streakMinPercent}% · Lifetime D0: <strong className="text-slate-200 font-mono">{totalInitialDMsDispatched}</strong>
           </p>
         </div>
 
@@ -585,30 +500,41 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
           </div>
         </div>
 
-        {/* Total DMs Dispatched (Verified Initial + Audit) */}
+        {/* Today's Audited Model A Capacity & Lifetime D0 */}
         <div className="rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-500/10 via-slate-900/80 to-slate-900 p-5 shadow-lg">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-indigo-300/80 uppercase tracking-wider">
-              Today&apos;s Audited Quota
+              Today&apos;s Capacity &amp; Lifetime
             </span>
             <div className="w-8 h-8 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center">
               <Layers className="w-4 h-4 text-indigo-400" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
+          <div className="mt-3 flex items-baseline gap-2 flex-wrap">
             <span className="text-3xl font-black text-white font-mono tabular-nums">
               {todayAuditScore.isRestDay || todayAuditScore.isFrozen
                 ? '100%'
+                : todayAuditScore.zeroState === 'empty'
+                ? 'Empty'
+                : todayAuditScore.zeroState === 'pre_launch'
+                ? '—'
                 : `${todayAuditScore.percentage}%`}
             </span>
             <span className="text-xs text-indigo-300 font-mono font-bold tabular-nums">
               {todayAuditScore.isRestDay || todayAuditScore.isFrozen
-                ? 'Rest / Protected'
-                : `(${todayAuditScore.actual}/${todayAuditScore.expected} Dispatched)`}
+                ? 'Protected 100%'
+                : todayAuditScore.zeroState === 'empty'
+                ? 'Refill Needed'
+                : `(${todayAuditScore.actual}/${todayAuditScore.capacityTarget} Cap)`}
             </span>
+            {todayAuditScore.backlog > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 font-mono font-bold">
+                +{todayAuditScore.backlog} backlog
+              </span>
+            )}
           </div>
           <p className="mt-2 text-[11px] text-slate-400 leading-relaxed font-mono">
-            {todayAuditScore.shortfallReason}
+            Lifetime Total DMs Dispatched: <strong className="text-white">{totalInitialDMsDispatched}</strong> · {todayAuditScore.shortfallReason}
           </p>
         </div>
       </div>
@@ -624,7 +550,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
             <span className="text-xs text-slate-500">· Hover or click any date to inspect shortfall &amp; dispatches</span>
           </div>
 
-          {/* 3-Tier Auditable Legend */}
+          {/* Model A Execution Tier Legend */}
           <div className="flex flex-wrap items-center gap-2.5 text-[11px] text-slate-400">
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-[#10B981]" />
@@ -632,15 +558,15 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]" />
-              <span>70–89% Supply Gap</span>
+              <span>{quotaSettings.streakMinPercent}–89% Partial / Empty</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-[#EF4444]" />
-              <span>&lt;70% Critical Miss</span>
+              <span>&lt;{quotaSettings.streakMinPercent}% Critical Miss</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-slate-400" />
-              <span>Rest (100% Protected)</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-[#6B7280]" />
+              <span>Protected 100%</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-slate-600" />
@@ -670,19 +596,25 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
             const statusMeta = getStatusDisplay(day);
             const tp = touchpointsByDate[day.date] || { initial: 0, d4: 0, d8: 0, d14: 0 };
             const actual = day.actualDispatched ?? day.dmsSent ?? 0;
-            const expected = day.expectedQuota ?? day.dmsTarget ?? quotaSettings.dailyQuota;
+            const capacityTarget = day.capacityTarget ?? day.expectedQuota ?? day.dmsTarget ?? quotaSettings.dailyCapacity;
+            const backlog = day.backlog ?? 0;
+            const isEmpty = day.status === 'empty' || day.executionTier === 'empty';
+            const isPreLaunch = day.status === 'pre_launch';
+            const supplyGapMeta = getSupplyGapBadgeMeta(Boolean(day.supplyGap) && !day.isSunday && !day.isFrozen && !isEmpty && !isPreLaunch);
 
             const borderStyle = isSelected
               ? 'border-indigo-400 ring-2 ring-indigo-400/20 bg-indigo-500/10'
               : statusMeta.cardBorderClass;
 
             const tooltipText = day.isSunday
-              ? `${day.displayDate}: Sunday Rest Day · 100% Protected`
+              ? `${day.displayDate}: Sunday Rest Day · Protected 100%`
               : day.isFrozen
-              ? `${day.displayDate}: Pipeline Frozen · 100% Protected`
-              : day.status === 'pre_launch'
+              ? `${day.displayDate}: Pipeline Frozen · Protected 100%`
+              : isPreLaunch
               ? `${day.displayDate}: Pre-Launch (Outreach Not Started)`
-              : `${day.displayDate}: ${day.percentage}% (${actual}/${expected} Dispatched) · ${statusMeta.shortLabel} — ${day.shortfallReason || statusMeta.desc}`;
+              : isEmpty
+              ? `${day.displayDate}: Pipeline Empty — Refill Required`
+              : `${day.displayDate}: ${day.percentage}% (${actual}/${capacityTarget} Cap${backlog > 0 ? `, +${backlog} backlog` : ''}) · ${statusMeta.shortLabel} — ${day.shortfallReason || statusMeta.desc}`;
 
             return (
               <button
@@ -708,7 +640,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                       className="text-sm font-bold font-mono tabular-nums"
                       style={{
                         color:
-                          day.isSunday || day.isFrozen || day.status === 'pre_launch'
+                          day.isSunday || day.isFrozen || isPreLaunch
                             ? '#ffffff'
                             : statusMeta.colorHex,
                       }}
@@ -717,24 +649,32 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                         ? 'Rest'
                         : day.isFrozen
                         ? 'Frozen'
-                        : day.status === 'pre_launch'
+                        : isPreLaunch
                         ? 'Pre-Launch'
+                        : isEmpty
+                        ? 'Empty'
                         : `${day.percentage}%`}
                     </span>
                     <span className="text-[10px] text-slate-300 font-mono tabular-nums">
                       {day.isSunday || day.isFrozen
                         ? '100%'
-                        : day.status === 'pre_launch'
+                        : isPreLaunch || isEmpty
                         ? '—'
-                        : `${actual}/${expected}`}
+                        : `${actual}/${capacityTarget}`}
                     </span>
                   </div>
-                  {!day.isSunday && !day.isFrozen && day.status !== 'pre_launch' && (
+                  {!day.isSunday && !day.isFrozen && !isPreLaunch && (
                     <div
-                      className="text-[9px] font-mono font-semibold truncate mt-0.5"
+                      className="text-[9px] font-mono font-semibold truncate mt-0.5 flex items-center gap-1"
                       style={{ color: statusMeta.colorHex }}
                     >
-                      {statusMeta.shortLabel}
+                      <span>{statusMeta.shortLabel}</span>
+                      {backlog > 0 && (
+                        <span className="text-indigo-300">+{backlog}</span>
+                      )}
+                      {supplyGapMeta && (
+                        <span className="text-amber-300">· Gap</span>
+                      )}
                     </div>
                   )}
 
@@ -837,7 +777,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Supply Gap (70–89%)
+              Partial ({quotaSettings.streakMinPercent}–89%)
             </button>
             <button
               onClick={() => {
@@ -850,7 +790,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              Critical (&lt;70%)
+              Critical (&lt;{quotaSettings.streakMinPercent}%)
             </button>
             <button
               onClick={() => {
@@ -890,6 +830,10 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
             filteredRecords.map((record) => {
               const statusMeta = getStatusDisplay(record);
               const isToday = record.date === todayStr;
+              const supplyGapMeta = getSupplyGapBadgeMeta(
+                Boolean(record.supplyGap) && !record.isSunday && !record.isFrozen && record.status !== 'pre_launch' && record.status !== 'empty'
+              );
+              const removedMeta = getRemovedMidDayBadgeMeta(record.removedMidDay ?? 0);
 
               return (
                 <div
@@ -904,13 +848,29 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                   <div className="flex items-center gap-3.5">
                     <span className={`w-3 h-3 rounded-full shrink-0 ${statusMeta.dotClass}`} />
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-bold text-white font-mono">
                           {record.displayDate}
                         </span>
                         {isToday && (
                           <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">
                             Today
+                          </span>
+                        )}
+                        {supplyGapMeta && (
+                          <span
+                            className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${supplyGapMeta.badgeClass}`}
+                            title={supplyGapMeta.tooltip}
+                          >
+                            {supplyGapMeta.label}
+                          </span>
+                        )}
+                        {removedMeta && (
+                          <span
+                            className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${removedMeta.badgeClass}`}
+                            title={removedMeta.tooltip}
+                          >
+                            {removedMeta.label}
                           </span>
                         )}
                       </div>
@@ -1122,7 +1082,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Are you sure you want to reset your history ledger? Your historical records will be cleared and reset to 0. Your actual leads and notes in Instagram and Combined Outreach will not be touched.
+              This clears only the legacy UI view cache. Your immutable <code className="text-indigo-300">ridge_dispatch_log</code> and frozen <code className="text-indigo-300">ridge_daily_obligations</code> audit snapshots—plus your leads and notes—remain preserved and protected.
             </p>
 
             <div className="flex items-center justify-end gap-3 pt-2">

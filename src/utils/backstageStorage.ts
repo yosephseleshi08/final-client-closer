@@ -6,6 +6,8 @@ import {
   normalizeEmailOnlyWarmupStatus,
 } from './channelStorage';
 import { getStrictVoiceTypeForId, recalculateAllVoiceTypes } from './voiceTypeEngine';
+import { buildArchivedLeadState, hasLeadSentHistory } from './leadLifecycle';
+import { appendDeletionLog } from './deletionLog';
 
 export const BACKSTAGE_STORAGE_KEY = 'outreach_backstage_leads_v1';
 
@@ -43,6 +45,7 @@ export function loadBackstageLeads(): ChannelLead[] {
       return {
         ...item,
         isArchived: true,
+        lifecycle: 'archived',
         archivedFromChannel: item.archivedFromChannel || targetChannel,
         archiveUid: uid,
       };
@@ -78,28 +81,24 @@ export function saveBackstageLeads(leads: ChannelLead[]): void {
 }
 
 /**
- * Soft-deletes one or more leads: marks isArchived: true and moves them to Backstage localStorage.
+ * Archive-First Soft Delete with explicit cadence choice:
+ * - 'keep_running': keeps initialSentDate & follow-up timers alive so D4/D8/D14 stay visible
+ * - 'cancel_cadence': sets cadenceStatus = 'cancelled' with reason & clears future schedule
  */
-export function archiveLeadsToBackstage(
+export function archiveLeadsWithChoice(
   leadsToArchive: ChannelLead[],
-  sourceChannel: MultiChannelType
+  sourceChannel: MultiChannelType,
+  choice: 'keep_running' | 'cancel_cadence' = 'keep_running',
+  cancelReason?: string
 ): ChannelLead[] {
   if (!leadsToArchive || leadsToArchive.length === 0) {
     return loadBackstageLeads();
   }
 
-  const nowIso = new Date().toISOString();
-  const normalizedChannel: 'combined' | 'instagram' =
-    sourceChannel === 'instagram' ? 'instagram' : 'combined';
-
   const existingBackstage = loadBackstageLeads();
-  const archivedItems: ChannelLead[] = leadsToArchive.map((lead, idx) => ({
-    ...lead,
-    isArchived: true,
-    archivedAt: nowIso,
-    archivedFromChannel: normalizedChannel,
-    archiveUid: createArchiveUid(lead, normalizedChannel, idx),
-  }));
+  const archivedItems: ChannelLead[] = leadsToArchive.map((lead, idx) =>
+    buildArchivedLeadState(lead, sourceChannel, choice, cancelReason, idx)
+  );
 
   const updatedBackstage = [...archivedItems, ...existingBackstage];
   saveBackstageLeads(updatedBackstage);
@@ -107,7 +106,49 @@ export function archiveLeadsToBackstage(
 }
 
 /**
- * Restores selected Backstage leads (isArchived: false) back into their main active workspaces.
+ * Backwards-compatible soft-delete wrapper: keeps cadence running on sent leads, archives clean.
+ */
+export function archiveLeadsToBackstage(
+  leadsToArchive: ChannelLead[],
+  sourceChannel: MultiChannelType
+): ChannelLead[] {
+  return archiveLeadsWithChoice(leadsToArchive, sourceChannel, 'keep_running');
+}
+
+/**
+ * Cancels an archived lead's running follow-up cadence directly inside Backstage.
+ */
+export function cancelBackstageLeadCadence(
+  archiveUid: string,
+  reason = 'Cancelled by operator in Backstage'
+): ChannelLead[] {
+  const current = loadBackstageLeads();
+  const nowIso = new Date().toISOString();
+  const updated = current.map((l) => {
+    if (l.archiveUid !== archiveUid) return l;
+    appendDeletionLog({
+      leadId: l.id,
+      leadName: l.name,
+      channel: getNormalizedTargetChannel(l),
+      action: 'cancel_cadence',
+      reason,
+      hadSentHistory: hasLeadSentHistory(l),
+    });
+    return {
+      ...l,
+      cadenceStatus: 'cancelled' as const,
+      cancelledReason: reason,
+      cancelledAt: nowIso,
+      scheduledDate: undefined,
+    };
+  });
+  saveBackstageLeads(updated);
+  return updated;
+}
+
+/**
+ * Restores selected Backstage leads (isArchived: false, lifecycle: 'active') back into main workspaces.
+ * Preserves existing cadenceStatus ('cancelled' stays 'cancelled', running sent leads resume cleanly).
  */
 export function restoreLeadsFromBackstage(
   archiveUids: string[],
@@ -139,7 +180,6 @@ export function restoreLeadsFromBackstage(
     };
   }
 
-  // Restore in ascending original numericId order so original ordering is preserved when batch-restoring
   const sortedToRestore = [...toRestore].sort(
     (a, b) => (a.numericId ?? 0) - (b.numericId ?? 0)
   );
@@ -173,6 +213,13 @@ export function restoreLeadsFromBackstage(
 
     const resolvedVoiceType = getStrictVoiceTypeForId(assignedId.numericId, targetChannel);
 
+    const preservedCadenceStatus =
+      cleanFields.cadenceStatus === 'cancelled'
+        ? ('cancelled' as const)
+        : cleanFields.isCompleted || cleanFields.leadStatus === 'replied' || cleanFields.leadStatus === 'completed'
+        ? ('completed' as const)
+        : ('running' as const);
+
     const restoredLead: ChannelLead = {
       ...cleanFields,
       id: assignedId.id,
@@ -181,6 +228,8 @@ export function restoreLeadsFromBackstage(
       voiceType: resolvedVoiceType,
       isVoiceTypeOverridden: false,
       isArchived: false,
+      lifecycle: 'active',
+      cadenceStatus: preservedCadenceStatus,
       sortOrder: targetList.length,
     };
 
@@ -212,21 +261,44 @@ export function restoreLeadsFromBackstage(
 }
 
 /**
- * Permanently removes selected leads from Backstage (irreversible).
- * Should ONLY be called after explicit user confirmation in BackstagePage.
+ * Permanently removes selected leads from Backstage.
+ * Logs permanent deletion to 'ridge_deletion_log' and NEVER touches 'ridge_dispatch_log' or frozen obligations!
  */
 export function permanentlyDeleteFromBackstage(archiveUids: string[]): ChannelLead[] {
   const uidSet = new Set(archiveUids);
   const currentBackstage = loadBackstageLeads();
+  const toDelete = currentBackstage.filter((l) => l.archiveUid && uidSet.has(l.archiveUid));
+
+  for (const lead of toDelete) {
+    appendDeletionLog({
+      leadId: lead.id,
+      leadName: lead.name,
+      channel: getNormalizedTargetChannel(lead),
+      action: 'permanent_delete',
+      hadSentHistory: hasLeadSentHistory(lead),
+    });
+  }
+
   const remaining = currentBackstage.filter((l) => !l.archiveUid || !uidSet.has(l.archiveUid));
   saveBackstageLeads(remaining);
   return remaining;
 }
 
 /**
- * Permanently clears all leads from Backstage (irreversible).
+ * Permanently clears all leads from Backstage while leaving immutable dispatch/obligation logs untouched.
  */
 export function clearAllBackstageLeads(): ChannelLead[] {
+  const currentBackstage = loadBackstageLeads();
+  for (const lead of currentBackstage) {
+    appendDeletionLog({
+      leadId: lead.id,
+      leadName: lead.name,
+      channel: getNormalizedTargetChannel(lead),
+      action: 'permanent_delete',
+      reason: 'Empty Backstage',
+      hadSentHistory: hasLeadSentHistory(lead),
+    });
+  }
   saveBackstageLeads([]);
   return [];
 }

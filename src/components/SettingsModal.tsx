@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Settings, ShieldCheck, Lock, Unlock, AlertTriangle, Check, Wrench, Target } from 'lucide-react';
+import { X, Settings, ShieldCheck, Lock, Unlock, AlertTriangle, Check, Wrench, Target, History, RotateCcw, Mail } from 'lucide-react';
 import { isManualWarmupOverrideEnabled, setManualWarmupOverride } from '../utils/cadenceEngine';
 import { runDiagnosticDataRepair, DataRepairReport } from '../utils/dataRepair';
+import {
+  applyHistoryRepair,
+  applySentDateRestore,
+  HistoryRepairResult,
+  SentDateRestoreResult,
+} from '../data/sentDateRestore';
 import {
   DEFAULT_EXECUTION_QUOTA_SETTINGS,
   getQuotaSettings,
@@ -18,9 +24,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [overrideEnabled, setOverrideEnabled] = useState<boolean>(() => isManualWarmupOverrideEnabled());
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [repairReport, setRepairReport] = useState<DataRepairReport | null>(null);
+  const [historyRepairResult, setHistoryRepairResult] = useState<HistoryRepairResult | null>(null);
+  const [sentRestoreResult, setSentRestoreResult] = useState<SentDateRestoreResult | null>(null);
 
   const [igQuota, setIgQuota] = useState<number>(() => getQuotaSettings().igQuota);
   const [combinedQuota, setCombinedQuota] = useState<number>(() => getQuotaSettings().combinedQuota);
+  const [dailyCapacity, setDailyCapacity] = useState<number>(() => getQuotaSettings().dailyCapacity);
   const [streakThreshold, setStreakThreshold] = useState<number>(() => getQuotaSettings().streakThreshold);
 
   useEffect(() => {
@@ -29,6 +38,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     const currentQuota = getQuotaSettings();
     setIgQuota(currentQuota.igQuota);
     setCombinedQuota(currentQuota.combinedQuota);
+    setDailyCapacity(currentQuota.dailyCapacity);
     setStreakThreshold(currentQuota.streakThreshold);
   }, [isOpen]);
 
@@ -69,13 +79,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     const saved = saveQuotaSettings({
       igQuota,
       combinedQuota,
+      dailyCapacity,
       streakThreshold,
+      streakMinPercent: streakThreshold,
     });
     setIgQuota(saved.igQuota);
     setCombinedQuota(saved.combinedQuota);
+    setDailyCapacity(saved.dailyCapacity);
     setStreakThreshold(saved.streakThreshold);
     setStatusMessage(
-      `✅ Daily Audit Quota updated: ${saved.dailyQuota} total (${saved.igQuota} IG + ${saved.combinedQuota} Combined) · Streak Protection >= ${saved.streakThreshold}%`
+      `✅ Model A Quota saved: ${saved.igQuota} IG · ${saved.combinedQuota} Combined · ${saved.dailyCapacity} Cap · Streak Min ${saved.streakMinPercent}%`
     );
     setTimeout(() => {
       setStatusMessage(null);
@@ -86,8 +99,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     const saved = saveQuotaSettings(DEFAULT_EXECUTION_QUOTA_SETTINGS);
     setIgQuota(saved.igQuota);
     setCombinedQuota(saved.combinedQuota);
+    setDailyCapacity(saved.dailyCapacity);
     setStreakThreshold(saved.streakThreshold);
-    setStatusMessage('🔄 Restored default Daily Quota (10 total: 6 IG + 4 Combined) & 70% Streak Threshold.');
+    setStatusMessage('🔄 Restored defaults (6 IG · 4 Combined · 20 Daily Cap · 50% Streak Min).');
     setTimeout(() => {
       setStatusMessage(null);
     }, 4000);
@@ -104,6 +118,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setTimeout(() => {
       setStatusMessage(null);
     }, 5500);
+  };
+
+  const handleRepairHistory = () => {
+    const res = applyHistoryRepair();
+    setHistoryRepairResult(res);
+    setStatusMessage(
+      `🛡️ History Repaired: Added ${res.reconstructedEntriesAdded} ledger entries, froze ${res.snapshotsFrozen} baseline snapshots. Lifetime D0: ${res.lifetimeD0Count}.`
+    );
+    setTimeout(() => {
+      setStatusMessage(null);
+    }, 6000);
+  };
+
+  const handleRestoreSentDates = () => {
+    const res = applySentDateRestore();
+    setSentRestoreResult(res);
+    setStatusMessage(
+      `♻️ Sent Dates Restored: ${res.restoredLeadIds.length} lead(s) restored to Nov D0, ${res.cancelledDuplicateIds.length} duplicate cancelled.`
+    );
+    setTimeout(() => {
+      setStatusMessage(null);
+    }, 6000);
   };
 
   const modalContent = (
@@ -175,7 +211,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             </span>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <label className="space-y-1">
               <span className="text-[11px] font-mono text-pink-300 font-semibold block">
                 IG Quota
@@ -203,6 +239,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               />
             </label>
             <label className="space-y-1">
+              <span className="text-[11px] font-mono text-emerald-300 font-semibold block">
+                Daily Cap
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={dailyCapacity}
+                onChange={(e) => setDailyCapacity(Math.max(1, Number(e.target.value)))}
+                className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-white/10 text-sm font-mono font-bold text-white tabular-nums focus:outline-none focus:border-emerald-400"
+              />
+            </label>
+            <label className="space-y-1">
               <span className="text-[11px] font-mono text-amber-300 font-semibold block">
                 Streak Min %
               </span>
@@ -225,7 +274,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               onClick={handleResetQuotaDefaults}
               className="text-[11px] font-mono text-slate-400 hover:text-slate-200 underline cursor-pointer"
             >
-              Reset Default (6 IG · 4 Combined · 70%)
+              Reset Default (6 IG · 4 Combined · 20 Cap · 50%)
             </button>
             <button
               type="button"
@@ -353,6 +402,79 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <span>Run Data Repair</span>
             </button>
           </div>
+        </div>
+
+        {/* Section: Data Recovery & Audit Repair (Immutable Ledger + Restored Nov Sent Dates) */}
+        <div className="p-4 rounded-2xl bg-slate-950/60 border border-emerald-500/20 space-y-3.5">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <History className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm font-bold text-white font-['Outfit']">
+                  Data Recovery &amp; Audit Repair
+                </span>
+              </div>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                IDEMPOTENT
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Reconstruct immutable November ledger snapshots (Nov 14–18) or restore original November D0 sent dates on re-imported leads (CM-64–CM-74) to prevent duplicate outreach.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              onClick={handleRepairHistory}
+              className="px-3.5 py-2 rounded-xl bg-emerald-600/80 hover:bg-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/50 transition cursor-pointer active:scale-95"
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>Repair History</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleRestoreSentDates}
+              className="px-3.5 py-2 rounded-xl bg-amber-600/80 hover:bg-amber-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-950/50 transition cursor-pointer active:scale-95"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Restore Sent Dates</span>
+            </button>
+          </div>
+
+          {historyRepairResult && (
+            <div className="p-3 rounded-xl bg-slate-900/90 border border-emerald-500/30 text-[11px] font-mono text-slate-300 space-y-1.5">
+              <div className="flex items-center justify-between text-emerald-300 font-bold">
+                <span>History Ledger Repaired</span>
+                <span>Lifetime D0: {historyRepairResult.lifetimeD0Count}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-1 text-[10px] text-slate-400 tabular-nums">
+                <span>Nov 14: {historyRepairResult.totalsByDate['2026-11-14']?.actual ?? 0}/{historyRepairResult.totalsByDate['2026-11-14']?.expectedTotal ?? 10}</span>
+                <span>Nov 16: {historyRepairResult.totalsByDate['2026-11-16']?.actual ?? 0}/{historyRepairResult.totalsByDate['2026-11-16']?.expectedTotal ?? 20}</span>
+                <span>Nov 17: {historyRepairResult.totalsByDate['2026-11-17']?.actual ?? 0}/{historyRepairResult.totalsByDate['2026-11-17']?.expectedTotal ?? 20}</span>
+                <span>Nov 18: {historyRepairResult.totalsByDate['2026-11-18']?.actual ?? 0}/{historyRepairResult.totalsByDate['2026-11-18']?.expectedTotal ?? 20}</span>
+              </div>
+            </div>
+          )}
+
+          {sentRestoreResult && (
+            <div className="p-3 rounded-xl bg-slate-900/90 border border-amber-500/30 text-[11px] font-mono text-slate-300 space-y-2">
+              <div className="flex items-center justify-between text-amber-300 font-bold flex-wrap gap-1">
+                <span>Restored: {sentRestoreResult.restoredLeadIds.join(', ') || 'Already clean'}</span>
+                <span>Cancelled Dup: {sentRestoreResult.cancelledDuplicateIds.join(', ') || 'None'}</span>
+              </div>
+              <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 flex items-start gap-2">
+                <Mail className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                <span>
+                  Verify in Gmail Sent folder:{' '}
+                  <strong className="text-white select-all">
+                    {sentRestoreResult.gmailVerificationEmails.join(', ')}
+                  </strong>
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Anti-Spam Cooldown Note */}

@@ -69,15 +69,16 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
     const updated = autoScheduleLeads(leads, channel, startDate);
     onUpdateLeads(updated);
 
-    const unsentCount = updated.filter((l) => !l.initialSentDate && l.scheduledDate).length;
+    const unsentCount = updated.filter((l) => !l.initialSentDate && l.scheduledDate && l.cadenceStatus !== 'cancelled').length;
     setScheduledBannerMsg(
-      `🚀 Auto-scheduled ${unsentCount} leads starting ${startMode === 'today' ? 'Today' : 'Tomorrow'} (${dailyQuota}/day, Sundays skipped)!`
+      `🚀 Auto-scheduled ${unsentCount} leads starting ${startMode === 'today' ? 'Today' : 'Tomorrow'} (${dailyQuota}/day, Sundays & frozen days skipped)!`
     );
     setTimeout(() => setScheduledBannerMsg(null), 4500);
   };
 
-  const scheduledCount = leads.filter((l) => !!l.scheduledDate).length;
-  const unscheduledCount = leads.length - scheduledCount;
+  const activeSchedulableLeads = leads.filter((l) => l.cadenceStatus !== 'cancelled');
+  const scheduledCount = activeSchedulableLeads.filter((l) => !!l.scheduledDate).length;
+  const unscheduledCount = activeSchedulableLeads.length - scheduledCount;
 
   // Format date helper: e.g. "Wed, Nov 11, 2026"
   const formatDateDisplay = (dateStr?: string) => {
@@ -110,7 +111,7 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
 
         <div className="flex items-center gap-3 self-start sm:self-auto flex-wrap">
           <div className="text-xs font-mono text-slate-400 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-white/10">
-            Scheduled: <span className="text-indigo-400 font-bold">{scheduledCount}</span> / {leads.length}
+            Scheduled: <span className="text-indigo-400 font-bold">{scheduledCount}</span> / {activeSchedulableLeads.length}
             {unscheduledCount > 0 && (
               <span className="text-amber-400 ml-1.5">({unscheduledCount} unscheduled)</span>
             )}
@@ -187,7 +188,11 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
 
                       {/* Requirement 4: Date Column (e.g. Wed, Nov 11, 2026) */}
                       <td className="py-3.5 px-4 text-left">
-                        {hasDate ? (
+                        {lead.cadenceStatus === 'cancelled' ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                            Cancelled{lead.cancelledReason ? ` · ${lead.cancelledReason}` : ''}
+                          </span>
+                        ) : hasDate ? (
                           <div className="flex items-center gap-2">
                             <span
                               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold font-mono border ${dayStyle.badgeClass}`}

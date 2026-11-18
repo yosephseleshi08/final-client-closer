@@ -18,9 +18,12 @@ import {
   restoreLeadsFromBackstage,
   permanentlyDeleteFromBackstage,
   clearAllBackstageLeads,
+  cancelBackstageLeadCadence,
 } from '../utils/backstageStorage';
 import { getVoiceTypeBadgeStyle, getVoiceTypeDisplayLabel } from '../utils/voiceTypeEngine';
 import { getChannelLabel } from '../utils/channelStorage';
+import { hasLeadSentHistory, getOrphanedCadences } from '../utils/leadLifecycle';
+import { getLocalTodayDateString } from '../utils/dispatchLog';
 
 interface BackstagePageProps {
   backstageLeads: ChannelLead[];
@@ -79,6 +82,22 @@ export const BackstagePage: React.FC<BackstagePageProps> = ({
     const timer = setTimeout(() => setToast(null), 4500);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  const todayStr = getLocalTodayDateString();
+  const orphanMap = useMemo(() => {
+    const items = getOrphanedCadences(todayStr, backstageLeads);
+    const map = new Map<string, { dueStep: string; dueDate: string; daysUntilDue: number }>();
+    for (const item of items) {
+      if (item.lead.archiveUid) {
+        map.set(item.lead.archiveUid, {
+          dueStep: item.dueStep,
+          dueDate: item.dueDate,
+          daysUntilDue: item.daysUntilDue,
+        });
+      }
+    }
+    return map;
+  }, [todayStr, backstageLeads]);
 
   const counts = useMemo(() => {
     let ig = 0;
@@ -241,15 +260,28 @@ export const BackstagePage: React.FC<BackstagePageProps> = ({
     }
   };
 
+  const handleCancelCadenceSingle = (lead: ChannelLead) => {
+    if (!lead.archiveUid) return;
+    const updated = cancelBackstageLeadCadence(lead.archiveUid, 'Cancelled from Backstage');
+    onBackstageUpdated(updated);
+    setToast({
+      type: 'delete',
+      message: `🛑 Cancelled follow-up cadence for "${lead.name}" (${lead.id}). Historical dispatch log remains intact.`,
+    });
+  };
+
   const getStatusLabel = (lead: ChannelLead): { text: string; className: string } => {
+    if (lead.cadenceStatus === 'cancelled') {
+      return { text: 'Cadence Cancelled', className: 'text-rose-300 bg-rose-500/15 border-rose-500/30' };
+    }
     if (lead.leadStatus === 'replied') {
       return { text: 'Replied', className: 'text-emerald-300 bg-emerald-500/15 border-emerald-500/30' };
     }
     if (lead.isCompleted || lead.leadStatus === 'completed') {
       return { text: 'Completed', className: 'text-indigo-300 bg-indigo-500/15 border-indigo-500/30' };
     }
-    if (lead.initialSentDate || lead.dmSent || (lead.followupCount && lead.followupCount > 0)) {
-      return { text: 'Sent', className: 'text-sky-300 bg-sky-500/15 border-sky-500/30' };
+    if (hasLeadSentHistory(lead)) {
+      return { text: 'Orphaned (Running)', className: 'text-amber-300 bg-amber-500/15 border-amber-500/30' };
     }
     if (lead.isWarmedUp || lead.warmupStatus === 'warmed') {
       return { text: 'Warmed', className: 'text-amber-300 bg-amber-500/15 border-amber-500/30' };
@@ -575,13 +607,30 @@ export const BackstagePage: React.FC<BackstagePageProps> = ({
                         </div>
                       </td>
 
-                      {/* Status Snapshot */}
+                      {/* Status Snapshot + Orphaned Follow-Up Countdown */}
                       <td className="py-3.5 px-4 text-left whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${statusInfo.className}`}
-                        >
-                          {statusInfo.text}
-                        </span>
+                        <div className="space-y-1">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${statusInfo.className}`}
+                          >
+                            {statusInfo.text}
+                          </span>
+                          {orphanMap.has(uid) && lead.cadenceStatus !== 'cancelled' && (
+                            <span className="block text-[10px] font-mono text-amber-300/90">
+                              {(() => {
+                                const info = orphanMap.get(uid)!;
+                                return info.daysUntilDue <= 0
+                                  ? `${info.dueStep} due (${info.dueDate})`
+                                  : `${info.dueStep} in ${info.daysUntilDue}d`;
+                              })()}
+                            </span>
+                          )}
+                          {lead.cadenceStatus === 'cancelled' && lead.cancelledReason && (
+                            <span className="block text-[10px] font-mono text-slate-400">
+                              Reason: {lead.cancelledReason}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Archived At */}
@@ -598,6 +647,21 @@ export const BackstagePage: React.FC<BackstagePageProps> = ({
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex items-center justify-end gap-2">
+                          {hasLeadSentHistory(lead) &&
+                            lead.cadenceStatus !== 'cancelled' &&
+                            !lead.isCompleted &&
+                            lead.leadStatus !== 'replied' && (
+                              <button
+                                type="button"
+                                onClick={() => handleCancelCadenceSingle(lead)}
+                                className="px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 hover:text-white border border-amber-500/30 text-xs font-semibold transition cursor-pointer inline-flex items-center gap-1"
+                                title="Stop future D4/D8/D14 follow-ups while keeping historical logs intact"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                                <span>Cancel Cadence</span>
+                              </button>
+                            )}
+
                           <button
                             type="button"
                             onClick={() => handleRestoreUids([uid])}
@@ -662,7 +726,7 @@ export const BackstagePage: React.FC<BackstagePageProps> = ({
                 You are about to permanently erase <strong className="text-white">{confirmDelete.label}</strong> from Backstage.
               </p>
               <p className="text-slate-400">
-                All saved sequence messages, prompts, schedules, and warm-up records for {confirmDelete.mode === 'single' ? 'this lead' : 'these leads'} will be permanently removed from your browser storage.
+                Historical dispatch logs in <code className="text-slate-300 font-mono">ridge_dispatch_log</code> and frozen daily quotas remain 100% intact. Sequence drafts and profile fields will be removed from storage.
               </p>
             </div>
 

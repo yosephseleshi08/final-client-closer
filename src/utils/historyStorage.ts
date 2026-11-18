@@ -6,9 +6,7 @@ import {
   ChannelLead,
 } from '../types';
 import { getLocalTodayStr, normalizeToLocalDateStr } from './cadenceEngine';
-import { loadChannelLeads } from './channelStorage';
 import { getVideosVerifiedTodayCount } from './videoVerification';
-import { isPipelineFrozenNow, isDateFrozen } from './pipelineFreeze';
 import {
   calculateDailyExecutionScore,
   DailyExecutionScore,
@@ -19,8 +17,9 @@ import {
   saveQuotaSettings,
   loadAllAuditLeads,
   isSundayDateStr,
-  countLeadVerifiedDispatchesOnDate,
 } from './streakManager';
+import { countDispatchesByChannel, countDispatchesByStep } from './dispatchLog';
+import { loadAllDailyObligations } from './dailyObligation';
 
 export const HISTORY_STORAGE_KEY = 'outreach_daily_history';
 export const OUTREACH_START_DATE = '2026-10-26';
@@ -34,10 +33,6 @@ export {
 };
 export type { DailyExecutionScore };
 
-/**
- * Finds the earliest verified outreach dispatch date across active/archived leads.
- * Returns null if no outreach dispatches have been executed yet.
- */
 export function getEarliestOutreachDate(providedLeads?: ChannelLead[]): string | null {
   try {
     return findEarliestDispatchDate(providedLeads);
@@ -46,9 +41,6 @@ export function getEarliestOutreachDate(providedLeads?: ChannelLead[]): string |
   }
 }
 
-/**
- * Formats YYYY-MM-DD into a human-readable string like "Oct 26, 2026"
- */
 export function formatDisplayDate(dateStr: string): string {
   try {
     const [y, m, d] = dateStr.split('-').map(Number);
@@ -63,15 +55,12 @@ export function formatDisplayDate(dateStr: string): string {
   }
 }
 
-/**
- * Checks if a YYYY-MM-DD string falls on a Sunday
- */
 export function isDateStringSunday(dateStr: string): boolean {
   return isSundayDateStr(dateStr);
 }
 
 /**
- * Checks existing channel leads in localStorage for outreach completed on a specific date.
+ * Reads immutable dispatch counts by step/channel for a specific local date.
  */
 export function getLeadsSentOnDate(dateStr: string): {
   count: number;
@@ -79,36 +68,21 @@ export function getLeadsSentOnDate(dateStr: string): {
   followupCount: number;
   channelBreakdown: Record<string, number>;
 } {
-  const channels: MultiChannelType[] = ['combined', 'instagram'];
-  let count = 0;
-  let initialCount = 0;
-  let followupCount = 0;
-  const channelBreakdown: Record<string, number> = { combined: 0, instagram: 0 };
-
   const normDate = normalizeToLocalDateStr(dateStr) || getLocalTodayStr();
-  const [y, m, d] = normDate.split('-').map(Number);
-  const dayStartMs = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
-  const dayEndMs = new Date(y, m - 1, d + 1, 0, 0, 0, 0).getTime();
+  const steps = countDispatchesByStep(normDate);
+  const channels = countDispatchesByChannel(normDate);
 
-  for (const ch of channels) {
-    const leads = loadChannelLeads(ch);
-    for (const lead of leads) {
-      const counts = countLeadVerifiedDispatchesOnDate(lead, normDate, dayStartMs, dayEndMs);
-      if (counts.total > 0) {
-        count += counts.total;
-        initialCount += counts.initial;
-        followupCount += counts.followup;
-        channelBreakdown[ch] = (channelBreakdown[ch] || 0) + counts.total;
-      }
-    }
-  }
-
-  return { count, initialCount, followupCount, channelBreakdown };
+  return {
+    count: steps.total,
+    initialCount: steps.D0,
+    followupCount: steps.D4 + steps.D8 + steps.D14,
+    channelBreakdown: {
+      combined: channels.combined,
+      instagram: channels.instagram,
+    },
+  };
 }
 
-/**
- * Maps an Auditable Execution Score into a standardized DailyHistoryRecord.
- */
 function buildAuditedHistoryRecord(
   dateStr: string,
   score: DailyExecutionScore,
@@ -116,10 +90,12 @@ function buildAuditedHistoryRecord(
   existing?: Partial<DailyHistoryRecord>
 ): DailyHistoryRecord {
   const isPreLaunch =
-    !score.isFrozen &&
-    !score.isRestDay &&
-    score.actual === 0 &&
-    (!earliestDate || dateStr < earliestDate);
+    score.zeroState === 'pre_launch' ||
+    (!score.isFrozen &&
+      !score.isRestDay &&
+      score.actual === 0 &&
+      score.expectedTotal === 0 &&
+      (!earliestDate || dateStr < earliestDate));
 
   let status: DailyHistoryStatus = 'zero';
   if (score.isFrozen) {
@@ -128,6 +104,8 @@ function buildAuditedHistoryRecord(
     status = 'sunday';
   } else if (isPreLaunch) {
     status = 'pre_launch';
+  } else if (score.zeroState === 'empty') {
+    status = 'empty';
   } else if (score.percentage >= 90) {
     status = 'full';
   } else if (score.percentage > 0) {
@@ -140,14 +118,20 @@ function buildAuditedHistoryRecord(
     date: dateStr,
     displayDate: formatDisplayDate(dateStr),
     dmsSent: score.actual,
-    dmsTarget: score.expected,
-    percentage: isPreLaunch ? 0 : score.percentage,
+    dmsTarget: score.capacityTarget,
+    percentage: isPreLaunch || score.zeroState === 'empty' ? 0 : score.percentage,
     isSunday: score.isRestDay,
     isFrozen: score.isFrozen,
     status,
     executionTier: isPreLaunch ? 'pre_launch' : score.tier,
     actualDispatched: score.actual,
-    expectedQuota: score.expected,
+    expectedQuota: score.capacityTarget,
+    expectedTotal: score.expectedTotal,
+    capacityTarget: score.capacityTarget,
+    backlog: score.backlog,
+    supplyGap: score.supplyGap,
+    removedMidDay: score.removedMidDay,
+    zeroState: isPreLaunch ? 'pre_launch' : score.zeroState,
     igDispatched: score.igActual,
     igExpected: score.igExpected,
     combinedDispatched: score.combinedActual,
@@ -158,13 +142,13 @@ function buildAuditedHistoryRecord(
         : 'Pre-Launch (Prior to Kickoff)'
       : score.shortfallReason,
     notes: score.isFrozen
-      ? 'Pipeline Frozen (Streak Protected)'
+      ? 'Pipeline Frozen (Protected 100%)'
       : score.isRestDay
-      ? 'Sunday Rest Day'
+      ? 'Sunday Rest Day (Protected 100%)'
       : existing?.notes,
     updatedAt: existing?.updatedAt || new Date().toISOString(),
     initialDmsSent: score.initialCount,
-    initialDmsTarget: score.expected,
+    initialDmsTarget: score.capacityTarget,
     followupsSent: score.followupCount,
     followupsTarget: 0,
     videosVerified: existing?.videosVerified,
@@ -177,9 +161,8 @@ function buildAuditedHistoryRecord(
 }
 
 /**
- * Backfill & Migration Engine:
- * Recalculates stored historical entries against actual verified dispatches in lead storage
- * so legacy inflated task-marked 100% entries immediately reflect true quota execution.
+ * Reconciles cached view records against immutable dispatchLog + dailyObligations.
+ * STRICTLY skips modifying dates that already have a 'frozen' snapshot in ridge_daily_obligations.
  */
 export function migrateAndBackfillHistory(
   rawRecords: DailyHistoryRecord[],
@@ -188,21 +171,24 @@ export function migrateAndBackfillHistory(
   const allLeads = providedLeads ?? loadAllAuditLeads();
   const earliestDate = findEarliestDispatchDate(allLeads, rawRecords);
   const quota = getQuotaSettings();
+  const obligations = loadAllDailyObligations();
 
   let didMigrate = false;
   const migrated: DailyHistoryRecord[] = rawRecords.map((record) => {
     const score = calculateDailyExecutionScore(record.date, allLeads, quota);
     const nextRecord = buildAuditedHistoryRecord(record.date, score, earliestDate, record);
+    const isObligationFrozen = obligations[record.date]?.status === 'frozen';
 
     if (
-      record.dmsSent !== nextRecord.dmsSent ||
-      record.dmsTarget !== nextRecord.dmsTarget ||
-      record.percentage !== nextRecord.percentage ||
-      record.status !== nextRecord.status ||
-      record.executionTier !== nextRecord.executionTier ||
-      record.expectedQuota !== nextRecord.expectedQuota ||
-      record.actualDispatched !== nextRecord.actualDispatched ||
-      record.shortfallReason !== nextRecord.shortfallReason
+      !isObligationFrozen &&
+      (record.dmsSent !== nextRecord.dmsSent ||
+        record.dmsTarget !== nextRecord.dmsTarget ||
+        record.percentage !== nextRecord.percentage ||
+        record.status !== nextRecord.status ||
+        record.executionTier !== nextRecord.executionTier ||
+        record.expectedQuota !== nextRecord.expectedQuota ||
+        record.actualDispatched !== nextRecord.actualDispatched ||
+        record.shortfallReason !== nextRecord.shortfallReason)
     ) {
       didMigrate = true;
       return {
@@ -211,7 +197,7 @@ export function migrateAndBackfillHistory(
       };
     }
 
-    return record;
+    return nextRecord;
   });
 
   return {
@@ -220,10 +206,6 @@ export function migrateAndBackfillHistory(
   };
 }
 
-/**
- * Loads daily history from localStorage and automatically runs backfill/migration
- * against real lead dispatch timestamps.
- */
 export function loadDailyHistory(providedLeads?: ChannelLead[]): DailyHistoryRecord[] {
   let records: DailyHistoryRecord[] = [];
   try {
@@ -250,9 +232,6 @@ export function loadDailyHistory(providedLeads?: ChannelLead[]): DailyHistoryRec
   return audited;
 }
 
-/**
- * Saves the given records to localStorage.
- */
 export function saveDailyHistory(records: DailyHistoryRecord[]): void {
   try {
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(records));
@@ -277,11 +256,6 @@ export interface TodayCompletionDetails {
   notes?: string;
 }
 
-/**
- * Records or updates today's auditable completion progress into the history array.
- * Percentage strictly measures (Actual Verified Dispatches / Expected Daily Quota) * 100.
- * Never awards 100% on an active working day simply because scheduled tasks ran out.
- */
 export function recordTodayCompletion(
   completedCountOrDetails: number | TodayCompletionDetails,
   legacyRemainingDue?: number,
@@ -344,9 +318,6 @@ export function recordTodayCompletion(
   return records;
 }
 
-/**
- * Helper to calculate days offset from today (e.g. -1 for yesterday).
- */
 export function getDateOffset(daysFromToday: number): string {
   const now = new Date();
   now.setDate(now.getDate() + daysFromToday);
@@ -364,12 +335,6 @@ export interface CalculateStreaksOptions {
   todayStoriesPosted?: number;
 }
 
-/**
- * Delegates streak calculation to the Auditable Streak Manager:
- * - Protected/Active ONLY when execution score >= 70% (or user-defined threshold in settings).
- * - Days <70% pause/flag streak as "At Risk" and never masquerade as green 100% days.
- * - Sunday Rest Days & Frozen Days remain auto-protected at 100%.
- */
 export function calculateStreaks(
   records: DailyHistoryRecord[],
   options?: CalculateStreaksOptions
@@ -378,9 +343,8 @@ export function calculateStreaks(
 }
 
 /**
- * Builds the complete 30-day auditable history view window (today back to 29 days ago).
- * Every date is freshly reconciled with calculateDailyExecutionScore so historical records
- * and the 30-day calendar matrix strictly reflect actual verified dispatches vs daily quota.
+ * Builds 30-day Model A ledger view directly from immutable 'ridge_dispatch_log'
+ * and 'ridge_daily_obligations' snapshots. Deleting leads NEVER shrinks historical days.
  */
 export function get30DayHistoryView(
   records: DailyHistoryRecord[],
@@ -401,35 +365,6 @@ export function get30DayHistoryView(
     const dateStr = getDateOffset(-i);
     const existing = mapByDate.get(dateStr);
     const score = calculateDailyExecutionScore(dateStr, auditLeads, quota);
-
-    // If lead array wasn't complete for an archived past date that recorded verified dispatches,
-    // still enforce expectedQuota normalization on that stored actual count.
-    if (
-      score.actual === 0 &&
-      !score.isRestDay &&
-      !score.isFrozen &&
-      existing &&
-      (existing.actualDispatched ?? existing.dmsSent ?? 0) > 0 &&
-      leads === undefined
-    ) {
-      const preservedActual = existing.actualDispatched ?? existing.dmsSent;
-      const expected = quota.dailyQuota;
-      const pct = expected > 0 ? Math.min(100, Math.round((preservedActual / expected) * 100)) : 100;
-      const fallbackScore: DailyExecutionScore = {
-        ...score,
-        actual: preservedActual,
-        expected,
-        percentage: pct,
-        tier: pct >= 90 ? 'elite' : pct >= quota.streakThreshold ? 'partial' : 'critical',
-        shortfallReason:
-          preservedActual >= expected
-            ? `Quota met: ${preservedActual}/${expected} dispatches`
-            : `Expected ${expected} daily dispatches, ${preservedActual} logged`,
-      };
-      result.push(buildAuditedHistoryRecord(dateStr, fallbackScore, earliestDate, existing));
-      continue;
-    }
-
     result.push(buildAuditedHistoryRecord(dateStr, score, earliestDate, existing));
   }
 
@@ -437,15 +372,15 @@ export function get30DayHistoryView(
 }
 
 /**
- * Clears all daily history cleanly to 0 without mock data.
+ * Clears ONLY the legacy non-authoritative view cache keys.
+ * NEVER touches immutable 'ridge_dispatch_log', 'ridge_daily_obligations', or 'ridge_deletion_log'.
  */
 export function resetDailyHistory(): DailyHistoryRecord[] {
   try {
     localStorage.removeItem(HISTORY_STORAGE_KEY);
     localStorage.removeItem('crm_daily_history');
-    localStorage.removeItem('outreach_daily_history');
   } catch (err) {
-    console.error('Failed to reset daily history:', err);
+    console.error('Failed to reset legacy daily history cache:', err);
   }
   return [];
 }

@@ -58,13 +58,27 @@ import {
   reorderChannelLeadsWithFixedLocks,
   LeadLockReason,
 } from '../../utils/channelStorage';
-import { archiveLeadsToBackstage } from '../../utils/backstageStorage';
 import {
+  archiveLeadsWithChoice,
+  restoreLeadsFromBackstage,
+} from '../../utils/backstageStorage';
+import {
+  getLocalTodayStr,
   getScheduleDayStyle,
   isDateToday,
   getNextAvailableScheduleDate,
   getCadenceMessageTemplates,
 } from '../../utils/cadenceEngine';
+import {
+  findNormalizedDuplicateMatches,
+  hasLeadSentHistory,
+  mergeLeadIntoExisting,
+  DuplicateMatchResult,
+} from '../../utils/leadLifecycle';
+import {
+  getOrCreateObligation,
+  recordMidDayRemoval,
+} from '../../utils/dailyObligation';
 import {
   getRoundRobinVoiceType,
   getStrictVoiceTypeForId,
@@ -369,8 +383,17 @@ export function LeadsSubPage({
   const [manualError, setManualError] = useState<{
     message: string;
     detectedChannel?: MultiChannelType;
+    duplicateMatch?: DuplicateMatchResult;
+    pendingIncoming?: Partial<ChannelLead>;
   } | null>(null);
   const [addedToast, setAddedToast] = useState<string | null>(null);
+
+  // Archive-First Cadence Choice Modal State (for sent/active-cadence leads)
+  const [pendingArchiveModal, setPendingArchiveModal] = useState<{
+    leadsToArchive: ChannelLead[];
+    ids: string[];
+    cancelReason: string;
+  } | null>(null);
 
   // Voice Type Filtering States
   const [selectedVoiceFilter, setSelectedVoiceFilter] = useState<VoiceType | 'all'>('all');
@@ -676,12 +699,27 @@ export function LeadsSubPage({
     });
   };
 
-  const handleSoftDeleteLeads = (ids: string[]) => {
-    const idSet = new Set(ids);
-    const toArchive = leads.filter((l) => idSet.has(l.id));
+  const finalizeSoftDelete = (
+    toArchive: ChannelLead[],
+    ids: string[],
+    choice: 'keep_running' | 'cancel_cadence',
+    cancelReason?: string
+  ) => {
     if (toArchive.length === 0) return;
 
-    archiveLeadsToBackstage(toArchive, channel);
+    const todayStr = getLocalTodayStr();
+    const obligation = getOrCreateObligation(todayStr);
+    if (obligation.status === 'locked') {
+      const scheduledTodayCount = toArchive.filter(
+        (l) => !l.initialSentDate && l.scheduledDate === todayStr
+      ).length;
+      if (scheduledTodayCount > 0) {
+        recordMidDayRemoval(todayStr, scheduledTodayCount);
+      }
+    }
+
+    const idSet = new Set(ids);
+    archiveLeadsWithChoice(toArchive, channel, choice, cancelReason);
     const remaining = removeAndResequenceActiveLeads(leads, idSet, channel);
     onUpdateLeads(remaining);
 
@@ -693,13 +731,34 @@ export function LeadsSubPage({
 
     if (toArchive.length === 1) {
       setBackstageToast(
-        `Moved "${toArchive[0].name}" (${toArchive[0].id}) to Backstage. Restore anytime from 🗑️ Backstage.`
+        choice === 'cancel_cadence'
+          ? `Archived "${toArchive[0].name}" (${toArchive[0].id}) & cancelled future follow-up cadence.`
+          : `Archived "${toArchive[0].name}" (${toArchive[0].id}) to Backstage (cadence preserved).`
       );
     } else {
       setBackstageToast(
-        `Moved ${toArchive.length} leads to Backstage. Restore anytime from 🗑️ Backstage.`
+        choice === 'cancel_cadence'
+          ? `Archived ${toArchive.length} leads to Backstage & cancelled their follow-up cadences.`
+          : `Moved ${toArchive.length} leads to Backstage. Restore anytime from 🗑️ Backstage.`
       );
     }
+  };
+
+  const handleSoftDeleteLeads = (ids: string[]) => {
+    const idSet = new Set(ids);
+    const toArchive = leads.filter((l) => idSet.has(l.id));
+    if (toArchive.length === 0) return;
+
+    if (toArchive.some((l) => hasLeadSentHistory(l))) {
+      setPendingArchiveModal({
+        leadsToArchive: toArchive,
+        ids,
+        cancelReason: 'Cancelled by operator',
+      });
+      return;
+    }
+
+    finalizeSoftDelete(toArchive, ids, 'keep_running');
   };
 
   const handleDeleteLead = (id: string) => {
@@ -713,7 +772,7 @@ export function LeadsSubPage({
     setTimeout(() => setCopiedPrompt(false), 2000);
   };
 
-  // Batch import handler
+  // Batch import handler with normalized duplicate detection across active + Backstage + dispatchLog
   const handleBatchImportText = (rawText: string) => {
     const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
     if (lines.length === 0) {
@@ -721,8 +780,9 @@ export function LeadsSubPage({
       return;
     }
 
-    const currentList = [...leads];
+    let currentList = [...leads];
     let addedCount = 0;
+    let mergedCount = 0;
     let duplicateCount = 0;
 
     for (const line of lines) {
@@ -757,17 +817,53 @@ export function LeadsSubPage({
         customName = parts[1] || '';
       }
 
+      const businessName = customName || extractSuggestedName(rawUrl);
+
       const duplicateFb = detectedFb ? findDuplicateLead(detectedFb, currentList) : undefined;
       const duplicateEmail = detectedEmail ? findDuplicateLead(detectedEmail, currentList) : undefined;
       const duplicateUrl = findDuplicateLead(rawUrl, currentList);
 
-      if (duplicateFb || duplicateEmail || duplicateUrl) {
-        duplicateCount++;
+      const normCheck = findNormalizedDuplicateMatches(
+        {
+          name: businessName,
+          link: rawUrl,
+          platformLink: rawUrl,
+          email: detectedEmail,
+          facebook: detectedFb,
+          instagram: channel === 'instagram' ? rawUrl : undefined,
+        },
+        {
+          activeCombined: channel === 'combined' ? currentList : undefined,
+          activeInstagram: channel === 'instagram' ? currentList : undefined,
+        }
+      );
+
+      if (duplicateFb || duplicateEmail || duplicateUrl || normCheck.hasMatch) {
+        // If matched to an active lead in THIS workspace, merge metadata cleanly WITHOUT resetting sent dates
+        const activeTarget =
+          duplicateFb ||
+          duplicateEmail ||
+          duplicateUrl ||
+          normCheck.activeMatches.find((m) => m.channel === channel);
+
+        if (activeTarget) {
+          currentList = currentList.map((item) =>
+            item.id === activeTarget.id
+              ? mergeLeadIntoExisting(item, {
+                  email: detectedEmail,
+                  facebook: detectedFb,
+                  instagram: channel === 'instagram' ? rawUrl : undefined,
+                })
+              : item
+          );
+          mergedCount++;
+        } else {
+          duplicateCount++;
+        }
         continue;
       }
 
       const nextIdData = getNextLeadId(channel, currentList);
-      const businessName = customName || extractSuggestedName(rawUrl);
       const assignedScheduleDate = getNextAvailableScheduleDate(currentList, channel);
       const isEmailOnly = channel !== 'instagram' && !detectedFb;
 
@@ -793,23 +889,32 @@ export function LeadsSubPage({
       addedCount++;
     }
 
-    if (duplicateCount > 0) {
+    if (duplicateCount > 0 || mergedCount > 0) {
       playWarningChime();
+      const parts: string[] = [];
+      if (mergedCount > 0) {
+        parts.push(`${mergedCount} existing ${mergedCount === 1 ? 'lead' : 'leads'} merged cleanly (sent dates preserved)`);
+      }
+      if (duplicateCount > 0) {
+        parts.push(`${duplicateCount} historical/archived ${duplicateCount === 1 ? 'duplicate was' : 'duplicates were'} blocked to prevent D0 re-pitching`);
+      }
       setDuplicateAlert({
-        message: `${duplicateCount} duplicate ${duplicateCount === 1 ? 'lead was' : 'leads were'} skipped.`,
+        message: parts.join(' · '),
         timestamp: Date.now(),
       });
     }
 
-    if (addedCount > 0) {
+    if (addedCount > 0 || mergedCount > 0) {
       const recalculated = recalculateAllVoiceTypes(currentList, channel);
       onUpdateLeads(recalculated);
       setIsBatchModalOpen(false);
       setBatchInputText('');
       setBatchError(null);
-      setAddedToast(
-        `Imported ${addedCount} ${addedCount === 1 ? 'lead' : 'leads'} into ${getChannelLabel(channel)} & updated queues.`
-      );
+      if (addedCount > 0) {
+        setAddedToast(
+          `Imported ${addedCount} ${addedCount === 1 ? 'lead' : 'leads'} into ${getChannelLabel(channel)}${mergedCount > 0 ? ` & merged ${mergedCount}` : ''}.`
+        );
+      }
     } else if (duplicateCount === 0) {
       setBatchError('No valid leads found to import.');
     }
@@ -930,22 +1035,49 @@ export function LeadsSubPage({
       rawPrimaryLink = facebookField || emailField || '';
     }
 
-    // Duplicate protection across workspace leads
+    const businessName = trimmedName || extractSuggestedName(rawPrimaryLink);
+
+    // Duplicate protection across active leads, Backstage archive, and immutable dispatchLog
     const dupPrimary = rawPrimaryLink ? findDuplicateLead(rawPrimaryLink, leads) : undefined;
     const dupFb = facebookField ? findDuplicateLead(facebookField, leads) : undefined;
     const dupEmail = emailField ? findDuplicateLead(emailField, leads) : undefined;
     const existingDup = dupPrimary || dupFb || dupEmail;
 
-    if (existingDup) {
+    const normDup = findNormalizedDuplicateMatches(
+      {
+        name: businessName,
+        link: rawPrimaryLink,
+        platformLink: rawPrimaryLink,
+        email: emailField,
+        facebook: facebookField,
+        instagram: instagramField,
+      },
+      {
+        activeCombined: channel === 'combined' ? leads : undefined,
+        activeInstagram: channel === 'instagram' ? leads : undefined,
+      }
+    );
+
+    if (existingDup || normDup.hasMatch) {
       playWarningChime();
       setManualError({
-        message: `Duplicate Blocked: Already in ${getChannelLabel(channel)} as ${existingDup.id} (${existingDup.name}).`,
+        message: existingDup
+          ? `Duplicate Blocked: Already in ${getChannelLabel(channel)} as ${existingDup.id} (${existingDup.name}).`
+          : `Duplicate / Prior Outreach Guard: ${normDup.summaryReason}`,
+        duplicateMatch: normDup,
+        pendingIncoming: {
+          email: emailField,
+          facebook: facebookField,
+          instagram: instagramField,
+          city: trimmedCity || undefined,
+          prompt: trimmedPrompt || undefined,
+          leadAnalysis: trimmedPrompt || undefined,
+        },
       });
       return;
     }
 
     const nextIdData = getNextLeadId(channel, leads);
-    const businessName = trimmedName || extractSuggestedName(rawPrimaryLink);
     const assignedScheduleDate = manualAutoSchedule
       ? getNextAvailableScheduleDate(leads, channel)
       : undefined;
@@ -995,6 +1127,36 @@ export function LeadsSubPage({
         ? `Added ${newLead.id} (${newLead.name}) · Auto-scheduled for ${assignedScheduleDate}`
         : `Added ${newLead.id} (${newLead.name}) to ${getChannelLabel(channel)}`
     );
+  };
+
+  const handleMergeManualDuplicate = () => {
+    if (!manualError?.duplicateMatch?.bestMatch || !manualError.pendingIncoming) return;
+    const match = manualError.duplicateMatch.bestMatch;
+
+    if (match.isArchived && match.archiveUid) {
+      const restored = restoreLeadsFromBackstage([match.archiveUid]);
+      const targetCh = channel === 'instagram' ? 'instagram' : 'combined';
+      const updatedList = (targetCh === 'instagram' ? restored.updatedInstagram : restored.updatedCombined).map((l) =>
+        l.name === match.name && l.initialSentDate === match.initialSentDate
+          ? mergeLeadIntoExisting(l, manualError.pendingIncoming!)
+          : l
+      );
+      onUpdateLeads(updatedList);
+      setIsAddModalOpen(false);
+      setManualError(null);
+      setAddedToast(`Restored & merged "${match.name}" with sent dates preserved.`);
+      return;
+    }
+
+    if (match.channel === channel) {
+      const updatedList = leads.map((l) =>
+        l.id === match.id ? mergeLeadIntoExisting(l, manualError.pendingIncoming!) : l
+      );
+      onUpdateLeads(updatedList);
+      setIsAddModalOpen(false);
+      setManualError(null);
+      setAddedToast(`Merged new contact details into ${match.id} (${match.name}) without resetting sent dates.`);
+    }
   };
 
   return (
@@ -1691,19 +1853,37 @@ export function LeadsSubPage({
                   <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                   <span>{manualError.message}</span>
                 </div>
-                {manualError.detectedChannel && onNavigateToChannel && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsAddModalOpen(false);
-                      onNavigateToChannel(manualError.detectedChannel!);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition cursor-pointer"
-                  >
-                    <span>Switch to {getChannelLabel(manualError.detectedChannel)} Workspace</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {manualError.duplicateMatch?.bestMatch &&
+                    (manualError.duplicateMatch.bestMatch.isArchived ||
+                      manualError.duplicateMatch.bestMatch.channel === channel) && (
+                      <button
+                        type="button"
+                        onClick={handleMergeManualDuplicate}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition cursor-pointer"
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>
+                          {manualError.duplicateMatch.bestMatch.isArchived
+                            ? 'Restore & Merge Metadata (Keep Sent Dates)'
+                            : 'Merge Into Existing Lead (Keep Sent Dates)'}
+                        </span>
+                      </button>
+                    )}
+                  {manualError.detectedChannel && onNavigateToChannel && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAddModalOpen(false);
+                        onNavigateToChannel(manualError.detectedChannel!);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition cursor-pointer"
+                    >
+                      <span>Switch to {getChannelLabel(manualError.detectedChannel)} Workspace</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1873,6 +2053,89 @@ export function LeadsSubPage({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Archive-First Cadence Choice Modal (preserves immutable dispatchLog history) */}
+      {pendingArchiveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-2xl border border-amber-500/35 bg-slate-900 p-6 shadow-2xl space-y-4 text-slate-100">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/35 flex items-center justify-center text-amber-400 shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    Archive {pendingArchiveModal.leadsToArchive.length === 1 ? `"${pendingArchiveModal.leadsToArchive[0].name}"` : `${pendingArchiveModal.leadsToArchive.length} Leads`}?
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Past verified dispatches stay permanently in your ledger
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingArchiveModal(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              This selection includes already-pitched lead(s). Choose whether their D4/D8/D14 follow-ups should continue running or be cancelled:
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-mono uppercase font-bold text-slate-400">
+                Cancel Reason (used only if cancelling cadence)
+              </label>
+              <input
+                type="text"
+                value={pendingArchiveModal.cancelReason}
+                onChange={(e) =>
+                  setPendingArchiveModal((prev) =>
+                    prev ? { ...prev, cancelReason: e.target.value } : null
+                  )
+                }
+                placeholder="e.g. Out of business, Duplicate, Bounced"
+                className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/10 text-xs text-slate-100 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const { leadsToArchive, ids } = pendingArchiveModal;
+                  setPendingArchiveModal(null);
+                  finalizeSoftDelete(leadsToArchive, ids, 'keep_running');
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition cursor-pointer"
+              >
+                Archive (Keep Follow-Ups Running)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const { leadsToArchive, ids, cancelReason } = pendingArchiveModal;
+                  setPendingArchiveModal(null);
+                  finalizeSoftDelete(leadsToArchive, ids, 'cancel_cadence', cancelReason.trim() || 'Cancelled by operator');
+                }}
+                className="w-full py-2.5 px-4 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-200 text-xs font-bold transition cursor-pointer"
+              >
+                Archive &amp; Cancel Cadence
+              </button>
+              <button
+                type="button"
+                onClick={() => setPendingArchiveModal(null)}
+                className="w-full py-2 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
+              >
+                Cancel Action
+              </button>
+            </div>
           </div>
         </div>
       )}

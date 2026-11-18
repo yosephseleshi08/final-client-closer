@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Clock,
   Calendar,
@@ -52,6 +52,8 @@ import {
 } from '../../utils/cadenceEngine';
 import { getChannelLabel, getBlindRouteLink } from '../../utils/channelStorage';
 import { startWarmupCooldown, getLeadWarmupPlatform } from '../../utils/antiSpamLock';
+import { loadBackstageLeads, saveBackstageLeads } from '../../utils/backstageStorage';
+import { sortLeadsByWavePriority } from '../../utils/dailyObligation';
 import { TestLinkButton } from '../TestLinkButton';
 
 interface FollowupScheduleSubPageProps {
@@ -73,8 +75,39 @@ export function FollowupScheduleSubPage({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [noteModalLead, setNoteModalLead] = useState<ChannelLead | null>(null);
   const [adminOverrideEnabled, setAdminOverrideEnabled] = useState(false);
+  const [backstageLeads, setBackstageLeads] = useState<ChannelLead[]>(() => loadBackstageLeads());
+
+  useEffect(() => {
+    const sync = () => setBackstageLeads(loadBackstageLeads());
+    window.addEventListener('backstage_leads_changed', sync);
+    window.addEventListener('storage', sync);
+    return () => {
+      window.removeEventListener('backstage_leads_changed', sync);
+      window.removeEventListener('storage', sync);
+    };
+  }, []);
 
   const todayStr = getLocalTodayStr();
+
+  const runningArchivedForChannel = useMemo(() => {
+    const activeIds = new Set(leads.map((l) => l.id));
+    return backstageLeads.filter((b) => {
+      if (activeIds.has(b.id)) return false;
+      if (b.cadenceStatus === 'cancelled') return false;
+      const originChannel = b.archivedFromChannel || b.channel;
+      const isIg =
+        originChannel === 'instagram' ||
+        (!originChannel && Boolean(b.instagram && !b.email && !b.facebook));
+      return channel === 'instagram' ? isIg : !isIg;
+    });
+  }, [backstageLeads, leads, channel]);
+
+  const cadencePool = useMemo(() => {
+    const activeNonCancelled = leads.filter(
+      (l) => !l.isArchived && l.cadenceStatus !== 'cancelled'
+    );
+    return [...activeNonCancelled, ...runningArchivedForChannel];
+  }, [leads, runningArchivedForChannel]);
 
   const handleCopy = (key: string, text: string) => {
     navigator.clipboard.writeText(text);
@@ -83,36 +116,56 @@ export function FollowupScheduleSubPage({
   };
 
   const handleUpdateLeadItem = (updated: ChannelLead) => {
-    const nextList = leads.map((l) => (l.id === updated.id ? updated : l));
-    onUpdateLeads(nextList);
+    const inActive = leads.some((l) => l.id === updated.id);
+    if (inActive && !updated.isArchived) {
+      const nextList = leads.map((l) => (l.id === updated.id ? updated : l));
+      onUpdateLeads(nextList);
+      return;
+    }
+    const currentBackstage = loadBackstageLeads();
+    if (currentBackstage.some((b) => b.id === updated.id)) {
+      const nextBackstage = currentBackstage.map((b) => (b.id === updated.id ? updated : b));
+      saveBackstageLeads(nextBackstage);
+      setBackstageLeads(nextBackstage);
+    }
   };
 
   const handleSaveQuickNote = (leadId: string, noteText: string) => {
-    const updated = leads.map((l) =>
-      l.id === leadId
-        ? {
-            ...l,
-            quickNote: noteText || undefined,
-            quickNoteSavedAt: noteText
-              ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-              : undefined,
-          }
-        : l
-    );
-    onUpdateLeads(updated);
+    const applyNote = (l: ChannelLead): ChannelLead => ({
+      ...l,
+      quickNote: noteText || undefined,
+      quickNoteSavedAt: noteText
+        ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : undefined,
+    });
+    if (leads.some((l) => l.id === leadId)) {
+      onUpdateLeads(leads.map((l) => (l.id === leadId ? applyNote(l) : l)));
+      return;
+    }
+    const currentBackstage = loadBackstageLeads();
+    if (currentBackstage.some((b) => b.id === leadId)) {
+      const nextBackstage = currentBackstage.map((b) => (b.id === leadId ? applyNote(b) : b));
+      saveBackstageLeads(nextBackstage);
+      setBackstageLeads(nextBackstage);
+    }
   };
 
   const handleDeleteQuickNote = (leadId: string) => {
-    const updated = leads.map((l) =>
-      l.id === leadId
-        ? {
-            ...l,
-            quickNote: undefined,
-            quickNoteSavedAt: undefined,
-          }
-        : l
-    );
-    onUpdateLeads(updated);
+    const clearNote = (l: ChannelLead): ChannelLead => ({
+      ...l,
+      quickNote: undefined,
+      quickNoteSavedAt: undefined,
+    });
+    if (leads.some((l) => l.id === leadId)) {
+      onUpdateLeads(leads.map((l) => (l.id === leadId ? clearNote(l) : l)));
+      return;
+    }
+    const currentBackstage = loadBackstageLeads();
+    if (currentBackstage.some((b) => b.id === leadId)) {
+      const nextBackstage = currentBackstage.map((b) => (b.id === leadId ? clearNote(b) : b));
+      saveBackstageLeads(nextBackstage);
+      setBackstageLeads(nextBackstage);
+    }
   };
 
   const renderQuickNoteBox = (lead: ChannelLead) => {
@@ -207,34 +260,38 @@ export function FollowupScheduleSubPage({
   };
 
   // Leads dismissed for today only (safely kept in database & Leads tab)
-  const dismissedTodayLeads = leads.filter((l) => isLeadDismissedToday(l));
+  const dismissedTodayLeads = cadencePool.filter((l) => isLeadDismissedToday(l));
 
-  // 1. Sub-tab: DUE TODAY (Initial due today/overdue OR Day 7 due OR Day 14 due OR Day 30 due)
-  const dueTodayLeads = leads.filter((l) => {
-    if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
-    if (isLeadDismissedToday(l)) return false;
+  // 1. Sub-tab: DUE TODAY (Initial due today/overdue OR Day 4 due OR Day 8 due OR Day 14 due), sorted by wave priority D14->D8->D4->D0
+  const dueTodayLeads = sortLeadsByWavePriority(
+    cadencePool.filter((l) => {
+      if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+      if (l.cadenceStatus === 'cancelled') return false;
+      if (isLeadDismissedToday(l)) return false;
 
-    // Initial outreach due today or overdue, or warmed today (awaiting midnight unlock)
-    if (!l.initialSentDate && !l.dmSent) {
-      if (l.scheduledDate && (isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate))) {
-        return true;
+      // Initial outreach due today or overdue, or warmed today (awaiting midnight unlock)
+      if (!l.initialSentDate && !l.dmSent && !l.isArchived) {
+        if (l.scheduledDate && (isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate))) {
+          return true;
+        }
+        if (!isEmailOnlyLead(l) && isLeadWarmedToday(l, todayStr)) {
+          return true;
+        }
       }
-      if (!isEmailOnlyLead(l) && isLeadWarmedToday(l, todayStr)) {
-        return true;
-      }
-    }
 
-    // Follow-ups due today or overdue (Day 4, Day 8, Day 14)
-    if (isDay4FollowupDue(l, todayStr)) return true;
-    if (isDay8FollowupDue(l, todayStr)) return true;
-    if (isDay14FollowupDue(l, todayStr)) return true;
+      // Follow-ups due today or overdue (Day 4, Day 8, Day 14)
+      if (isDay4FollowupDue(l, todayStr)) return true;
+      if (isDay8FollowupDue(l, todayStr)) return true;
+      if (isDay14FollowupDue(l, todayStr)) return true;
 
-    return false;
-  });
+      return false;
+    })
+  );
 
   // 2. Sub-tab: DAY 4 (Kitchen Ticket PDF)
-  const allDay4Pending = leads.filter((l) => {
+  const allDay4Pending = cadencePool.filter((l) => {
     if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+    if (l.cadenceStatus === 'cancelled') return false;
     return Boolean(l.initialSentDate || l.dmSent) && (l.followupCount === 0 || l.followupCount === undefined);
   });
   const day4ActionableLeads = allDay4Pending.filter((l) => isDay4FollowupDue(l, todayStr));
@@ -248,8 +305,9 @@ export function FollowupScheduleSubPage({
     : 4;
 
   // 3. Sub-tab: DAY 8 (Takeout Surge)
-  const allDay8Pending = leads.filter((l) => {
+  const allDay8Pending = cadencePool.filter((l) => {
     if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+    if (l.cadenceStatus === 'cancelled') return false;
     return Boolean(l.initialSentDate || l.dmSent) && l.followupCount === 1;
   });
   const day8ActionableLeads = allDay8Pending.filter((l) => isDay8FollowupDue(l, todayStr));
@@ -263,8 +321,9 @@ export function FollowupScheduleSubPage({
     : 8;
 
   // 4. Sub-tab: DAY 14 (Final Nudge / Breakup)
-  const allDay14Pending = leads.filter((l) => {
+  const allDay14Pending = cadencePool.filter((l) => {
     if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+    if (l.cadenceStatus === 'cancelled') return false;
     return Boolean(l.initialSentDate || l.dmSent) && l.followupCount === 2;
   });
   const day14ActionableLeads = allDay14Pending.filter((l) => isDay14FollowupDue(l, todayStr));
@@ -474,6 +533,11 @@ export function FollowupScheduleSubPage({
                       <h3 className="font-bold text-white text-sm sm:text-base font-['Outfit']">
                         {lead.name}
                       </h3>
+                      {lead.isArchived && (
+                        <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 font-mono">
+                          Archived (Running)
+                        </span>
+                      )}
                       {lead.isSeen && (
                         <span className="text-xs font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30">
                           👀 Seen
@@ -751,6 +815,11 @@ export function FollowupScheduleSubPage({
                         <h3 className="font-bold text-white text-sm sm:text-base font-['Outfit']">
                           {lead.name}
                         </h3>
+                        {lead.isArchived && (
+                          <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 font-mono">
+                            Archived (Running)
+                          </span>
+                        )}
                         <span className="text-[10px] font-bold text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/40 font-mono">
                           ⚡ Day 4: Value Check-In
                         </span>
@@ -859,6 +928,11 @@ export function FollowupScheduleSubPage({
                           {lead.id}
                         </span>
                         <h4 className="font-bold text-slate-200 text-sm font-['Outfit']">{lead.name}</h4>
+                        {lead.isArchived && (
+                          <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 font-mono">
+                            Archived (Running)
+                          </span>
+                        )}
                         <span className="text-[11px] font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded-full border border-amber-500/30 flex items-center gap-1 font-mono">
                           <Lock className="w-3 h-3 text-amber-400" />
                           <span>Unlocks in {diff} {diff === 1 ? 'day' : 'days'}</span>
@@ -941,6 +1015,11 @@ export function FollowupScheduleSubPage({
                         <h3 className="font-bold text-white text-sm sm:text-base font-['Outfit']">
                           {lead.name}
                         </h3>
+                        {lead.isArchived && (
+                          <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 font-mono">
+                            Archived (Running)
+                          </span>
+                        )}
                         <span className="text-[10px] font-bold text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-500/40 font-mono">
                           📊 Day 8: Takeout Surge
                         </span>
@@ -1049,6 +1128,11 @@ export function FollowupScheduleSubPage({
                           {lead.id}
                         </span>
                         <h4 className="font-bold text-slate-200 text-sm font-['Outfit']">{lead.name}</h4>
+                        {lead.isArchived && (
+                          <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 font-mono">
+                            Archived (Running)
+                          </span>
+                        )}
                         <span className="text-[11px] font-bold text-purple-300 bg-purple-500/15 px-2 py-0.5 rounded-full border border-purple-500/30 flex items-center gap-1 font-mono">
                           <Lock className="w-3 h-3 text-purple-400" />
                           <span>Unlocks in {diff} {diff === 1 ? 'day' : 'days'}</span>
@@ -1131,6 +1215,11 @@ export function FollowupScheduleSubPage({
                         <h3 className="font-bold text-white text-sm sm:text-base font-['Outfit']">
                           {lead.name}
                         </h3>
+                        {lead.isArchived && (
+                          <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 font-mono">
+                            Archived (Running)
+                          </span>
+                        )}
                         <span className="text-[10px] font-bold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded border border-rose-500/40 font-mono">
                           🎯 Day 14: Breakup Loom
                         </span>
@@ -1239,6 +1328,11 @@ export function FollowupScheduleSubPage({
                           {lead.id}
                         </span>
                         <h4 className="font-bold text-slate-200 text-sm font-['Outfit']">{lead.name}</h4>
+                        {lead.isArchived && (
+                          <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30 font-mono">
+                            Archived (Running)
+                          </span>
+                        )}
                         <span className="text-[11px] font-bold text-rose-300 bg-rose-500/15 px-2 py-0.5 rounded-full border border-rose-500/30 flex items-center gap-1 font-mono">
                           <Lock className="w-3 h-3 text-rose-400" />
                           <span>Unlocks in {diff} {diff === 1 ? 'day' : 'days'}</span>
