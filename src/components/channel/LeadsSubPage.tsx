@@ -20,7 +20,31 @@ import {
   Save,
   MessageSquare,
   ChevronDown,
+  Plus,
+  Instagram,
+  Facebook,
+  Mail,
+  Calendar,
+  GripVertical,
+  Lock,
 } from 'lucide-react';
+import {
+  DndContext,
+  PointerSensor,
+  KeyboardSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragStartEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { ChannelLead, MultiChannelType, VoiceType } from '../../types';
 import {
   getNextLeadId,
@@ -30,6 +54,10 @@ import {
   resequenceLeadIds,
   findDuplicateLead,
   detectLinkChannel,
+  validateChannelLink,
+  getLeadLockReason,
+  reorderChannelLeadsWithFixedLocks,
+  LeadLockReason,
 } from '../../utils/channelStorage';
 import {
   getScheduleDayStyle,
@@ -47,6 +75,7 @@ import {
   getVoiceTypeDisplayLabel,
   getWorkspaceFilterOptions,
 } from '../../utils/voiceTypeEngine';
+import { extractCleanEmail } from '../../utils/dataRepair';
 import { playWarningChime } from '../../utils/soundEffects';
 
 interface LeadsSubPageProps {
@@ -54,6 +83,313 @@ interface LeadsSubPageProps {
   leads: ChannelLead[];
   onUpdateLeads: (leads: ChannelLead[]) => void;
   onNavigateToChannel?: (channel: MultiChannelType) => void;
+}
+
+interface SortableLeadRowProps {
+  lead: ChannelLead;
+  channel: MultiChannelType;
+  lockReason: LeadLockReason;
+  isDndEnabled: boolean;
+  workspaceVoiceTypes: VoiceType[];
+  openVoiceDropdownLeadId: string | null;
+  setOpenVoiceDropdownLeadId: (id: string | null) => void;
+  onUpdateLeadVoiceType: (leadId: string, newVoiceType: VoiceType) => void;
+  onOpenEditSequence: (lead: ChannelLead) => void;
+  onDeleteLead: (id: string) => void;
+}
+
+function SortableLeadRow({
+  lead,
+  channel,
+  lockReason,
+  isDndEnabled,
+  workspaceVoiceTypes,
+  openVoiceDropdownLeadId,
+  setOpenVoiceDropdownLeadId,
+  onUpdateLeadVoiceType,
+  onOpenEditSequence,
+  onDeleteLead,
+}: SortableLeadRowProps) {
+  const isFixed = lockReason !== null;
+  const canDrag = isDndEnabled && !isFixed;
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: lead.id,
+    disabled: !canDrag ? { draggable: true, droppable: true } : false,
+  });
+
+  const dayStyle = getScheduleDayStyle(lead.scheduledDate);
+  const isDueToday = isDateToday(lead.scheduledDate);
+
+  const numId = lead.numericId ?? extractLeadNumericId(lead, 0);
+  const isProtectedLead =
+    (channel === 'instagram' && numId <= 6) ||
+    (channel === 'combined' && numId <= 4);
+
+  const initial = (lead.initialDM || lead.customPitch || '').trim();
+  const d4 = (lead.followupDM_Day7 || lead.followup3DM || '').trim();
+  const d8 = (lead.followupDM_Day14 || lead.followup7DM || '').trim();
+  const d14 = (lead.breakupDM_Day30 || '').trim();
+
+  const hasAll4Sequences =
+    initial.length > 0 &&
+    d4.length > 0 &&
+    d8.length > 0 &&
+    d14.length > 0;
+
+  const isGreen =
+    (isProtectedLead && lead.isSequenceConfigured !== false) ||
+    (Boolean(lead.isSequenceConfigured) && hasAll4Sequences);
+
+  const dragStyle =
+    transform || transition
+      ? {
+          transform: CSS.Translate.toString(transform),
+          transition,
+        }
+      : undefined;
+
+  const lockTooltip =
+    lockReason === 'sent'
+      ? 'Locked: Already sent — position & ID cannot be changed'
+      : lockReason === 'warmed'
+      ? 'Locked: Already warmed up — position & ID cannot be changed'
+      : '';
+
+  return (
+    <tr
+      ref={setNodeRef}
+      style={dragStyle}
+      {...(canDrag ? attributes : {})}
+      {...(canDrag ? listeners : {})}
+      className={`group border-b border-white/[0.06] transition-colors ${
+        canDrag
+          ? 'cursor-grab active:cursor-grabbing hover:bg-white/[0.03]'
+          : isFixed
+          ? 'bg-slate-950/25 hover:bg-white/[0.015]'
+          : 'hover:bg-white/[0.02]'
+      } ${dayStyle.borderClass} ${dayStyle.tintClass} ${
+        isDueToday ? 'ring-1 ring-emerald-500/40 bg-emerald-950/20' : ''
+      } ${
+        isDragging
+          ? 'relative z-20 bg-slate-800/95 ring-2 ring-indigo-500/70 shadow-2xl shadow-black/70 opacity-95'
+          : ''
+      }`}
+      title={canDrag ? 'Click and drag to change lead ID order' : lockTooltip || undefined}
+    >
+      {/* 1. ID + Drag Handle / Lock Status */}
+      <td className="py-3.5 px-4 text-left font-mono text-xs tabular-nums text-slate-300 whitespace-nowrap">
+        <div className="flex items-center gap-2">
+          {isFixed ? (
+            <span
+              className={`inline-flex items-center justify-center w-5 h-5 rounded border shrink-0 cursor-not-allowed ${
+                lockReason === 'sent'
+                  ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                  : 'bg-amber-500/15 border-amber-500/30 text-amber-400'
+              }`}
+              title={lockTooltip}
+              aria-label={lockTooltip}
+            >
+              <Lock className="w-3 h-3" />
+            </span>
+          ) : (
+            <span
+              className={`inline-flex items-center justify-center w-5 h-5 rounded shrink-0 transition-colors ${
+                canDrag
+                  ? 'text-slate-500 group-hover:text-indigo-400'
+                  : 'text-slate-700 cursor-not-allowed'
+              }`}
+              title={
+                canDrag
+                  ? 'Drag to reorder lead ID'
+                  : 'Clear filter/search to reorder leads'
+              }
+            >
+              <GripVertical className="w-3.5 h-3.5" />
+            </span>
+          )}
+
+          <span className="font-semibold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded border border-indigo-500/20">
+            {lead.id}
+          </span>
+
+          {isFixed && (
+            <span
+              className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border ${
+                lockReason === 'sent'
+                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/25'
+                  : 'bg-amber-500/10 text-amber-300 border-amber-500/25'
+              }`}
+              title={lockTooltip}
+            >
+              {lockReason === 'sent' ? 'Sent' : 'Warmed'}
+            </span>
+          )}
+
+          {isDueToday && (
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm animate-pulse">
+              TODAY
+            </span>
+          )}
+        </div>
+      </td>
+
+      {/* 2. Prospect Name + Voice Type Badge with Dropdown */}
+      <td className="py-3.5 px-4 text-left">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-slate-100 font-['Outfit'] truncate max-w-xs">
+            {lead.name}
+          </span>
+
+          {/* Voice Type Badge & Dropdown Selector */}
+          <div
+            className="relative inline-block"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpenVoiceDropdownLeadId(
+                  openVoiceDropdownLeadId === lead.id ? null : lead.id
+                );
+              }}
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold font-mono border transition-all cursor-pointer shadow-sm ${
+                getVoiceTypeBadgeStyle(lead.voiceType).pillClass
+              }`}
+              title={`Voice Type: ${getVoiceTypeDisplayLabel(lead.voiceType, channel)} - Click to override`}
+            >
+              <span>{getVoiceTypeDisplayLabel(lead.voiceType, channel)}</span>
+              <ChevronDown className="w-2.5 h-2.5 opacity-70" />
+            </button>
+
+            {openVoiceDropdownLeadId === lead.id && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenVoiceDropdownLeadId(null);
+                  }}
+                />
+                <div className="absolute left-0 mt-1 w-44 rounded-xl border border-slate-700/80 bg-slate-900 shadow-2xl shadow-black/80 p-1.5 z-50 text-left">
+                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 px-2 py-1 border-b border-white/5 mb-1">
+                    Override Type
+                  </div>
+                  <div className="space-y-0.5 max-h-52 overflow-y-auto">
+                    {workspaceVoiceTypes.map((vt) => {
+                      if (!vt) return null;
+                      const isCurrent = lead.voiceType === vt;
+                      const style = getVoiceTypeBadgeStyle(vt);
+                      const displayLabel = getVoiceTypeDisplayLabel(vt, channel);
+                      return (
+                        <button
+                          key={vt}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onUpdateLeadVoiceType(lead.id, vt);
+                            setOpenVoiceDropdownLeadId(null);
+                          }}
+                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium flex items-center justify-between transition-colors cursor-pointer ${
+                            isCurrent
+                              ? 'bg-white/15 text-white font-bold'
+                              : 'text-slate-300 hover:bg-white/5 hover:text-white'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${style.dotColor}`} />
+                            <span>{displayLabel}</span>
+                          </span>
+                          {isCurrent && <span className="text-[10px] text-emerald-400 font-bold">✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {lead.scheduledDate && (
+            <span
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold font-mono border ${dayStyle.badgeClass}`}
+              title={`Scheduled for ${dayStyle.dayName} (${lead.scheduledDate})`}
+            >
+              <span>{dayStyle.dayShort}</span>
+              <span className="opacity-75">· {lead.scheduledDate.split('-').slice(1).join('/')}</span>
+            </span>
+          )}
+          {lead.fb_message_restricted && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
+              ✉️ Email Default
+            </span>
+          )}
+          {lead.hasInvalidEmail && (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 cursor-help"
+              title={`Invalid or unfixable email address (${lead.email || lead.link || 'missing'}). Click to manually inspect or skip this lead.`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+              {lead.email && <span className="truncate max-w-[140px]">{lead.email}</span>}
+            </span>
+          )}
+        </div>
+      </td>
+
+      {/* 3. Prompt / Edit Sequence Button */}
+      <td className="py-3.5 px-4 text-left">
+        <button
+          type="button"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => onOpenEditSequence(lead)}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-sm ${
+            isGreen
+              ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 hover:text-white border border-emerald-500/40 shadow-emerald-500/10'
+              : 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border border-indigo-500/30 shadow-indigo-500/10'
+          }`}
+          title={
+            isGreen
+              ? 'All 4 sequences written & configured! Click to review or adjust.'
+              : 'Sequence incomplete. Write all 4 messages (Initial, Day 4, Day 8, Day 14) to turn button green.'
+          }
+        >
+          {isGreen ? (
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          ) : (
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+          )}
+          <span>Prompt / Edit Sequence</span>
+          {isGreen && (
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          )}
+        </button>
+      </td>
+
+      {/* 4. Action: Delete Button */}
+      <td className="py-3.5 px-4 text-right">
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => onDeleteLead(lead.id)}
+            className="p-2 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+            title="Delete lead (remaining IDs will re-sequence)"
+            aria-label={`Delete ${lead.name}`}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
 }
 
 export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChannel }: LeadsSubPageProps) {
@@ -69,6 +405,21 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const [batchInputText, setBatchInputText] = useState('');
   const [batchError, setBatchError] = useState<string | null>(null);
+
+  // Manual Add Lead Modal State
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [manualName, setManualName] = useState('');
+  const [manualIgLink, setManualIgLink] = useState('');
+  const [manualFbLink, setManualFbLink] = useState('');
+  const [manualEmail, setManualEmail] = useState('');
+  const [manualCity, setManualCity] = useState('');
+  const [manualPrompt, setManualPrompt] = useState('');
+  const [manualAutoSchedule, setManualAutoSchedule] = useState(true);
+  const [manualError, setManualError] = useState<{
+    message: string;
+    detectedChannel?: MultiChannelType;
+  } | null>(null);
+  const [addedToast, setAddedToast] = useState<string | null>(null);
 
   // Voice Type Filtering States
   const [selectedVoiceFilter, setSelectedVoiceFilter] = useState<VoiceType | 'all'>('all');
@@ -156,6 +507,14 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     return () => clearTimeout(timer);
   }, [duplicateAlert]);
 
+  useEffect(() => {
+    if (!addedToast) return;
+    const timer = setTimeout(() => {
+      setAddedToast(null);
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, [addedToast]);
+
   // Workspace-specific voice options and allowed types
   const workspaceVoiceTypes = useMemo(() => {
     return getWorkspaceVoiceTypes(channel);
@@ -189,6 +548,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   }, [leads]);
 
   // Combined Voice Type & Search Query filter
+  const isFiltered = selectedVoiceFilter !== 'all' || searchQuery.trim().length > 0;
+
   const filteredLeads = useMemo(() => {
     let result = sortedLeads;
     if (selectedVoiceFilter !== 'all') {
@@ -205,6 +566,58 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     }
     return result;
   }, [sortedLeads, selectedVoiceFilter, searchQuery]);
+
+  // Drag-and-drop ID reordering sensors & handlers
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 6,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const movableLeadIds = useMemo(() => {
+    if (isFiltered) return [];
+    return filteredLeads
+      .filter((lead) => getLeadLockReason(lead) === null)
+      .map((lead) => lead.id);
+  }, [filteredLeads, isFiltered]);
+
+  const lockCounts = useMemo(() => {
+    let fixedCount = 0;
+    let movableCount = 0;
+    for (const l of sortedLeads) {
+      if (getLeadLockReason(l) !== null) fixedCount++;
+      else movableCount++;
+    }
+    return { fixedCount, movableCount };
+  }, [sortedLeads]);
+
+  const handleDragStart = (_event: DragStartEvent) => {
+    setOpenVoiceDropdownLeadId(null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || isFiltered) return;
+
+    const result = reorderChannelLeadsWithFixedLocks(
+      leads,
+      String(active.id),
+      String(over.id),
+      channel
+    );
+
+    if (result.movedLead && result.newId && result.oldId !== result.newId) {
+      onUpdateLeads(result.reorderedLeads);
+      setAddedToast(
+        `Reordered "${result.movedLead.name}": ${result.oldId} → ${result.newId}`
+      );
+    }
+  };
 
   // Update a single lead's voiceType via the inline dropdown
   const handleUpdateLeadVoiceType = (leadId: string, newVoiceType: VoiceType) => {
@@ -238,8 +651,9 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
 
     const numId = editingLead.numericId ?? extractLeadNumericId(editingLead, 0);
     const isProtectedLead =
-      (channel === 'instagram' && numId <= 6) ||
-      (channel === 'combined' && numId <= 4);
+      ((channel === 'instagram' && numId <= 6) ||
+        (channel === 'combined' && numId <= 4)) &&
+      editingLead.isSequenceConfigured !== false;
 
     // STRICT: Green finish button turns on ONLY if all 4 sequence steps have content!
     const isAll4Written =
@@ -387,6 +801,186 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     }
   };
 
+  // Preview next ID, strict Type, and next available schedule slot for Manual Add modal
+  const nextLeadPreview = useMemo(() => {
+    const nextIdData = getNextLeadId(channel, leads);
+    const voiceType = getStrictVoiceTypeForId(nextIdData.numericId, channel);
+    const nextDate = getNextAvailableScheduleDate(leads, channel);
+    return {
+      ...nextIdData,
+      voiceType,
+      voiceLabel: getVoiceTypeDisplayLabel(voiceType, channel),
+      nextDate,
+    };
+  }, [channel, leads]);
+
+  const handleOpenAddModal = () => {
+    setManualName('');
+    setManualIgLink('');
+    setManualFbLink('');
+    setManualEmail('');
+    setManualCity('');
+    setManualPrompt('');
+    setManualAutoSchedule(true);
+    setManualError(null);
+    setIsAddModalOpen(true);
+  };
+
+  const handleManualAddLead = (e: React.FormEvent) => {
+    e.preventDefault();
+    setManualError(null);
+
+    const trimmedName = manualName.trim();
+    const trimmedCity = manualCity.trim();
+    const trimmedPrompt = manualPrompt.trim();
+
+    let rawPrimaryLink = '';
+    let instagramField: string | undefined = undefined;
+    let facebookField: string | undefined = undefined;
+    let emailField: string | undefined = undefined;
+
+    if (channel === 'instagram') {
+      const igInput = manualIgLink.trim();
+      if (!igInput) {
+        setManualError({ message: 'Please enter an Instagram handle (e.g. @bistro) or profile URL.' });
+        return;
+      }
+
+      const validation = validateChannelLink(igInput, 'instagram');
+      if (!validation.isValid) {
+        setManualError({
+          message: validation.errorMessage || 'Please enter a valid Instagram link or @handle.',
+          detectedChannel: validation.detectedChannel === 'facebook' || validation.detectedChannel === 'email' ? 'combined' : validation.detectedChannel,
+        });
+        return;
+      }
+
+      instagramField = igInput;
+      rawPrimaryLink = igInput;
+
+      // Optional email on IG lead (used by Blind Rule on Day 8 / Day 14)
+      const rawEmailInput = manualEmail.trim();
+      if (rawEmailInput) {
+        const cleaned = extractCleanEmail(rawEmailInput);
+        if (!cleaned) {
+          setManualError({ message: 'The optional email address you entered is not valid. Please check it or leave it blank.' });
+          return;
+        }
+        emailField = cleaned;
+      }
+    } else {
+      // Combined Outreach (Facebook and/or Email)
+      const fbInput = manualFbLink.trim();
+      const rawEmailInput = manualEmail.trim();
+
+      if (!fbInput && !rawEmailInput) {
+        setManualError({ message: 'Please enter at least a Facebook Page URL or an Email address.' });
+        return;
+      }
+
+      if (fbInput) {
+        const detectedFb = detectLinkChannel(fbInput);
+        if (detectedFb === 'instagram') {
+          setManualError({
+            message: 'Error: This is an Instagram link. Switch to the Instagram workspace to add Instagram leads.',
+            detectedChannel: 'instagram',
+          });
+          return;
+        }
+        if (detectedFb === 'email') {
+          setManualError({
+            message: 'You entered an email address in the Facebook URL field. Please put emails in the Email Address box below.',
+          });
+          return;
+        }
+        facebookField = fbInput;
+      }
+
+      if (rawEmailInput) {
+        const detectedEm = detectLinkChannel(rawEmailInput);
+        if (detectedEm === 'instagram') {
+          setManualError({
+            message: 'Error: This is an Instagram link. Switch to the Instagram workspace to add Instagram leads.',
+            detectedChannel: 'instagram',
+          });
+          return;
+        }
+        const cleanedEmail = extractCleanEmail(rawEmailInput);
+        if (!cleanedEmail) {
+          setManualError({ message: 'Please enter a valid email address (e.g. contact@restaurant.com).' });
+          return;
+        }
+        emailField = cleanedEmail;
+      }
+
+      rawPrimaryLink = facebookField || emailField || '';
+    }
+
+    // Duplicate protection across workspace leads
+    const dupPrimary = rawPrimaryLink ? findDuplicateLead(rawPrimaryLink, leads) : undefined;
+    const dupFb = facebookField ? findDuplicateLead(facebookField, leads) : undefined;
+    const dupEmail = emailField ? findDuplicateLead(emailField, leads) : undefined;
+    const existingDup = dupPrimary || dupFb || dupEmail;
+
+    if (existingDup) {
+      playWarningChime();
+      setManualError({
+        message: `Duplicate Blocked: Already in ${getChannelLabel(channel)} as ${existingDup.id} (${existingDup.name}).`,
+      });
+      return;
+    }
+
+    const nextIdData = getNextLeadId(channel, leads);
+    const businessName = trimmedName || extractSuggestedName(rawPrimaryLink);
+    const assignedScheduleDate = manualAutoSchedule
+      ? getNextAvailableScheduleDate(leads, channel)
+      : undefined;
+
+    const nowIso = new Date().toISOString();
+
+    const newLead: ChannelLead = {
+      id: nextIdData.id,
+      numericId: nextIdData.numericId,
+      name: businessName,
+      link: rawPrimaryLink,
+      platformLink: rawPrimaryLink,
+      instagram: instagramField,
+      facebook: facebookField,
+      email: emailField,
+      hasInvalidEmail: false,
+      city: trimmedCity || undefined,
+      channel,
+      voiceType: getStrictVoiceTypeForId(nextIdData.numericId, channel),
+      isVoiceTypeOverridden: false,
+      scheduledDate: assignedScheduleDate,
+      sortOrder: leads.length,
+      createdAt: nowIso,
+      warmupStatus: 'locked',
+      isWarmedUp: false,
+      prompt: trimmedPrompt || undefined,
+      leadAnalysis: trimmedPrompt || undefined,
+      analysisSavedAt: trimmedPrompt ? nowIso : undefined,
+      initialDM: '',
+      customPitch: '',
+      stagedDmMiniPitch: '',
+      followupDM_Day7: '',
+      followup3DM: '',
+      followupDM_Day14: '',
+      followup7DM: '',
+      breakupDM_Day30: '',
+      isSequenceConfigured: false,
+    };
+
+    onUpdateLeads([...leads, newLead]);
+    setIsAddModalOpen(false);
+    setManualError(null);
+    setAddedToast(
+      assignedScheduleDate
+        ? `Added ${newLead.id} (${newLead.name}) · Auto-scheduled for ${assignedScheduleDate}`
+        : `Added ${newLead.id} (${newLead.name}) to ${getChannelLabel(channel)}`
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* Toast Alert */}
@@ -424,7 +1018,29 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         </div>
       )}
 
-      {/* Toolbar: Closed-System Notice & Batch / Search Bar */}
+      {/* Success Toast Banner for Manual Add */}
+      {addedToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-5 right-5 z-50 max-w-lg w-[calc(100vw-2.5rem)] rounded-2xl border border-emerald-500/50 bg-emerald-950/95 p-4 text-xs sm:text-sm font-semibold text-emerald-100 shadow-2xl shadow-emerald-950/60 backdrop-blur-md animate-in slide-in-from-top-3 flex items-center justify-between gap-3"
+        >
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <span>{addedToast}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAddedToast(null)}
+            className="text-emerald-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer shrink-0"
+            aria-label="Dismiss confirmation"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Toolbar: Closed-System Notice & Manual Add / Batch / Search Bar */}
       <div className="relative z-30 rounded-2xl border border-white/[0.08] bg-slate-900/60 p-4 sm:p-5 backdrop-blur-sm shadow-xl space-y-4">
         <div className="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2.5">
@@ -433,18 +1049,28 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
               <strong className="text-indigo-200">Closed-System CRM:</strong> Leads ordered chronologically by ID (1, 2, 3...). Profile links are hidden to enforce Warm-Up discipline. Write and configure your 4-step sequence below.
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setBatchInputText('');
-              setBatchError(null);
-              setIsBatchModalOpen(true);
-            }}
-            className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-indigo-600/30 text-xs shrink-0"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span>Batch Import</span>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleOpenAddModal}
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 text-xs shrink-0 active:scale-95"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Lead</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setBatchInputText('');
+                setBatchError(null);
+                setIsBatchModalOpen(true);
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-indigo-600/30 text-xs shrink-0 active:scale-95"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Batch Import</span>
+            </button>
+          </div>
         </div>
 
         {/* Search Bar, Filter by Type Dropdown & Export Menu */}
@@ -578,228 +1204,87 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
 
       {/* Simplified Clean Table: ID, Name, Prompt / Edit Sequence, Delete */}
       <div className="relative z-10 rounded-2xl border border-white/[0.08] bg-slate-900/50 backdrop-blur-sm overflow-hidden shadow-xl min-h-[360px]">
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                <th className="py-3 px-4 text-left w-28">ID</th>
-                <th className="py-3 px-4 text-left">Prospect Name</th>
-                <th className="py-3 px-4 text-left w-64">Sequence Configuration</th>
-                <th className="py-3 px-4 text-right w-20">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/[0.04]">
-              {filteredLeads.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="py-12 text-center">
-                    <div className="max-w-sm mx-auto space-y-2">
-                      <p className="text-sm font-medium text-slate-400">No leads in {getChannelLabel(channel)} yet</p>
-                      <p className="text-xs text-slate-500">
-                        Upload leads through the <strong>📥 Lead Inbox</strong> or <strong>Batch Import</strong> to intake prospects.
-                      </p>
-                    </div>
-                  </td>
-                </tr>
+        {leads.length > 0 && (
+          <div className="px-4 py-2.5 border-b border-white/[0.06] bg-slate-950/40 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+            <div className="flex items-center gap-2">
+              {isFiltered ? (
+                <span className="text-amber-300 font-medium">
+                  Clear search or type filter to drag-reorder lead IDs
+                </span>
               ) : (
-                filteredLeads.map((lead) => {
-                  const dayStyle = getScheduleDayStyle(lead.scheduledDate);
-                  const isDueToday = isDateToday(lead.scheduledDate);
-
-                  return (
-                    <tr
-                      key={lead.id}
-                      className={`border-b border-white/[0.06] transition-colors hover:bg-white/[0.02] ${
-                        dayStyle.borderClass
-                      } ${dayStyle.tintClass} ${
-                        isDueToday ? 'ring-1 ring-emerald-500/40 bg-emerald-950/20' : ''
-                      }`}
-                    >
-                      {/* 1. ID */}
-                      <td className="py-3.5 px-4 text-left font-mono text-xs tabular-nums text-slate-300">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded border border-indigo-500/20">
-                            {lead.id}
-                          </span>
-                          {isDueToday && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm animate-pulse">
-                              TODAY
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* 2. Prospect Name + Voice Type Badge with Dropdown */}
-                      <td className="py-3.5 px-4 text-left">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-slate-100 font-['Outfit'] truncate max-w-xs">
-                            {lead.name}
-                          </span>
-
-                          {/* Voice Type Badge & Dropdown Selector (Requirement 4) */}
-                          <div className="relative inline-block">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenVoiceDropdownLeadId(
-                                  openVoiceDropdownLeadId === lead.id ? null : lead.id
-                                );
-                              }}
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold font-mono border transition-all cursor-pointer shadow-sm ${
-                                getVoiceTypeBadgeStyle(lead.voiceType).pillClass
-                              }`}
-                              title={`Voice Type: ${getVoiceTypeDisplayLabel(lead.voiceType, channel)} - Click to override`}
-                            >
-                              <span>{getVoiceTypeDisplayLabel(lead.voiceType, channel)}</span>
-                              <ChevronDown className="w-2.5 h-2.5 opacity-70" />
-                            </button>
-
-                            {openVoiceDropdownLeadId === lead.id && (
-                              <>
-                                <div
-                                  className="fixed inset-0 z-40"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setOpenVoiceDropdownLeadId(null);
-                                  }}
-                                />
-                                <div className="absolute left-0 mt-1 w-44 rounded-xl border border-slate-700/80 bg-slate-900 shadow-2xl shadow-black/80 p-1.5 z-50 text-left">
-                                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 px-2 py-1 border-b border-white/5 mb-1">
-                                    Override Type
-                                  </div>
-                                  <div className="space-y-0.5 max-h-52 overflow-y-auto">
-                                    {workspaceVoiceTypes.map((vt) => {
-                                      if (!vt) return null;
-                                      const isCurrent = lead.voiceType === vt;
-                                      const style = getVoiceTypeBadgeStyle(vt);
-                                      const displayLabel = getVoiceTypeDisplayLabel(vt, channel);
-                                      return (
-                                        <button
-                                          key={vt}
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleUpdateLeadVoiceType(lead.id, vt);
-                                            setOpenVoiceDropdownLeadId(null);
-                                          }}
-                                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium flex items-center justify-between transition-colors cursor-pointer ${
-                                            isCurrent
-                                              ? 'bg-white/15 text-white font-bold'
-                                              : 'text-slate-300 hover:bg-white/5 hover:text-white'
-                                          }`}
-                                        >
-                                          <span className="flex items-center gap-2">
-                                            <span className={`w-2 h-2 rounded-full ${style.dotColor}`} />
-                                            <span>{displayLabel}</span>
-                                          </span>
-                                          {isCurrent && <span className="text-[10px] text-emerald-400 font-bold">✓</span>}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-
-                          {lead.scheduledDate && (
-                            <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold font-mono border ${dayStyle.badgeClass}`}
-                              title={`Scheduled for ${dayStyle.dayName} (${lead.scheduledDate})`}
-                            >
-                              <span>{dayStyle.dayShort}</span>
-                              <span className="opacity-75">· {lead.scheduledDate.split('-').slice(1).join('/')}</span>
-                            </span>
-                          )}
-                          {lead.fb_message_restricted && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
-                              ✉️ Email Default
-                            </span>
-                          )}
-                          {lead.hasInvalidEmail && (
-                            <span
-                              className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 cursor-help"
-                              title={`Invalid or unfixable email address (${lead.email || lead.link || 'missing'}). Click to manually inspect or skip this lead.`}
-                            >
-                              <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                              {lead.email && <span className="truncate max-w-[140px]">{lead.email}</span>}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* 3. Prompt / Edit Sequence Button (Turns green ONLY when all 4 sequences are written) */}
-                      <td className="py-3.5 px-4 text-left">
-                        {(() => {
-                          const numId = lead.numericId ?? extractLeadNumericId(lead, 0);
-                          const isProtectedLead =
-                            (channel === 'instagram' && numId <= 6) ||
-                            (channel === 'combined' && numId <= 4);
-
-                          const initial = (lead.initialDM || lead.customPitch || '').trim();
-                          const d4 = (lead.followupDM_Day7 || lead.followup3DM || '').trim();
-                          const d8 = (lead.followupDM_Day14 || lead.followup7DM || '').trim();
-                          const d14 = (lead.breakupDM_Day30 || '').trim();
-
-                          // STRICT: All 4 sequence messages must have at least one sentence/text!
-                          // Even if 3 are written and 1 is missing (e.g. D14), it does NOT turn green.
-                          const hasAll4Sequences =
-                            initial.length > 0 &&
-                            d4.length > 0 &&
-                            d8.length > 0 &&
-                            d14.length > 0;
-
-                          const isGreen = isProtectedLead || (Boolean(lead.isSequenceConfigured) && hasAll4Sequences);
-
-                          return (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditSequence(lead)}
-                              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-sm ${
-                                isGreen
-                                  ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 hover:text-white border border-emerald-500/40 shadow-emerald-500/10'
-                                  : 'bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 hover:text-white border border-indigo-500/30 shadow-indigo-500/10'
-                              }`}
-                              title={
-                                isGreen
-                                  ? 'All 4 sequences written & configured! Click to review or adjust.'
-                                  : 'Sequence incomplete. Write all 4 messages (Initial, Day 4, Day 8, Day 14) to turn button green.'
-                              }
-                            >
-                              {isGreen ? (
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                              ) : (
-                                <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                              )}
-                              <span>Prompt / Edit Sequence</span>
-                              {isGreen && (
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                              )}
-                            </button>
-                          );
-                        })()}
-                      </td>
-
-                      {/* 4. Action: ONLY Delete Button (🗑️) */}
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end">
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteLead(lead.id)}
-                            className="p-2 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                            title="Delete lead (remaining IDs will re-sequence)"
-                            aria-label={`Delete ${lead.name}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                <span className="flex items-center gap-1.5">
+                  <GripVertical className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <span>
+                    Click and drag any unlocked lead row to change its ID position.
+                  </span>
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3 font-mono text-[10px]">
+              <span className="inline-flex items-center gap-1 text-slate-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                <span>{lockCounts.movableCount} Movable</span>
+              </span>
+              <span className="inline-flex items-center gap-1 text-amber-300">
+                <Lock className="w-3 h-3 text-amber-400" />
+                <span>{lockCounts.fixedCount} Fixed (Warmed / Sent)</span>
+              </span>
+            </div>
+          </div>
+        )}
+        <div className="overflow-x-auto">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          >
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                  <th className="py-3 px-4 text-left w-36">ID</th>
+                  <th className="py-3 px-4 text-left">Prospect Name</th>
+                  <th className="py-3 px-4 text-left w-64">Sequence Configuration</th>
+                  <th className="py-3 px-4 text-right w-20">Action</th>
+                </tr>
+              </thead>
+              <SortableContext
+                items={movableLeadIds}
+                strategy={verticalListSortingStrategy}
+              >
+                <tbody className="divide-y divide-white/[0.04]">
+                  {filteredLeads.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="py-12 text-center">
+                        <div className="max-w-sm mx-auto space-y-2">
+                          <p className="text-sm font-medium text-slate-400">No leads in {getChannelLabel(channel)} yet</p>
+                          <p className="text-xs text-slate-500">
+                            Use <strong>+ Add Lead</strong>, <strong>Batch Import</strong>, or the <strong>📥 Lead Inbox</strong> to add prospects.
+                          </p>
                         </div>
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                  ) : (
+                    filteredLeads.map((lead) => (
+                      <SortableLeadRow
+                        key={lead.id}
+                        lead={lead}
+                        channel={channel}
+                        lockReason={getLeadLockReason(lead)}
+                        isDndEnabled={!isFiltered}
+                        workspaceVoiceTypes={workspaceVoiceTypes}
+                        openVoiceDropdownLeadId={openVoiceDropdownLeadId}
+                        setOpenVoiceDropdownLeadId={setOpenVoiceDropdownLeadId}
+                        onUpdateLeadVoiceType={handleUpdateLeadVoiceType}
+                        onOpenEditSequence={handleOpenEditSequence}
+                        onDeleteLead={handleDeleteLead}
+                      />
+                    ))
+                  )}
+                </tbody>
+              </SortableContext>
+            </table>
+          </DndContext>
         </div>
       </div>
 
@@ -885,8 +1370,9 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                 {(() => {
                   const numId = editingLead.numericId ?? extractLeadNumericId(editingLead, 0);
                   const isProtected =
-                    (channel === 'instagram' && numId <= 6) ||
-                    (channel === 'combined' && numId <= 4);
+                    ((channel === 'instagram' && numId <= 6) ||
+                      (channel === 'combined' && numId <= 4)) &&
+                    editingLead.isSequenceConfigured !== false;
 
                   const filled = [initialDmText.trim(), day4Text.trim(), day8Text.trim(), day14Text.trim()].filter(Boolean).length;
                   const isReady = isProtected || filled === 4;
@@ -1089,6 +1575,231 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Single Lead Entry Modal (Instagram & Combined Outreach) */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+          <div className="w-full max-w-lg rounded-3xl bg-slate-900 border border-white/10 p-6 sm:p-7 shadow-2xl space-y-5 text-slate-100 max-h-[92vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-white/10 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs font-bold text-emerald-300 bg-emerald-500/15 px-2.5 py-0.5 rounded border border-emerald-500/30">
+                    {nextLeadPreview.id}
+                  </span>
+                  <span className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded border ${getVoiceTypeBadgeStyle(nextLeadPreview.voiceType).pillClass}`}>
+                    {nextLeadPreview.voiceLabel}
+                  </span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 font-mono">
+                    {getChannelLabel(channel)}
+                  </span>
+                </div>
+                <h3 className="text-xl font-black text-white font-['Outfit'] mt-1.5">
+                  Add Lead Manually
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Create a verified prospect directly in {getChannelLabel(channel)}. Duplicates are blocked and ID/Type are assigned automatically.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {manualError && (
+              <div className="p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs font-medium space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  <span>{manualError.message}</span>
+                </div>
+                {manualError.detectedChannel && onNavigateToChannel && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddModalOpen(false);
+                      onNavigateToChannel(manualError.detectedChannel!);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition cursor-pointer"
+                  >
+                    <span>Switch to {getChannelLabel(manualError.detectedChannel)} Workspace</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
+
+            <form onSubmit={handleManualAddLead} className="space-y-4">
+              {/* Prospect / Business Name */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-300 font-mono uppercase tracking-wider">
+                  Prospect / Business Name
+                </label>
+                <input
+                  type="text"
+                  value={manualName}
+                  onChange={(e) => setManualName(e.target.value)}
+                  placeholder="e.g. Gigi's On Fairmount (auto-filled from link if blank)"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Channel-Specific Link / Contact Fields */}
+              {channel === 'instagram' ? (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-bold text-pink-300 font-mono uppercase tracking-wider">
+                      <Instagram className="w-3.5 h-3.5 text-pink-400" />
+                      <span>Instagram Handle or Profile URL *</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={manualIgLink}
+                      onChange={(e) => {
+                        setManualIgLink(e.target.value);
+                        setManualError(null);
+                      }}
+                      placeholder="https://instagram.com/restaurant or @handle"
+                      required
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-pink-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-bold text-slate-400 font-mono uppercase tracking-wider">
+                      <Mail className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Backup Email (Optional · Used on Day 8/14)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={manualEmail}
+                      onChange={(e) => {
+                        setManualEmail(e.target.value);
+                        setManualError(null);
+                      }}
+                      placeholder="contact@restaurant.com"
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-bold text-sky-300 font-mono uppercase tracking-wider">
+                      <Facebook className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Facebook Page URL</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={manualFbLink}
+                      onChange={(e) => {
+                        setManualFbLink(e.target.value);
+                        setManualError(null);
+                      }}
+                      placeholder="https://facebook.com/restaurant"
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="flex items-center gap-1.5 text-xs font-bold text-indigo-300 font-mono uppercase tracking-wider">
+                      <Mail className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Email Address</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={manualEmail}
+                      onChange={(e) => {
+                        setManualEmail(e.target.value);
+                        setManualError(null);
+                      }}
+                      placeholder="owner@restaurant.com"
+                      className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                    />
+                    <p className="text-[11px] text-slate-500">
+                      Provide a Facebook URL, an Email address, or both (at least one is required).
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {/* City / Location */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-400 font-mono uppercase tracking-wider">
+                  City / Market (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={manualCity}
+                  onChange={(e) => setManualCity(e.target.value)}
+                  placeholder="e.g. Dallas, TX"
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-white/10 rounded-xl text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              {/* Optional Lead Analysis / Prompt */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-400 font-mono uppercase tracking-wider">
+                  Lead Analysis / Prompt Notes (Optional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={manualPrompt}
+                  onChange={(e) => setManualPrompt(e.target.value)}
+                  placeholder="Paste research notes or Gemini/DeepSeek analysis here..."
+                  className="w-full p-3 bg-slate-950 border border-white/10 rounded-xl text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500 leading-relaxed"
+                />
+              </div>
+
+              {/* Auto-Schedule Toggle */}
+              <label className="flex items-start gap-3 p-3 rounded-xl bg-slate-950/70 border border-white/10 cursor-pointer hover:border-emerald-500/30 transition">
+                <input
+                  type="checkbox"
+                  checked={manualAutoSchedule}
+                  onChange={(e) => setManualAutoSchedule(e.target.checked)}
+                  className="mt-0.5 rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                />
+                <div className="text-xs space-y-0.5">
+                  <div className="font-semibold text-slate-200 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Auto-Schedule Starting Tomorrow</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    {manualAutoSchedule ? (
+                      <>
+                        Next available slot:{' '}
+                        <strong className="text-emerald-300 font-mono">{nextLeadPreview.nextDate}</strong>{' '}
+                        (respects daily quota &amp; warm-up rhythm)
+                      </>
+                    ) : (
+                      'Lead will be added without a scheduled dispatch date.'
+                    )}
+                  </p>
+                </div>
+              </label>
+
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold transition cursor-pointer flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/30 active:scale-95"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add Lead to {getChannelLabel(channel)}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

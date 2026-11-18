@@ -1,5 +1,6 @@
 import { ChannelLead, MultiChannelType } from '../types';
 import { extractCleanEmail } from './dataRepair';
+import { getStrictVoiceTypeForId } from './voiceTypeEngine';
 
 const STORAGE_PREFIX = 'outreach_channel_leads_';
 
@@ -135,6 +136,172 @@ export function resequenceLeadIds(
       sortOrder: index,
     };
   });
+}
+
+export type LeadLockReason = 'warmed' | 'sent' | null;
+
+/**
+ * Determines whether a lead's ID & queue position are locked (fixed).
+ * Already warmed-up or already sent/replied/completed leads CANNOT be moved or renumbered.
+ */
+export function getLeadLockReason(lead: ChannelLead): LeadLockReason {
+  if (!lead) return null;
+
+  const isSent = Boolean(
+    lead.initialSentDate ||
+      lead.dmSent ||
+      lead.dmSentAt ||
+      lead.lastContactDate ||
+      lead.isCompleted ||
+      lead.completedAt ||
+      lead.repliedAt ||
+      lead.followup1SentDate ||
+      lead.followup2SentDate ||
+      lead.followup3SentDate ||
+      (lead.followupCount && lead.followupCount > 0) ||
+      (lead.leadStatus && lead.leadStatus !== 'not_sent')
+  );
+  if (isSent) return 'sent';
+
+  const isWarmed = Boolean(
+    lead.isWarmedUp ||
+      lead.warmupStatus === 'warmed' ||
+      lead.warmedUpAt
+  );
+  if (isWarmed) return 'warmed';
+
+  return null;
+}
+
+export function isLeadPositionFixed(lead: ChannelLead): boolean {
+  return getLeadLockReason(lead) !== null;
+}
+
+/**
+ * Reorders movable leads via drag-and-drop while keeping already warmed-up
+ * and already sent leads strictly fixed at their exact indices and IDs.
+ * Updates sequential IDs, sortOrder, strict ID-to-Type assignments, and keeps
+ * daily schedule slot dates balanced across movable positions.
+ */
+export function reorderChannelLeadsWithFixedLocks(
+  leads: ChannelLead[],
+  activeLeadId: string,
+  overLeadId: string,
+  channel: MultiChannelType
+): {
+  reorderedLeads: ChannelLead[];
+  movedLead?: ChannelLead;
+  oldId?: string;
+  newId?: string;
+} {
+  if (!leads || leads.length === 0 || activeLeadId === overLeadId) {
+    return { reorderedLeads: leads };
+  }
+
+  const ordered = [...leads].sort(
+    (a, b) => (a.numericId ?? a.sortOrder ?? 0) - (b.numericId ?? b.sortOrder ?? 0)
+  );
+
+  const activeIndex = ordered.findIndex((l) => l.id === activeLeadId);
+  const overIndex = ordered.findIndex((l) => l.id === overLeadId);
+
+  if (activeIndex === -1 || overIndex === -1) {
+    return { reorderedLeads: leads };
+  }
+
+  // Strictly refuse to move warmed-up or sent leads
+  if (isLeadPositionFixed(ordered[activeIndex])) {
+    return { reorderedLeads: leads };
+  }
+
+  const movableSlotIndices: number[] = [];
+  for (let i = 0; i < ordered.length; i++) {
+    if (!isLeadPositionFixed(ordered[i])) {
+      movableSlotIndices.push(i);
+    }
+  }
+
+  const fromMovablePos = movableSlotIndices.indexOf(activeIndex);
+  if (fromMovablePos === -1) {
+    return { reorderedLeads: leads };
+  }
+
+  let toMovablePos = movableSlotIndices.indexOf(overIndex);
+  if (toMovablePos === -1) {
+    if (overIndex < activeIndex) {
+      toMovablePos = movableSlotIndices.findIndex((slotIdx) => slotIdx >= overIndex);
+    } else {
+      for (let m = movableSlotIndices.length - 1; m >= 0; m--) {
+        if (movableSlotIndices[m] <= overIndex) {
+          toMovablePos = m;
+          break;
+        }
+      }
+    }
+  }
+
+  if (toMovablePos === -1 || toMovablePos === fromMovablePos) {
+    return { reorderedLeads: leads };
+  }
+
+  const movableSlotDates = movableSlotIndices.map((idx) => ordered[idx].scheduledDate);
+  const movableLeads = movableSlotIndices.map((idx) => ordered[idx]);
+
+  const [dragged] = movableLeads.splice(fromMovablePos, 1);
+  movableLeads.splice(toMovablePos, 0, dragged);
+
+  const merged = [...ordered];
+  movableSlotIndices.forEach((slotIdx, mIdx) => {
+    merged[slotIdx] = {
+      ...movableLeads[mIdx],
+      scheduledDate: movableSlotDates[mIdx],
+    };
+  });
+
+  const prefix = getChannelPrefix(channel);
+  let movedLead: ChannelLead | undefined;
+  let newId: string | undefined;
+
+  const reorderedLeads = merged.map((lead, idx) => {
+    const seq = idx + 1;
+    const computedId = `${prefix}-${seq}`;
+
+    if (isLeadPositionFixed(lead)) {
+      return {
+        ...lead,
+        numericId: seq,
+        id: computedId,
+        sortOrder: idx,
+      };
+    }
+
+    const nextVoiceType =
+      lead.isVoiceTypeOverridden && lead.voiceType
+        ? lead.voiceType
+        : getStrictVoiceTypeForId(seq, channel);
+
+    const updated: ChannelLead = {
+      ...lead,
+      numericId: seq,
+      id: computedId,
+      sortOrder: idx,
+      voiceType: nextVoiceType,
+    };
+
+    if (lead.id === activeLeadId) {
+      movedLead = updated;
+      newId = computedId;
+    }
+
+    return updated;
+  });
+
+  return {
+    reorderedLeads,
+    movedLead,
+    oldId: activeLeadId,
+    newId,
+  };
 }
 
 /**
