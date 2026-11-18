@@ -1,5 +1,5 @@
 import { ChannelLead, MultiChannelType } from '../types';
-import { extractCleanEmail } from './dataRepair';
+import { extractCleanEmail, normalizeExistingLeadCadence } from './dataRepair';
 import { getStrictVoiceTypeForId, ensureVoiceTypeAssignments } from './voiceTypeEngine';
 
 const STORAGE_PREFIX = 'outreach_channel_leads_';
@@ -58,7 +58,7 @@ export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
             channel: 'combined' as MultiChannelType,
             sortOrder: fbList.length + i,
           })),
-        ]);
+        ]).map((l) => normalizeExistingLeadCadence(l).normalizedLead);
         const { updatedLeads: merged } = ensureVoiceTypeAssignments(mergedRaw, channel);
         localStorage.setItem(storageKey, JSON.stringify(merged));
         return [...merged].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
@@ -69,10 +69,16 @@ export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         const activeOnly = parsed.filter((l: ChannelLead) => !l?.isArchived);
-        const normalized = normalizeEmailOnlyWarmupStatus(activeOnly);
+        let cadenceChanged = false;
+        const cadenceMigrated = activeOnly.map((l: ChannelLead) => {
+          const { normalizedLead, wasChanged } = normalizeExistingLeadCadence(l);
+          if (wasChanged) cadenceChanged = true;
+          return normalizedLead;
+        });
+        const normalized = normalizeEmailOnlyWarmupStatus(cadenceMigrated);
         const { updatedLeads: voiceNormalized, hasChanges: voiceChanged } =
           ensureVoiceTypeAssignments(normalized, channel);
-        if (voiceChanged || normalized !== parsed || activeOnly.length !== parsed.length) {
+        if (cadenceChanged || voiceChanged || normalized !== cadenceMigrated || activeOnly.length !== parsed.length) {
           localStorage.setItem(storageKey, JSON.stringify(voiceNormalized));
         }
         // Sort by sortOrder ascending

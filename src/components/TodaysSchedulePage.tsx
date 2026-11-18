@@ -496,7 +496,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       ...instagramLeads.map((l) => ({ ...l, channelLabel: 'Instagram' })),
     ];
     return combinedAll.filter((l) => {
-      if (l.isCompleted || l.isArchived || l.cadenceStatus === 'cancelled' || l.initialSentDate) return false;
+      if (l.isCompleted || l.isArchived || l.cadenceStatus === 'cancelled' || getEffectiveInitialSentDate(l) || l.dmSent) return false;
       if (normalizeToLocalDateStr(l.scheduledDate) !== warmupTargetDateStr) return false;
       if (isEmailOnlyLead(l)) return false;
       return getBlindRouteLink(l, 'warmup') !== null;

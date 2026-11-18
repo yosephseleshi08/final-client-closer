@@ -142,7 +142,7 @@ export const SundayPrepView: React.FC<SundayPrepViewProps> = ({
     // 2. Fallback: upcoming unsent leads ready for launch
     const pendingLeads = allLeads.filter((l) => {
       if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
-      return !l.initialSentDate;
+      return !l.initialSentDate && !l.dmSent && (!l.followupCount || l.followupCount === 0);
     });
 
     return pendingLeads.slice(0, 8);

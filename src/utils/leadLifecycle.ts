@@ -298,23 +298,49 @@ export function getOrphanedCadences(
     if (lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') {
       continue;
     }
-    if (!lead.initialSentDate && !lead.dmSent) continue;
+    if (!hasLeadSentHistory(lead)) continue;
 
     // Effective cadenceStatus for archived sent leads is 'running' unless cancelled
     if (lead.cadenceStatus && lead.cadenceStatus !== 'running') continue;
 
+    let fuCount =
+      typeof lead.followupCount === 'number' && !Number.isNaN(lead.followupCount)
+        ? lead.followupCount
+        : 0;
+    if (lead.followup3SentDate) fuCount = Math.max(fuCount, 3);
+    else if (lead.followup2SentDate) fuCount = Math.max(fuCount, 2);
+    else if (lead.followup1SentDate) fuCount = Math.max(fuCount, 1);
+    if (fuCount >= 3) continue;
+
+    const effectiveInitial =
+      toLocalDateString(lead.initialSentDate) ||
+      (fuCount > 0
+        ? toLocalDateString(lead.dmSentAt) ||
+          (lead.followup1SentDate ? addLocalDays(lead.followup1SentDate, -4) : null) ||
+          (lead.followup2SentDate ? addLocalDays(lead.followup2SentDate, -8) : null) ||
+          toLocalDateString(lead.dispatchDate) ||
+          toLocalDateString(lead.dispatchedAt)
+        : toLocalDateString(lead.dispatchDate) ||
+          toLocalDateString(lead.dmSentAt) ||
+          toLocalDateString(lead.dispatchedAt)) ||
+      today;
+
+    const [iy, im, id] = effectiveInitial.split('-').map(Number);
+    const initialMs = new Date(iy, im - 1, id).getTime();
+    const daysElapsed = Math.max(0, Math.round((todayMs - initialMs) / (1000 * 60 * 60 * 24)));
+
     let dueStep: 'D4' | 'D8' | 'D14' | null = null;
     let rawDue: string | undefined;
 
-    if (!lead.followupCount || lead.followupCount === 0) {
-      dueStep = 'D4';
-      rawDue = lead.followup1Date || addLocalDays(lead.initialSentDate || today, 4);
-    } else if (lead.followupCount === 1) {
-      dueStep = 'D8';
-      rawDue = lead.followup2Date || addLocalDays(lead.initialSentDate || today, 8);
-    } else if (lead.followupCount === 2) {
+    if ((daysElapsed >= 14 && fuCount <= 2) || fuCount === 2) {
       dueStep = 'D14';
-      rawDue = lead.followup3Date || addLocalDays(lead.initialSentDate || today, 14);
+      rawDue = lead.followup3Date || addLocalDays(effectiveInitial, 14);
+    } else if ((daysElapsed >= 8 && fuCount <= 1) || fuCount === 1) {
+      dueStep = 'D8';
+      rawDue = lead.followup2Date || addLocalDays(effectiveInitial, 8);
+    } else {
+      dueStep = 'D4';
+      rawDue = lead.followup1Date || addLocalDays(effectiveInitial, 4);
     }
 
     if (!dueStep || !rawDue) continue;

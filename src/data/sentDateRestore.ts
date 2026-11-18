@@ -392,8 +392,15 @@ export function applySentDateRestore(): SentDateRestoreResult {
     restoredLeadIds.push(lead.id);
     details.push(`${lead.id} (${lead.name}): Restored D0 → ${restoredSentDate}, D4 → ${fu1}`);
 
+    const day4Msg = lead.followupDM_Day4 || lead.followupDM_Day7 || lead.followup3DM;
+    const day8Msg = lead.followupDM_Day8 || lead.followupDM_Day14 || lead.followup7DM;
+    const day14Msg = lead.breakupDM_Day14 || lead.breakupDM_Day30;
+
     return {
       ...lead,
+      ...(day4Msg ? { followupDM_Day4: day4Msg, followupDM_Day7: day4Msg, followup3DM: day4Msg } : {}),
+      ...(day8Msg ? { followupDM_Day8: day8Msg, followupDM_Day14: day8Msg, followup7DM: day8Msg } : {}),
+      ...(day14Msg ? { breakupDM_Day14: day14Msg, breakupDM_Day30: day14Msg } : {}),
       initialSentDate: restoredSentDate,
       dispatchDate: restoredSentDate,
       dispatchedAt: `${restoredSentDate}T12:00:00`,

@@ -146,6 +146,318 @@ export function repairSingleLeadEmail<T extends Partial<ChannelLead> & Record<st
   };
 }
 
+function normDateStr(rawInput?: string | null): string | undefined {
+  if (!rawInput) return undefined;
+  const str = String(rawInput).trim();
+  if (!str) return undefined;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    return str;
+  }
+
+  if (str.includes('T') || str.includes(':') || str.includes('Z')) {
+    const parsed = new Date(str);
+    if (!Number.isNaN(parsed.getTime())) {
+      const y = parsed.getFullYear();
+      const m = String(parsed.getMonth() + 1).padStart(2, '0');
+      const d = String(parsed.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+  }
+
+  const mdyMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (mdyMatch) {
+    const m = String(parseInt(mdyMatch[1], 10)).padStart(2, '0');
+    const d = String(parseInt(mdyMatch[2], 10)).padStart(2, '0');
+    return `${mdyMatch[3]}-${m}-${d}`;
+  }
+
+  const ymdMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (ymdMatch) {
+    const m = String(parseInt(ymdMatch[2], 10)).padStart(2, '0');
+    const d = String(parseInt(ymdMatch[3], 10)).padStart(2, '0');
+    return `${ymdMatch[1]}-${m}-${d}`;
+  }
+
+  const parsed = new Date(str);
+  if (!Number.isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  return undefined;
+}
+
+function addLocalCalendarDays(dateStr: string, days: number): string {
+  const norm = normDateStr(dateStr);
+  const parts = (norm || dateStr).split('-').map(Number);
+  const dt = new Date(parts[0], parts[1] - 1, parts[2]);
+  dt.setDate(dt.getDate() + days);
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function isFrozenOrSundayDate(dateStr: string): boolean {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (new Date(y, m - 1, d).getDay() === 0) return true;
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    const raw = localStorage.getItem('crm_pipeline_freeze_v1');
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed?.frozenDates) && parsed.frozenDates.includes(dateStr)) {
+      return true;
+    }
+    if (parsed?.isFrozen && parsed?.frozenStartDate) {
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      if (dateStr >= parsed.frozenStartDate && dateStr <= today) {
+        return true;
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return false;
+}
+
+function shiftOffRestDay(dateStr: string): string {
+  let cursor = normDateStr(dateStr) || dateStr;
+  let guard = 0;
+  while (isFrozenOrSundayDate(cursor) && guard < 31) {
+    cursor = addLocalCalendarDays(cursor, 1);
+    guard++;
+  }
+  return cursor;
+}
+
+/**
+ * Idempotently upgrades existing stored leads so legacy cadence fields
+ * (followupDM_Day7 / followup3DM / followupDM_Day14 / followup7DM / breakupDM_Day30,
+ * legacy date formats, missing initialSentDate on sent leads, and old 3/7/14 or 7/14/30
+ * followup dates) are aligned with the Day 0 / Day 4 / Day 8 / Day 14 cadence without
+ * ever overwriting custom user-written messages.
+ */
+export function normalizeExistingLeadCadence<T extends Partial<ChannelLead> & Record<string, any>>(
+  lead: T
+): { normalizedLead: T; wasChanged: boolean } {
+  if (!lead || typeof lead !== 'object') {
+    return { normalizedLead: lead, wasChanged: false };
+  }
+
+  let changed = false;
+  const next: any = { ...lead };
+
+  // 1. Sync saved sequence messages bidirectionally without overwriting custom text
+  const trimStr = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+
+  const initMsg = trimStr(next.initialDM) || trimStr(next.customPitch) || trimStr(next.stagedDmMiniPitch);
+  if (initMsg) {
+    if (!trimStr(next.initialDM)) {
+      next.initialDM = initMsg;
+      changed = true;
+    }
+    if (!trimStr(next.customPitch)) {
+      next.customPitch = initMsg;
+      changed = true;
+    }
+  }
+
+  const day4Msg = trimStr(next.followupDM_Day4) || trimStr(next.followupDM_Day7) || trimStr(next.followup3DM);
+  if (day4Msg) {
+    if (!trimStr(next.followupDM_Day4)) {
+      next.followupDM_Day4 = day4Msg;
+      changed = true;
+    }
+    if (!trimStr(next.followupDM_Day7)) {
+      next.followupDM_Day7 = day4Msg;
+      changed = true;
+    }
+    if (!trimStr(next.followup3DM)) {
+      next.followup3DM = day4Msg;
+      changed = true;
+    }
+  }
+
+  const day8Msg = trimStr(next.followupDM_Day8) || trimStr(next.followupDM_Day14) || trimStr(next.followup7DM);
+  if (day8Msg) {
+    if (!trimStr(next.followupDM_Day8)) {
+      next.followupDM_Day8 = day8Msg;
+      changed = true;
+    }
+    if (!trimStr(next.followupDM_Day14)) {
+      next.followupDM_Day14 = day8Msg;
+      changed = true;
+    }
+    if (!trimStr(next.followup7DM)) {
+      next.followup7DM = day8Msg;
+      changed = true;
+    }
+  }
+
+  const day14Msg = trimStr(next.breakupDM_Day14) || trimStr(next.breakupDM_Day30);
+  if (day14Msg) {
+    if (!trimStr(next.breakupDM_Day14)) {
+      next.breakupDM_Day14 = day14Msg;
+      changed = true;
+    }
+    if (!trimStr(next.breakupDM_Day30)) {
+      next.breakupDM_Day30 = day14Msg;
+      changed = true;
+    }
+  }
+
+  if (!next.isSequenceConfigured && initMsg && day4Msg && day8Msg && day14Msg) {
+    next.isSequenceConfigured = true;
+    changed = true;
+  }
+
+  // 2. Standardize date strings on existing leads
+  const dateFields = [
+    'initialSentDate',
+    'followup1SentDate',
+    'followup2SentDate',
+    'followup3SentDate',
+    'scheduledDate',
+    'dispatchDate',
+  ] as const;
+
+  for (const field of dateFields) {
+    const raw = next[field];
+    if (typeof raw === 'string' && raw.trim()) {
+      const normalized = normDateStr(raw);
+      if (normalized && normalized !== raw) {
+        next[field] = normalized;
+        changed = true;
+      }
+    }
+  }
+
+  // 3. Reconcile followupCount with any logged followup*SentDate
+  let fuCount = typeof next.followupCount === 'number' && !Number.isNaN(next.followupCount) ? next.followupCount : 0;
+  if (normDateStr(next.followup3SentDate)) {
+    fuCount = Math.max(fuCount, 3);
+  } else if (normDateStr(next.followup2SentDate)) {
+    fuCount = Math.max(fuCount, 2);
+  } else if (normDateStr(next.followup1SentDate)) {
+    fuCount = Math.max(fuCount, 1);
+  }
+
+  // 4. Resolve initialSentDate & align Day 4 / Day 8 / Day 14 schedule dates on sent existing leads
+  const explicitInitial = normDateStr(next.initialSentDate);
+  const hasSentSignal = Boolean(
+    explicitInitial ||
+      next.dmSent ||
+      next.status === 'dispatched' ||
+      next.status === 'sent' ||
+      next.leadStatus === 'waiting_reply' ||
+      next.leadStatus === 'seen' ||
+      fuCount > 0 ||
+      normDateStr(next.followup1SentDate) ||
+      normDateStr(next.followup2SentDate) ||
+      normDateStr(next.followup3SentDate)
+  );
+
+  if (hasSentSignal) {
+    const inferredInitial =
+      explicitInitial ||
+      (fuCount > 0
+        ? normDateStr(next.dmSentAt) ||
+          normDateStr(next.dateFirstContact) ||
+          (normDateStr(next.followup1SentDate)
+            ? addLocalCalendarDays(normDateStr(next.followup1SentDate)!, -4)
+            : undefined) ||
+          (normDateStr(next.followup2SentDate)
+            ? addLocalCalendarDays(normDateStr(next.followup2SentDate)!, -8)
+            : undefined) ||
+          (normDateStr(next.followup3SentDate)
+            ? addLocalCalendarDays(normDateStr(next.followup3SentDate)!, -14)
+            : undefined) ||
+          normDateStr(next.dispatchDate) ||
+          normDateStr(next.dispatchedAt) ||
+          normDateStr(next.lastContactDate)
+        : normDateStr(next.dispatchDate) ||
+          normDateStr(next.dmSentAt) ||
+          normDateStr(next.dispatchedAt) ||
+          normDateStr(next.lastContactDate) ||
+          normDateStr(next.dateFirstContact));
+
+    if (inferredInitial) {
+      if (next.initialSentDate !== inferredInitial) {
+        next.initialSentDate = inferredInitial;
+        changed = true;
+      }
+
+      const expectedFu1 = shiftOffRestDay(addLocalCalendarDays(inferredInitial, 4));
+      const expectedFu2 = shiftOffRestDay(addLocalCalendarDays(inferredInitial, 8));
+      const expectedFu3 = shiftOffRestDay(addLocalCalendarDays(inferredInitial, 14));
+
+      if (next.followup1Date !== expectedFu1) {
+        next.followup1Date = expectedFu1;
+        changed = true;
+      }
+      if (next.followup2Date !== expectedFu2) {
+        next.followup2Date = expectedFu2;
+        changed = true;
+      }
+      if (next.followup3Date !== expectedFu3) {
+        next.followup3Date = expectedFu3;
+        changed = true;
+      }
+    }
+
+    if (next.followupCount !== fuCount) {
+      next.followupCount = fuCount;
+      changed = true;
+    }
+
+    if (next.cadenceStatus !== 'cancelled') {
+      if (!next.dmSent) {
+        next.dmSent = true;
+        changed = true;
+      }
+      if (!next.status) {
+        next.status = 'dispatched';
+        changed = true;
+      }
+      if (fuCount >= 3) {
+        if (!next.isCompleted) {
+          next.isCompleted = true;
+          changed = true;
+        }
+        if (next.cadenceStatus !== 'completed') {
+          next.cadenceStatus = 'completed';
+          changed = true;
+        }
+        if (next.leadStatus !== 'replied' && next.leadStatus !== 'completed') {
+          next.leadStatus = 'completed';
+          changed = true;
+        }
+      } else {
+        if (!next.isCompleted && next.leadStatus !== 'replied' && next.leadStatus !== 'completed') {
+          if (next.cadenceStatus !== 'running') {
+            next.cadenceStatus = 'running';
+            changed = true;
+          }
+          if (!next.leadStatus || next.leadStatus === 'not_sent') {
+            next.leadStatus = next.isSeen ? 'seen' : 'waiting_reply';
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    normalizedLead: next as T,
+    wasChanged: changed,
+  };
+}
+
 export interface DataRepairReport {
   totalScanned: number;
   emailsCleaned: number;
@@ -160,13 +472,14 @@ const LEAD_STORAGE_KEYS = [
   'outreach_channel_leads_instagram',
   'outreach_channel_leads_email',
   'outreach_channel_leads_facebook',
+  'outreach_backstage_leads_v1',
   'outreach_engine_lead_inbox_v1',
 ];
 
 /**
- * Scans all leads stored in localStorage across all workspaces and inbox,
- * repairs corrupted email addresses (preserving all sequence messages & leads),
- * flags unfixable emails with hasInvalidEmail: true, and persists results.
+ * Scans all leads stored in localStorage across all workspaces, backstage, and inbox,
+ * repairs corrupted email addresses, upgrades legacy cadence fields to the 4/8/14 schedule
+ * without overwriting custom messages, flags unfixable emails, and persists results.
  */
 export function runDiagnosticDataRepair(dispatchEvent = true): DataRepairReport {
   let totalScanned = 0;
@@ -187,18 +500,26 @@ export function runDiagnosticDataRepair(dispatchEvent = true): DataRepairReport 
       const nextList = parsed.map((item) => {
         totalScanned++;
         const { repairedLead, wasCleaned, isInvalid } = repairSingleLeadEmail(item);
+        const { normalizedLead, wasChanged: cadenceChanged } =
+          key === 'outreach_engine_lead_inbox_v1'
+            ? { normalizedLead: repairedLead, wasChanged: false }
+            : normalizeExistingLeadCadence(repairedLead);
+
         if (wasCleaned) {
           storeModified = true;
           if (!isInvalid) {
             emailsCleaned++;
-            if (repairedLead.name) repairedNames.push(repairedLead.name);
+            if (normalizedLead.name) repairedNames.push(normalizedLead.name);
           }
+        }
+        if (cadenceChanged) {
+          storeModified = true;
         }
         if (isInvalid) {
           invalidFlagged++;
-          if (repairedLead.name) invalidNames.push(repairedLead.name);
+          if (normalizedLead.name) invalidNames.push(normalizedLead.name);
         }
-        return repairedLead;
+        return normalizedLead;
       });
 
       if (storeModified) {

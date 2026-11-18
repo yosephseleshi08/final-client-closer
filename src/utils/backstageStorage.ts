@@ -8,6 +8,7 @@ import {
 import { getStrictVoiceTypeForId, recalculateAllVoiceTypes } from './voiceTypeEngine';
 import { buildArchivedLeadState, hasLeadSentHistory } from './leadLifecycle';
 import { appendDeletionLog } from './deletionLog';
+import { normalizeExistingLeadCadence } from './dataRepair';
 
 export const BACKSTAGE_STORAGE_KEY = 'outreach_backstage_leads_v1';
 
@@ -32,26 +33,28 @@ export function loadBackstageLeads(): ChannelLead[] {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
 
-    let repairedUid = false;
+    let repaired = false;
     const seenUids = new Set<string>();
     const normalized: ChannelLead[] = parsed.map((item: ChannelLead, idx: number) => {
       const targetChannel = getNormalizedTargetChannel(item);
       let uid = item.archiveUid;
       if (!uid || seenUids.has(uid)) {
         uid = `${targetChannel}_${item.id || idx}_${Date.now()}_${idx}`;
-        repairedUid = true;
+        repaired = true;
       }
       seenUids.add(uid);
-      return {
+      const { normalizedLead, wasChanged } = normalizeExistingLeadCadence({
         ...item,
         isArchived: true,
-        lifecycle: 'archived',
+        lifecycle: 'archived' as const,
         archivedFromChannel: item.archivedFromChannel || targetChannel,
         archiveUid: uid,
-      };
+      });
+      if (wasChanged) repaired = true;
+      return normalizedLead;
     });
 
-    if (repairedUid) {
+    if (repaired) {
       localStorage.setItem(BACKSTAGE_STORAGE_KEY, JSON.stringify(normalized));
     }
 

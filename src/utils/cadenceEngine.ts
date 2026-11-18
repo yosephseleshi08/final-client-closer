@@ -357,23 +357,48 @@ export function getEffectiveInitialSentDate(lead: ChannelLead): string | null {
   const normInitial = normalizeToLocalDateStr(lead.initialSentDate);
   if (normInitial) return normInitial;
 
+  const fuCount =
+    typeof lead.followupCount === 'number' && !Number.isNaN(lead.followupCount)
+      ? lead.followupCount
+      : 0;
+  const f1Sent = normalizeToLocalDateStr(lead.followup1SentDate);
+  const f2Sent = normalizeToLocalDateStr(lead.followup2SentDate);
+  const f3Sent = normalizeToLocalDateStr(lead.followup3SentDate);
+
   const hasSentSignal = Boolean(
     lead.dmSent ||
       lead.status === 'dispatched' ||
       lead.status === 'sent' ||
-      (typeof lead.followupCount === 'number' && lead.followupCount > 0) ||
-      lead.followup1SentDate ||
-      lead.followup2SentDate ||
-      lead.followup3SentDate
+      lead.leadStatus === 'waiting_reply' ||
+      lead.leadStatus === 'seen' ||
+      fuCount > 0 ||
+      f1Sent ||
+      f2Sent ||
+      f3Sent
   );
 
   if (!hasSentSignal) return null;
+
+  if (fuCount > 0 || f1Sent || f2Sent || f3Sent) {
+    return (
+      normalizeToLocalDateStr(lead.dmSentAt) ||
+      normalizeToLocalDateStr((lead as any).dateFirstContact) ||
+      (f1Sent ? addDays(f1Sent, -4) : null) ||
+      (f2Sent ? addDays(f2Sent, -8) : null) ||
+      (f3Sent ? addDays(f3Sent, -14) : null) ||
+      normalizeToLocalDateStr(lead.dispatchDate) ||
+      normalizeToLocalDateStr(lead.dispatchedAt) ||
+      normalizeToLocalDateStr(lead.lastContactDate) ||
+      null
+    );
+  }
 
   return (
     normalizeToLocalDateStr(lead.dispatchDate) ||
     normalizeToLocalDateStr(lead.dmSentAt) ||
     normalizeToLocalDateStr(lead.dispatchedAt) ||
     normalizeToLocalDateStr(lead.lastContactDate) ||
+    normalizeToLocalDateStr((lead as any).dateFirstContact) ||
     null
   );
 }
@@ -413,12 +438,22 @@ export function resolveLeadCadenceStep(
     };
   }
 
+  let fuCount =
+    typeof lead.followupCount === 'number' && !Number.isNaN(lead.followupCount)
+      ? lead.followupCount
+      : 0;
+  if (lead.followup3SentDate) fuCount = Math.max(fuCount, 3);
+  else if (lead.followup2SentDate) fuCount = Math.max(fuCount, 2);
+  else if (lead.followup1SentDate) fuCount = Math.max(fuCount, 1);
+
   const hasInitialSentFlag = Boolean(
     effectiveInitial ||
       lead.dmSent ||
       lead.status === 'dispatched' ||
       lead.status === 'sent' ||
-      (typeof lead.followupCount === 'number' && lead.followupCount > 0)
+      lead.leadStatus === 'waiting_reply' ||
+      lead.leadStatus === 'seen' ||
+      fuCount > 0
   );
 
   // Day 0 = Initial DM (no initialSentDate / sent signal exists)
@@ -432,7 +467,6 @@ export function resolveLeadCadenceStep(
     };
   }
 
-  const fuCount = typeof lead.followupCount === 'number' ? lead.followupCount : 0;
   if (fuCount >= 3) {
     const days = effectiveInitial ? Math.max(0, getDayDifference(today, effectiveInitial)) : 14;
     return {

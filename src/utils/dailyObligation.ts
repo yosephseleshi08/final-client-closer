@@ -161,21 +161,44 @@ function getDaysElapsedLocal(fromDateStr: string, toDateStr: string): number {
 function resolveEffectiveInitialDate(lead: ChannelLead): string | null {
   const direct = toLocalDateString(lead.initialSentDate);
   if (direct) return direct;
+  const fuCount =
+    typeof lead.followupCount === 'number' && !Number.isNaN(lead.followupCount)
+      ? lead.followupCount
+      : 0;
+  const f1Sent = toLocalDateString(lead.followup1SentDate);
+  const f2Sent = toLocalDateString(lead.followup2SentDate);
+  const f3Sent = toLocalDateString(lead.followup3SentDate);
   const hasSentSignal = Boolean(
     lead.dmSent ||
       lead.status === 'dispatched' ||
       lead.status === 'sent' ||
-      (typeof lead.followupCount === 'number' && lead.followupCount > 0) ||
-      lead.followup1SentDate ||
-      lead.followup2SentDate ||
-      lead.followup3SentDate
+      lead.leadStatus === 'waiting_reply' ||
+      lead.leadStatus === 'seen' ||
+      fuCount > 0 ||
+      f1Sent ||
+      f2Sent ||
+      f3Sent
   );
   if (!hasSentSignal) return null;
+  if (fuCount > 0 || f1Sent || f2Sent || f3Sent) {
+    return (
+      toLocalDateString(lead.dmSentAt) ||
+      toLocalDateString((lead as any).dateFirstContact) ||
+      (f1Sent ? addLocalDays(f1Sent, -4) : null) ||
+      (f2Sent ? addLocalDays(f2Sent, -8) : null) ||
+      (f3Sent ? addLocalDays(f3Sent, -14) : null) ||
+      toLocalDateString(lead.dispatchDate) ||
+      toLocalDateString(lead.dispatchedAt) ||
+      toLocalDateString(lead.lastContactDate) ||
+      null
+    );
+  }
   return (
     toLocalDateString(lead.dispatchDate) ||
     toLocalDateString(lead.dmSentAt) ||
     toLocalDateString(lead.dispatchedAt) ||
     toLocalDateString(lead.lastContactDate) ||
+    toLocalDateString((lead as any).dateFirstContact) ||
     null
   );
 }
@@ -191,16 +214,25 @@ function countFollowupsDueForDate(leads: ChannelLead[], dateStr: string): number
     }
 
     const effectiveInitial = resolveEffectiveInitialDate(lead);
+    let fuCount =
+      typeof lead.followupCount === 'number' && !Number.isNaN(lead.followupCount)
+        ? lead.followupCount
+        : 0;
+    if (lead.followup3SentDate) fuCount = Math.max(fuCount, 3);
+    else if (lead.followup2SentDate) fuCount = Math.max(fuCount, 2);
+    else if (lead.followup1SentDate) fuCount = Math.max(fuCount, 1);
+
     const hasSentFlag = Boolean(
       effectiveInitial ||
         lead.dmSent ||
         lead.status === 'dispatched' ||
         lead.status === 'sent' ||
-        (typeof lead.followupCount === 'number' && lead.followupCount > 0)
+        lead.leadStatus === 'waiting_reply' ||
+        lead.leadStatus === 'seen' ||
+        fuCount > 0
     );
     if (!hasSentFlag) continue;
 
-    const fuCount = typeof lead.followupCount === 'number' ? lead.followupCount : 0;
     if (fuCount >= 3) continue;
 
     const daysElapsed = effectiveInitial
@@ -674,15 +706,24 @@ export function evaluateDateObligationGrade(
  */
 export function getLeadWaveRank(lead: ChannelLead, todayStr = getLocalTodayDateString()): number {
   const effectiveInitial = resolveEffectiveInitialDate(lead);
+  let fuCount =
+    typeof lead.followupCount === 'number' && !Number.isNaN(lead.followupCount)
+      ? lead.followupCount
+      : 0;
+  if (lead.followup3SentDate) fuCount = Math.max(fuCount, 3);
+  else if (lead.followup2SentDate) fuCount = Math.max(fuCount, 2);
+  else if (lead.followup1SentDate) fuCount = Math.max(fuCount, 1);
+
   const hasSent = Boolean(
     effectiveInitial ||
       lead.dmSent ||
       lead.status === 'dispatched' ||
       lead.status === 'sent' ||
-      (typeof lead.followupCount === 'number' && lead.followupCount > 0)
+      lead.leadStatus === 'waiting_reply' ||
+      lead.leadStatus === 'seen' ||
+      fuCount > 0
   );
   if (hasSent) {
-    const fuCount = typeof lead.followupCount === 'number' ? lead.followupCount : 0;
     const daysElapsed = effectiveInitial
       ? getDaysElapsedLocal(effectiveInitial, todayStr)
       : fuCount === 0
