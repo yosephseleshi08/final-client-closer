@@ -396,8 +396,11 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const newOutreachDueToday = allLeads.filter((l) => {
     if (l.isCompleted || l.initialSentDate) return false;
     if (isLeadDismissedToday(l)) return false;
-    if (!l.scheduledDate || !isDateToday(l.scheduledDate)) return false;
-    if (isEmailOnlyLead(l)) return true;
+    if (!l.scheduledDate) return false;
+    if (isEmailOnlyLead(l)) {
+      return isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate);
+    }
+    if (!isDateToday(l.scheduledDate)) return false;
     return isLeadWarmedBeforeToday(l, todayStr);
   });
 
@@ -548,7 +551,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
         if (!l.scheduledDate) return false;
         const isScheduledToday = isDateToday(l.scheduledDate);
         const isWarmedToday = isLeadWarmedToday(l, todayStr);
-        if (isEmailOnlyLead(l)) return isScheduledToday;
+        if (isEmailOnlyLead(l)) return isScheduledToday || isDateOverdue(l.scheduledDate);
         return isScheduledToday || isWarmedToday;
       }
       // Follow-ups due
@@ -582,7 +585,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     return todayCombinedLeads.filter((lead) => {
       if (lead.channel !== 'combined') return false;
       const isStage0 = !lead.initialSentDate;
-      const isFbLead = Boolean(lead.facebook);
+      const isFbLead = !isEmailOnlyLead(lead);
       const lockedByWarmup = isFbLead && isStage0 && !isLeadWarmedBeforeToday(lead, todayStr);
       return !lockedByWarmup;
     });
@@ -1749,10 +1752,13 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                           <span className="text-base font-bold text-white font-['Outfit']">
                             {lead.name}
                           </span>
-                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-white/10 text-slate-300">
-                            {stageNumber === 0
-                              ? 'Day 0 Initial DM'
-                              : `Day ${stageNumber} Follow-Up`}
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-pink-500/15 text-pink-300 border border-pink-500/30">
+                            <Instagram className="w-3 h-3 text-pink-400" />
+                            <span>
+                              {stageNumber === 0
+                                ? 'Day 0 Initial IG DM'
+                                : `Day ${stageNumber} IG Follow-Up`}
+                            </span>
                           </span>
                         </div>
 
@@ -2022,7 +2028,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                       ? lead.followupDM_Day14 || lead.followup7DM || templates.day8Message
                       : lead.breakupDM_Day30 || templates.day14Message;
 
-                  const isFbLead = Boolean(lead.facebook || lead.channel === 'facebook');
+                  const isFbLead = !isEmailOnlyLead(lead);
                   const isWarmedBeforeToday = isLeadWarmedBeforeToday(lead, todayStr);
                   const isWarmedToday = isLeadWarmedToday(lead, todayStr);
                   const isLockedByWarmup = isFbLead && !isWarmedBeforeToday && stageNumber === 0;
@@ -2041,10 +2047,13 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                           <span className="text-base font-bold text-white font-['Outfit']">
                             {lead.name}
                           </span>
-                          <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-white/10 text-slate-300">
-                            {stageNumber === 0
-                              ? 'Day 0 Initial Email'
-                              : `Day ${stageNumber} Email`}
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                            <Mail className="w-3 h-3 text-indigo-400" />
+                            <span>
+                              {stageNumber === 0
+                                ? 'Day 0 Initial Email'
+                                : `Day ${stageNumber} Email`}
+                            </span>
                           </span>
                           {lead.hasInvalidEmail && (
                             <span
@@ -2072,7 +2081,10 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                                   <span className="text-emerald-300">Copied!</span>
                                 </>
                               ) : (
-                                <span>📋 Copy Email</span>
+                                <>
+                                  <Mail className="w-3.5 h-3.5 text-indigo-400" />
+                                  <span>Copy Email</span>
+                                </>
                               )}
                             </button>
                             <TestLinkButton lead={lead} platform="email" label="Test Email" />

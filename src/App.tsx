@@ -95,10 +95,15 @@ export default function App() {
       if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
       if (isLeadDismissedToday(l)) return false;
 
-      // 1. Initial outreach due today: MUST be scheduled for today and warmed before today (or email-only)
-      if (!l.initialSentDate && l.scheduledDate && isDateToday(l.scheduledDate)) {
-        if (isEmailOnlyLead(l)) return true;
-        return isLeadWarmedBeforeToday(l, todayStr);
+      // 1. Initial outreach due today: Email-only leads dispatch directly on/after scheduled date;
+      // social leads require today schedule + previous-day warm-up
+      if (!l.initialSentDate && l.scheduledDate) {
+        if (isEmailOnlyLead(l)) {
+          return isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate);
+        }
+        if (isDateToday(l.scheduledDate)) {
+          return isLeadWarmedBeforeToday(l, todayStr);
+        }
       }
 
       // 2. Follow-Up #1 due today or overdue

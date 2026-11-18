@@ -47,7 +47,7 @@ export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
       const fbList: ChannelLead[] = rawFb ? JSON.parse(rawFb) : [];
 
       if (emailList.length > 0 || fbList.length > 0) {
-        const merged: ChannelLead[] = [
+        const merged: ChannelLead[] = normalizeEmailOnlyWarmupStatus([
           ...fbList.map((l, i) => ({
             ...l,
             channel: 'combined' as MultiChannelType,
@@ -58,7 +58,7 @@ export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
             channel: 'combined' as MultiChannelType,
             sortOrder: fbList.length + i,
           })),
-        ];
+        ]);
         localStorage.setItem(storageKey, JSON.stringify(merged));
         return merged.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
       }
@@ -67,8 +67,12 @@ export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
+        const normalized = normalizeEmailOnlyWarmupStatus(parsed);
+        if (normalized !== parsed) {
+          localStorage.setItem(storageKey, JSON.stringify(normalized));
+        }
         // Sort by sortOrder ascending
-        return parsed.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        return [...normalized].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
       }
     }
   } catch (err) {
@@ -164,9 +168,10 @@ export function getLeadLockReason(lead: ChannelLead): LeadLockReason {
   if (isSent) return 'sent';
 
   const isWarmed = Boolean(
-    lead.isWarmedUp ||
-      lead.warmupStatus === 'warmed' ||
-      lead.warmedUpAt
+    hasSocialWarmupLink(lead) &&
+      (lead.isWarmedUp ||
+        lead.warmupStatus === 'warmed' ||
+        lead.warmedUpAt)
   );
   if (isWarmed) return 'warmed';
 
@@ -540,35 +545,41 @@ export interface ChannelValidationResult {
   errorMessage?: string;
 }
 
+const IG_DOMAIN_REGEX = /(?:^|https?:\/\/)(?:[a-z0-9-]+\.)*(?:instagram\.com|instagr\.am)(?:\/|$|\?|#)/i;
+const FB_DOMAIN_REGEX = /(?:^|https?:\/\/)(?:[a-z0-9-]+\.)*(?:facebook\.com|fb\.com|fb\.me)(?:\/|$|\?|#)/i;
+
+function isInstagramDomain(input: string): boolean {
+  const s = input.trim();
+  if (!s || extractCleanEmail(s) || /^mailto:/i.test(s)) return false;
+  return IG_DOMAIN_REGEX.test(s) || s.startsWith('@');
+}
+
+function isFacebookDomain(input: string): boolean {
+  const s = input.trim();
+  if (!s || extractCleanEmail(s) || /^mailto:/i.test(s)) return false;
+  return FB_DOMAIN_REGEX.test(s);
+}
+
 /**
  * Detects if a raw input is an Instagram handle/link, Facebook link, or Email.
  */
 export function detectLinkChannel(input: string): MultiChannelType | 'other' {
   const clean = input.trim().toLowerCase();
 
-  // 1. Check Instagram
-  if (
-    clean.includes('instagram.com') ||
-    clean.includes('instagr.am') ||
-    clean.startsWith('@')
-  ) {
+  // 1. Check Email first if it's a valid email/mailto (prevents domains like @myfb.com from matching fb.com)
+  const strippedMailto = clean.replace(/^mailto:/i, '');
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(strippedMailto) || extractCleanEmail(clean)) {
+    return 'email';
+  }
+
+  // 2. Check Instagram
+  if (isInstagramDomain(clean)) {
     return 'instagram';
   }
 
-  // 2. Check Facebook
-  if (
-    clean.includes('facebook.com') ||
-    clean.includes('fb.com') ||
-    clean.includes('fb.me')
-  ) {
+  // 3. Check Facebook
+  if (isFacebookDomain(clean)) {
     return 'facebook';
-  }
-
-  // 3. Check Email
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const strippedMailto = clean.replace(/^mailto:/i, '');
-  if (emailRegex.test(strippedMailto)) {
-    return 'email';
   }
 
   return 'other';
@@ -743,51 +754,172 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function cleanMeaningfulField(value: any): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const lower = trimmed.toLowerCase();
+  if (['n/a', 'na', 'none', 'null', 'undefined', '-', '--'].includes(lower)) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+/**
+ * Extracts or derives the Instagram profile URL or handle from a lead object.
+ */
+export function getLeadInstagram(lead?: any): string | undefined {
+  if (!lead) return undefined;
+  if (typeof lead === 'string') {
+    const s = cleanMeaningfulField(lead);
+    if (!s) return undefined;
+    if (isInstagramDomain(s)) return s;
+    return undefined;
+  }
+
+  const explicitCandidates = [
+    lead.instagram,
+    lead.Instagram,
+    lead.ig,
+    lead.instagramUrl,
+    lead.instagram_url,
+    lead.instagramLink,
+    lead.instagram_link,
+    lead.instagramHandle,
+    lead.instagram_handle,
+    lead.igHandle,
+    lead.ig_handle,
+  ];
+  for (const cand of explicitCandidates) {
+    const clean = cleanMeaningfulField(cand);
+    if (clean && !extractCleanEmail(clean) && !/^mailto:/i.test(clean)) return clean;
+  }
+
+  const rawDetails = lead.rawDetails;
+  if (rawDetails) {
+    const rawCandidates = [
+      rawDetails.instagram,
+      rawDetails.Instagram,
+      rawDetails.ig,
+      rawDetails.instagramUrl,
+      rawDetails.instagram_url,
+      rawDetails.instagramHandle,
+      rawDetails.instagram_handle,
+      rawDetails.socialLinks?.instagram,
+    ];
+    for (const cand of rawCandidates) {
+      const clean = cleanMeaningfulField(cand);
+      if (clean && !extractCleanEmail(clean) && !/^mailto:/i.test(clean)) return clean;
+    }
+  }
+
+  const link = cleanMeaningfulField(lead.platformLink || lead.link || lead.profileLink);
+  if (link) {
+    if (isInstagramDomain(link)) {
+      return link;
+    }
+    if (
+      (lead.channel === 'instagram' || lead.platform === 'Instagram') &&
+      !isFacebookDomain(link) &&
+      !extractCleanEmail(link) &&
+      !/^mailto:/i.test(link)
+    ) {
+      return link;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Extracts or derives the Facebook page URL or handle from a lead object.
  */
 export function getLeadFacebook(lead?: any): string | undefined {
   if (!lead) return undefined;
   if (typeof lead === 'string') {
-    const s = lead.trim();
-    if (s.includes('facebook.com') || s.includes('fb.com') || s.includes('fb.me')) return s;
-    if (!s.includes('@') && !s.includes('instagram.com') && !s.includes('instagr.am')) return s;
+    const s = cleanMeaningfulField(lead);
+    if (!s) return undefined;
+    if (isFacebookDomain(s)) return s;
+    if (!s.includes('@') && !extractCleanEmail(s) && !isInstagramDomain(s)) return s;
     return undefined;
   }
-  const explicit =
-    lead.facebook ||
-    lead.fb ||
-    lead.facebookUrl ||
-    lead.facebook_url ||
-    lead.facebookLink ||
-    lead.facebook_link;
-  if (explicit && typeof explicit === 'string' && explicit.trim()) {
-    return explicit.trim();
+  const explicitCandidates = [
+    lead.facebook,
+    lead.fb,
+    lead.facebookUrl,
+    lead.facebook_url,
+    lead.facebookLink,
+    lead.facebook_link,
+  ];
+  for (const cand of explicitCandidates) {
+    const clean = cleanMeaningfulField(cand);
+    if (clean && !extractCleanEmail(clean) && !/^mailto:/i.test(clean)) {
+      return clean;
+    }
   }
   const rawDetails = lead.rawDetails;
   if (rawDetails) {
-    const fromRaw =
-      rawDetails.facebook ||
-      rawDetails.Facebook ||
-      rawDetails.facebookUrl ||
-      rawDetails.facebook_url ||
-      rawDetails.fb ||
-      rawDetails.socialLinks?.facebook;
-    if (fromRaw && typeof fromRaw === 'string' && fromRaw.trim()) {
-      return fromRaw.trim();
+    const rawCandidates = [
+      rawDetails.facebook,
+      rawDetails.Facebook,
+      rawDetails.facebookUrl,
+      rawDetails.facebook_url,
+      rawDetails.fb,
+      rawDetails.socialLinks?.facebook,
+    ];
+    for (const cand of rawCandidates) {
+      const clean = cleanMeaningfulField(cand);
+      if (clean && !extractCleanEmail(clean) && !/^mailto:/i.test(clean)) {
+        return clean;
+      }
     }
   }
-  const link = lead.platformLink || lead.link || lead.profileLink;
-  if (typeof link === 'string') {
-    const trimmed = link.trim();
-    if (trimmed.includes('facebook.com') || trimmed.includes('fb.com') || trimmed.includes('fb.me')) {
-      return trimmed;
+  const link = cleanMeaningfulField(lead.platformLink || lead.link || lead.profileLink);
+  if (link) {
+    if (isFacebookDomain(link)) {
+      return link;
     }
-    if ((lead.channel === 'facebook' || lead.platform === 'Facebook') && !trimmed.includes('@')) {
-      return trimmed;
+    if (
+      (lead.channel === 'facebook' || lead.platform === 'Facebook') &&
+      !link.includes('@') &&
+      !extractCleanEmail(link) &&
+      !/^mailto:/i.test(link) &&
+      !isInstagramDomain(link)
+    ) {
+      return link;
     }
   }
   return undefined;
+}
+
+/**
+ * Returns true if the lead requires social warm-up (has an Instagram or Facebook profile).
+ * Email-only leads (no IG and no FB link) skip warm-up entirely.
+ */
+export function hasSocialWarmupLink(lead?: any): boolean {
+  if (!lead) return false;
+  return Boolean(getLeadInstagram(lead) || lead.channel === 'instagram' || getLeadFacebook(lead));
+}
+
+/**
+ * Automatically sets warmupStatus: 'warmed' and isWarmedUp: true for any Email-only lead
+ * (no Instagram and no Facebook link) so existing and imported Email-only leads skip warm-up.
+ */
+export function normalizeEmailOnlyWarmupStatus(leads: ChannelLead[]): ChannelLead[] {
+  let changed = false;
+  const next = leads.map((lead) => {
+    if (!hasSocialWarmupLink(lead)) {
+      if (lead.warmupStatus !== 'warmed' || !lead.isWarmedUp) {
+        changed = true;
+        return {
+          ...lead,
+          warmupStatus: 'warmed' as const,
+          isWarmedUp: true,
+        };
+      }
+    }
+    return lead;
+  });
+  return changed ? next : leads;
 }
 
 /**
@@ -984,8 +1116,8 @@ export interface BlindRouteResult {
  *
  * Rules:
  * - Warm-Up: Only show Instagram or Facebook links. Email-only leads are hidden (returns null).
- * - Dispatch Day 0 & 4 (IG Leads): Show Instagram DM link only.
- * - Dispatch Day 8 & 14 (IG Leads): If they have an email, show Email link only. If not, show IG DM link.
+ * - Dispatch All Days (IG Leads): For ANY lead with an Instagram link, ALL 4 steps (Day 0, 4, 8, 14)
+ *   route strictly to Instagram DM. Ignore email completely to protect conversation momentum.
  * - Dispatch All Days (FB Leads): Show Email link only. Never show Facebook DM link.
  * - Dispatch All Days (Email-Only Leads): Show Email link only.
  *
@@ -998,17 +1130,16 @@ export function getBlindRouteLink(
 ): BlindRouteResult | null {
   if (!lead) return null;
 
+  const ig = getLeadInstagram(lead);
   const fb = getLeadFacebook(lead);
   const email = getLeadEmail(lead);
 
-  const isIgLead =
-    lead.channel === 'instagram' ||
-    (!fb && !email && (lead.platformLink?.startsWith('@') || lead.link?.startsWith('@') || lead.link?.includes('instagram')));
+  const isIgLead = Boolean(ig) || lead.channel === 'instagram';
 
   // 1. WARM-UP PHASE: Only show Instagram or Facebook links. Email-only leads are hidden.
   if (action === 'warmup') {
     if (isIgLead) {
-      const igLink = lead.platformLink || lead.link;
+      const igLink = ig || lead.platformLink || lead.link;
       const href = getPlatformLink(igLink, 'instagram');
       return {
         actionLabel: 'Warm Up on Instagram',
@@ -1035,36 +1166,20 @@ export function getBlindRouteLink(
   }
 
   // 2. DISPATCH PHASE
+  // Any lead with an Instagram link stays on Instagram across ALL 4 steps (Day 0, 4, 8, 14)
   if (isIgLead) {
-    // Dispatch Day 0 & 4 (IG Leads): Show Instagram DM link only
-    if (stage === 0 || stage === 4) {
-      const igLink = lead.platformLink || lead.link;
-      const href = getPlatformLink(igLink, 'instagram');
-      return {
-        actionLabel: stage === 0 ? 'Send Initial IG DM' : 'Send Day 4 IG Follow-Up',
-        channelType: 'instagram',
-        badgeLabel: 'IG DM',
-        link: igLink,
-        href,
-        isMailto: false,
-      };
-    }
-    // Dispatch Day 8 & 14 (IG Leads): If they have an email, show Email link only. If not, show IG DM link.
-    if (email) {
-      const href = getPlatformLink(email, 'email');
-      return {
-        actionLabel: stage === 8 ? 'Send Day 8 Email' : 'Send Day 14 Final Email',
-        channelType: 'email',
-        badgeLabel: 'Email',
-        link: email,
-        href,
-        isMailto: true,
-      };
-    }
-    const igLink = lead.platformLink || lead.link;
+    const igLink = ig || lead.platformLink || lead.link;
     const href = getPlatformLink(igLink, 'instagram');
+    const actionLabel =
+      stage === 0
+        ? 'Send Initial IG DM'
+        : stage === 4
+        ? 'Send Day 4 IG Follow-Up'
+        : stage === 8
+        ? 'Send Day 8 IG Follow-Up'
+        : 'Send Day 14 Final IG DM';
     return {
-      actionLabel: stage === 8 ? 'Send Day 8 IG Follow-Up' : 'Send Day 14 Final IG DM',
+      actionLabel,
       channelType: 'instagram',
       badgeLabel: 'IG DM',
       link: igLink,

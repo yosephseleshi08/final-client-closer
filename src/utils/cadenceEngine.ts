@@ -1,5 +1,6 @@
 import { ChannelLead, MultiChannelType } from '../types';
 import { getRoundRobinVoiceType, getStrictVoiceTypeForId } from './voiceTypeEngine';
+import { getLeadInstagram, getLeadFacebook } from './channelStorage';
 
 /**
  * Returns today's date formatted as YYYY-MM-DD strictly in user's local timezone
@@ -687,6 +688,10 @@ export function setManualWarmupOverride(enabled: boolean): void {
  * If warmed today (or if warmed with no timestamp), it CANNOT be sent today; it unlocks at midnight tomorrow.
  */
 export function isLeadWarmedToday(lead: ChannelLead, referenceDateStr = getLocalTodayStr()): boolean {
+  // Email-only leads do not require social warm-up or midnight wait
+  if (isEmailOnlyLead(lead)) {
+    return false;
+  }
   // If manual testing override is enabled in settings, unlock for testing
   if (isManualWarmupOverrideEnabled()) {
     return false;
@@ -757,6 +762,9 @@ export function isLeadDispatchLocked(lead: ChannelLead, referenceDateStr = getLo
  * - On normal weekdays: show warm-up alert for leads scheduled for today or overdue
  */
 export function shouldShowWarmupAlert(lead: ChannelLead): boolean {
+  if (isEmailOnlyLead(lead)) {
+    return false;
+  }
   if (lead.isWarmedUp || lead.warmupStatus === 'warmed' || lead.isCompleted || lead.leadStatus === 'replied' || lead.leadStatus === 'completed') {
     return false;
   }
@@ -864,18 +872,22 @@ export function autoScheduleLeads(
       lead.isVoiceTypeOverridden && lead.voiceType
         ? lead.voiceType
         : getStrictVoiceTypeForId(lead, channel, idx);
+    const emailOnly = isEmailOnlyLead(lead);
 
     if (assignments[lead.id]) {
       return {
         ...lead,
         scheduledDate: assignments[lead.id],
-        warmupStatus: lead.warmupStatus || (lead.isWarmedUp ? 'warmed' : 'locked'),
+        warmupStatus: emailOnly ? 'warmed' : (lead.warmupStatus || (lead.isWarmedUp ? 'warmed' : 'locked')),
+        isWarmedUp: emailOnly ? true : lead.isWarmedUp,
         voiceType: assignedVoice,
         dismissedDate: undefined,
       };
     }
     return {
       ...lead,
+      warmupStatus: emailOnly ? 'warmed' : lead.warmupStatus,
+      isWarmedUp: emailOnly ? true : lead.isWarmedUp,
       voiceType: assignedVoice,
     };
   });
@@ -930,75 +942,31 @@ export function getNextAvailableScheduleDate(
 }
 
 /**
- * Determines if a lead is strictly Email-only (no social Instagram or Facebook profile).
- * Email-only leads do not undergo social warm-up engagement.
+ * Determines if a lead is strictly Email-only (no social Instagram or Facebook profile link).
+ * Email-only leads (and legacy Facebook-labeled leads lacking a FB link) do not undergo social warm-up engagement.
  */
 export function isEmailOnlyLead(lead?: ChannelLead | null): boolean {
   if (!lead) return false;
-  if (lead.channel === 'email') return true;
-
-  const rawLink = (lead.platformLink || lead.link || '').trim().toLowerCase();
-  const fb = (lead.facebook || '').trim().toLowerCase();
-  const ig = (lead.instagram || '').trim().toLowerCase();
-
-  const hasIg =
-    lead.channel === 'instagram' ||
-    ig.length > 0 ||
-    rawLink.startsWith('@') ||
-    rawLink.includes('instagram.com') ||
-    rawLink.includes('instagr.am');
-
-  const hasFb =
-    lead.channel === 'facebook' ||
-    fb.length > 0 ||
-    rawLink.includes('facebook.com') ||
-    rawLink.includes('fb.com') ||
-    rawLink.includes('fb.me');
-
-  if (hasIg || hasFb) return false;
-
-  const email = (lead.email || '').trim().toLowerCase();
-  return Boolean(
-    email ||
-    rawLink.startsWith('mailto:') ||
-    (!rawLink.includes('/') && rawLink.includes('@')) ||
-    lead.channel === 'combined'
-  );
+  if (getLeadInstagram(lead) || lead.channel === 'instagram') return false;
+  if (getLeadFacebook(lead)) return false;
+  return true;
 }
 
 /**
  * Intelligent Channel Routing: Returns the dispatch channel for a given touchpoint step.
- * Step 0 = Day 0 (Initial)
- * Step 1 = Day 4/7 (Follow-up 1)
- * Step 2 = Day 8/14 (Follow-up 2)
- * Step 3 = Day 14/30 (Breakup / Final Nudge)
+ * - Any lead with an Instagram link routes strictly to 'instagram' for ALL 4 steps (Day 0, 4, 8, 14).
+ * - Facebook and Email-only leads route strictly to 'email' for ALL 4 steps (Day 0, 4, 8, 14).
  */
 export function getTouchpointChannel(
   lead?: ChannelLead | null,
-  step: 0 | 1 | 2 | 3 | number = 0
+  _step: 0 | 1 | 2 | 3 | number = 0
 ): 'instagram' | 'email' | 'facebook' {
   if (!lead) return 'email';
 
-  const rawLink = (lead.platformLink || lead.link || '').trim().toLowerCase();
-  const fb = (lead.facebook || '').trim().toLowerCase();
-  const email = (lead.email || '').trim().toLowerCase();
-
-  const isIgLead =
-    lead.channel === 'instagram' ||
-    (!fb && !email && (rawLink.startsWith('@') || rawLink.includes('instagram.com') || rawLink.includes('instagr.am')));
-
-  if (isIgLead) {
-    // Step 0 (Day 0) & Step 1 (Day 4/7): Instagram DM
-    if (step === 0 || step === 1) {
-      return 'instagram';
-    }
-    // Step 2 & 3: If email exists -> Email, otherwise Instagram
-    const hasEmail = Boolean(email || lead.email || (rawLink.includes('@') && !rawLink.includes('instagram')));
-    return hasEmail ? 'email' : 'instagram';
+  if (getLeadInstagram(lead) || lead.channel === 'instagram') {
+    return 'instagram';
   }
 
-  // Facebook Leads: All dispatch days default to Email
-  // Email-only leads: All dispatch days default to Email
   return 'email';
 }
 

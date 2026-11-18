@@ -219,7 +219,7 @@ export function FollowupScheduleSubPage({
       if (l.scheduledDate && (isDateToday(l.scheduledDate) || isDateOverdue(l.scheduledDate))) {
         return true;
       }
-      if (isLeadWarmedToday(l, todayStr)) {
+      if (!isEmailOnlyLead(l) && isLeadWarmedToday(l, todayStr)) {
         return true;
       }
     }
@@ -484,7 +484,12 @@ export function FollowupScheduleSubPage({
                           <span className="text-[10px] font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
                             Stage A (Initial DM)
                           </span>
-                          {isWarmedBeforeToday ? (
+                          {isEmailOnlyLead(lead) ? (
+                            <span className="text-[10px] font-bold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded border border-indigo-500/40 font-mono flex items-center gap-1">
+                              <Mail className="w-3 h-3 text-indigo-400" />
+                              <span>Email Ready (No Warm-Up)</span>
+                            </span>
+                          ) : isWarmedBeforeToday ? (
                             <span className="text-[10px] font-bold text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/40 font-mono flex items-center gap-1">
                               <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                               <span>🔥 Warmed &amp; Ready</span>

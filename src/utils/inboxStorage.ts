@@ -1,5 +1,5 @@
 import { InboxLead, MultiChannelType, ChannelLead } from '../types';
-import { getNextLeadId, saveChannelLeads, loadChannelLeads, findDuplicateLead } from './channelStorage';
+import { getNextLeadId, saveChannelLeads, loadChannelLeads, findDuplicateLead, hasSocialWarmupLink } from './channelStorage';
 import { getNextAvailableScheduleDate } from './cadenceEngine';
 import { getStrictVoiceTypeForId } from './voiceTypeEngine';
 
@@ -338,6 +338,14 @@ export function acceptInboxLeadIntoCrm(
     lead.rawDetails?.socialLinks?.email ||
     (rawPlatformLink.includes('@') && !rawPlatformLink.includes('facebook.com') && !rawPlatformLink.includes('instagram.com') ? rawPlatformLink : undefined);
 
+  const emailOnly = !hasSocialWarmupLink({
+    channel: targetChannel,
+    link: storedLink,
+    platformLink: storedLink,
+    facebook: extractedFb || undefined,
+    rawDetails: lead.rawDetails,
+  });
+
   const newChannelLead: ChannelLead = {
     id,
     numericId,
@@ -351,8 +359,8 @@ export function acceptInboxLeadIntoCrm(
     sortOrder: 0,
     createdAt: nowIso,
     scheduledDate: assignedScheduleDate,
-    warmupStatus: 'locked',
-    isWarmedUp: false,
+    warmupStatus: emailOnly ? 'warmed' : 'locked',
+    isWarmedUp: emailOnly,
     // Save prompt & analysis to lead data as requested (prompts untouched)
     prompt: lead.prompt || undefined,
     leadAnalysis: lead.prompt || undefined,
@@ -468,6 +476,14 @@ export function acceptAllInboxLeadsIntoCrm(
       lead.rawDetails?.socialLinks?.email ||
       (rawPlatformLink.includes('@') && !rawPlatformLink.includes('facebook.com') && !rawPlatformLink.includes('instagram.com') ? rawPlatformLink : undefined);
 
+    const emailOnly = !hasSocialWarmupLink({
+      channel: targetChannel,
+      link: storedLink,
+      platformLink: storedLink,
+      facebook: extractedFb || undefined,
+      rawDetails: lead.rawDetails,
+    });
+
     const newChannelLead: ChannelLead = {
       id,
       numericId,
@@ -481,8 +497,8 @@ export function acceptAllInboxLeadsIntoCrm(
       sortOrder: currentTargetList.length,
       createdAt: nowIso,
       scheduledDate: assignedScheduleDate,
-      warmupStatus: 'locked',
-      isWarmedUp: false,
+      warmupStatus: emailOnly ? 'warmed' : 'locked',
+      isWarmedUp: emailOnly,
       prompt: lead.prompt || undefined,
       leadAnalysis: lead.prompt || undefined,
       analysisSavedAt: lead.prompt ? nowIso : undefined,

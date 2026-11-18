@@ -242,9 +242,9 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
       } else if (day.warmupTarget !== undefined && day.warmupTarget > 0) {
         warmupPct = `${Math.min(100, Math.round(((day.warmupCompleted || 0) / day.warmupTarget) * 100))}%`;
       } else {
-        // For past historical days without explicit record, check leads warmed on that date
+        // For past historical days without explicit record, check social leads warmed on that date
         const warmedOnDate = allLeads.filter(
-          (l) => l.warmedUpAt && normalizeToLocalDateStr(l.warmedUpAt) === day.date
+          (l) => !isEmailOnlyLead(l) && l.warmedUpAt && normalizeToLocalDateStr(l.warmedUpAt) === day.date
         ).length;
         if (warmedOnDate > 0) {
           warmupPct = `${Math.min(100, Math.round((warmedOnDate / 10) * 100))}%`;

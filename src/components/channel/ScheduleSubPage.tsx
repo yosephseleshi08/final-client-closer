@@ -16,6 +16,7 @@ import {
   autoScheduleLeads,
   getScheduleDayStyle,
   addDays,
+  isEmailOnlyLead,
 } from '../../utils/cadenceEngine';
 import { formatDisplayDate } from '../../utils/historyStorage';
 
@@ -33,10 +34,18 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
     const normalized = normalizeToLocalDateStr(newDate);
     const updated = leads.map((l) => {
       if (l.id === leadId) {
+        const emailOnly = isEmailOnlyLead(l);
         return {
           ...l,
           scheduledDate: normalized || undefined,
-          warmupStatus: normalized ? (l.warmupStatus || (l.isWarmedUp ? 'warmed' : 'locked')) : undefined,
+          warmupStatus: normalized
+            ? emailOnly
+              ? ('warmed' as const)
+              : (l.warmupStatus || (l.isWarmedUp ? 'warmed' : 'locked'))
+            : emailOnly
+            ? ('warmed' as const)
+            : undefined,
+          isWarmedUp: emailOnly ? true : l.isWarmedUp,
           dismissedDate: undefined,
         };
       }

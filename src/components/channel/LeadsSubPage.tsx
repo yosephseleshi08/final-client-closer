@@ -760,6 +760,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       const nextIdData = getNextLeadId(channel, currentList);
       const businessName = customName || extractSuggestedName(rawUrl);
       const assignedScheduleDate = getNextAvailableScheduleDate(currentList, channel);
+      const isEmailOnly = channel !== 'instagram' && !detectedFb;
 
       const newLead: ChannelLead = {
         id: nextIdData.id,
@@ -775,8 +776,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         scheduledDate: assignedScheduleDate,
         sortOrder: currentList.length,
         createdAt: new Date().toISOString(),
-        warmupStatus: 'locked',
-        isWarmedUp: false,
+        warmupStatus: isEmailOnly ? 'warmed' : 'locked',
+        isWarmedUp: isEmailOnly,
       };
 
       currentList.push(newLead);
@@ -937,6 +938,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       : undefined;
 
     const nowIso = new Date().toISOString();
+    const isEmailOnly = channel !== 'instagram' && !facebookField;
 
     const newLead: ChannelLead = {
       id: nextIdData.id,
@@ -955,8 +957,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
       scheduledDate: assignedScheduleDate,
       sortOrder: leads.length,
       createdAt: nowIso,
-      warmupStatus: 'locked',
-      isWarmedUp: false,
+      warmupStatus: isEmailOnly ? 'warmed' : 'locked',
+      isWarmedUp: isEmailOnly,
       prompt: trimmedPrompt || undefined,
       leadAnalysis: trimmedPrompt || undefined,
       analysisSavedAt: trimmedPrompt ? nowIso : undefined,
@@ -1673,7 +1675,7 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                   <div className="space-y-1.5">
                     <label className="flex items-center gap-1.5 text-xs font-bold text-slate-400 font-mono uppercase tracking-wider">
                       <Mail className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Backup Email (Optional · Used on Day 8/14)</span>
+                      <span>Backup Email (Optional · Reference Only)</span>
                     </label>
                     <input
                       type="text"

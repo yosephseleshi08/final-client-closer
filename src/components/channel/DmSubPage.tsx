@@ -20,7 +20,7 @@ import {
   Timer,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
-import { getChannelLabel, getPlatformLink, getLeadFacebook, getLeadEmail, getBlindRouteLink } from '../../utils/channelStorage';
+import { getChannelLabel, getBlindRouteLink } from '../../utils/channelStorage';
 import { TestLinkButton } from '../TestLinkButton';
 import {
   getLocalTodayStr,
@@ -106,6 +106,7 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const tomorrowLeads = leads.filter((l) => {
     if (l.isCompleted || l.initialSentDate) return false;
     if (isEmailOnlyLead(l)) return false; // Strict: Warm-Up Tab must ONLY display Instagram & Facebook leads
+    if (getBlindRouteLink(l, 'warmup') === null) return false;
     return l.scheduledDate === warmupTargetDate;
   });
 
@@ -383,11 +384,6 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
               const stepCount = getSequenceStepCount(lead);
               const isSavedJustNow = savedSuccessId === lead.id;
               const initialMsg = lead.initialDM || lead.customPitch;
-
-              const fbLink = getLeadFacebook(lead);
-              const emailLink = getLeadEmail(lead);
-              const warmupTargetLink = fbLink || lead.link;
-              const warmupHref = getPlatformLink(warmupTargetLink, 'facebook');
 
               return (
                 <div
