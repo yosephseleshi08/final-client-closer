@@ -45,12 +45,17 @@ export function repairSingleLeadEmail<T extends Partial<ChannelLead> & Record<st
     return { repairedLead: lead, wasCleaned: false, isInvalid: false };
   }
 
-  // Gather candidate email values
-  const explicitEmail = typeof lead.email === 'string' ? lead.email.trim() : '';
-  const rawDetailsEmail =
+  const isPlaceholder = (val: string) =>
+    ['-', '--', 'n/a', 'na', 'none', 'null', 'undefined'].includes(val.trim().toLowerCase());
+
+  // Gather candidate email values (ignoring empty/placeholder values like "-")
+  const rawExplicitEmail = typeof lead.email === 'string' ? lead.email.trim() : '';
+  const explicitEmail = rawExplicitEmail && !isPlaceholder(rawExplicitEmail) ? rawExplicitEmail : '';
+  const rawDetailsEmailRaw =
     lead.rawDetails && typeof lead.rawDetails.email === 'string'
       ? lead.rawDetails.email.trim()
       : '';
+  const rawDetailsEmail = rawDetailsEmailRaw && !isPlaceholder(rawDetailsEmailRaw) ? rawDetailsEmailRaw : '';
   const linkStr = typeof lead.link === 'string' ? lead.link.trim() : '';
   const platformLinkStr = typeof lead.platformLink === 'string' ? lead.platformLink.trim() : '';
 
@@ -66,11 +71,12 @@ export function repairSingleLeadEmail<T extends Partial<ChannelLead> & Record<st
     !platformLinkStr.includes('fb.com') &&
     (platformLinkStr.includes('@') || platformLinkStr.toLowerCase().startsWith('mailto:'));
 
-  const hasAnyEmailField = Boolean(
-    explicitEmail || rawDetailsEmail || linkLooksLikeEmail || platformLinkLooksLikeEmail
-  );
+  const isIgLead = lead.channel === 'instagram';
+  const hasAnyEmailField =
+    !isIgLead &&
+    Boolean(explicitEmail || rawDetailsEmail || linkLooksLikeEmail || platformLinkLooksLikeEmail);
 
-  // If lead has no email-related data at all (e.g., pure Instagram or pure Facebook lead), leave untouched
+  // If lead is Instagram or has no meaningful email data, clear any false hasInvalidEmail flag
   if (!hasAnyEmailField) {
     if (lead.hasInvalidEmail) {
       return {
@@ -90,7 +96,7 @@ export function repairSingleLeadEmail<T extends Partial<ChannelLead> & Record<st
     (platformLinkLooksLikeEmail ? extractCleanEmail(platformLinkStr) : null);
 
   if (!cleanEmail) {
-    // Corrupted / unfixable email: flag hasInvalidEmail: true without deleting lead or touching messages
+    // Corrupted / unfixable email: preserve lead and messages without showing table warning badges
     const alreadyFlagged = lead.hasInvalidEmail === true;
     return {
       repairedLead: alreadyFlagged ? lead : { ...lead, hasInvalidEmail: true },

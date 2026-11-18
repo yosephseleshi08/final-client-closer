@@ -18,7 +18,6 @@ import {
   Sparkles,
   StickyNote,
   Coffee,
-  AlertTriangle,
   Snowflake,
   Play,
   Flame,
@@ -2055,15 +2054,6 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                                 : `Day ${stageNumber} Email`}
                             </span>
                           </span>
-                          {lead.hasInvalidEmail && (
-                            <span
-                              className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 cursor-help"
-                              title={`Invalid or corrupted email (${lead.email || lead.link || 'missing'}) — fix manually before sending.`}
-                            >
-                              <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0" />
-                              <span>Invalid Email</span>
-                            </span>
-                          )}
                         </div>
 
                         {/* Requirement 6: Blind Route Link / Copy Email for Manual Verification */}
