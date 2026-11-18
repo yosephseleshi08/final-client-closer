@@ -70,6 +70,7 @@ import {
   getStrictVoiceTypeForId,
   extractLeadNumericId,
   ensureVoiceTypeAssignments,
+  recalculateAllVoiceTypes,
   getVoiceTypeBadgeStyle,
   getWorkspaceVoiceTypes,
   getVoiceTypeDisplayLabel,
@@ -93,10 +94,6 @@ interface SortableLeadRowProps {
   isDndEnabled: boolean;
   isSelected: boolean;
   onToggleSelect: (id: string) => void;
-  workspaceVoiceTypes: VoiceType[];
-  openVoiceDropdownLeadId: string | null;
-  setOpenVoiceDropdownLeadId: (id: string | null) => void;
-  onUpdateLeadVoiceType: (leadId: string, newVoiceType: VoiceType) => void;
   onOpenEditSequence: (lead: ChannelLead) => void;
   onDeleteLead: (id: string) => void;
 }
@@ -108,10 +105,6 @@ function SortableLeadRow({
   isDndEnabled,
   isSelected,
   onToggleSelect,
-  workspaceVoiceTypes,
-  openVoiceDropdownLeadId,
-  setOpenVoiceDropdownLeadId,
-  onUpdateLeadVoiceType,
   onOpenEditSequence,
   onDeleteLead,
 }: SortableLeadRowProps) {
@@ -255,82 +248,27 @@ function SortableLeadRow({
         </div>
       </td>
 
-      {/* 2. Prospect Name + Voice Type Badge with Dropdown */}
+      {/* 2. Prospect Name + Strict ID-Governed Voice Type Badge (Read-Only) */}
       <td className="py-3.5 px-4 text-left">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-medium text-slate-100 font-['Outfit'] truncate max-w-xs">
             {lead.name}
           </span>
 
-          {/* Voice Type Badge & Dropdown Selector */}
-          <div
-            className="relative inline-block"
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setOpenVoiceDropdownLeadId(
-                  openVoiceDropdownLeadId === lead.id ? null : lead.id
-                );
-              }}
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold font-mono border transition-all cursor-pointer shadow-sm ${
-                getVoiceTypeBadgeStyle(lead.voiceType).pillClass
-              }`}
-              title={`Voice Type: ${getVoiceTypeDisplayLabel(lead.voiceType, channel)} - Click to override`}
-            >
-              <span>{getVoiceTypeDisplayLabel(lead.voiceType, channel)}</span>
-              <ChevronDown className="w-2.5 h-2.5 opacity-70" />
-            </button>
-
-            {openVoiceDropdownLeadId === lead.id && (
-              <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setOpenVoiceDropdownLeadId(null);
-                  }}
-                />
-                <div className="absolute left-0 mt-1 w-44 rounded-xl border border-slate-700/80 bg-slate-900 shadow-2xl shadow-black/80 p-1.5 z-50 text-left">
-                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-400 px-2 py-1 border-b border-white/5 mb-1">
-                    Override Type
-                  </div>
-                  <div className="space-y-0.5 max-h-52 overflow-y-auto">
-                    {workspaceVoiceTypes.map((vt) => {
-                      if (!vt) return null;
-                      const isCurrent = lead.voiceType === vt;
-                      const style = getVoiceTypeBadgeStyle(vt);
-                      const displayLabel = getVoiceTypeDisplayLabel(vt, channel);
-                      return (
-                        <button
-                          key={vt}
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onUpdateLeadVoiceType(lead.id, vt);
-                            setOpenVoiceDropdownLeadId(null);
-                          }}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-mono font-medium flex items-center justify-between transition-colors cursor-pointer ${
-                            isCurrent
-                              ? 'bg-white/15 text-white font-bold'
-                              : 'text-slate-300 hover:bg-white/5 hover:text-white'
-                          }`}
-                        >
-                          <span className="flex items-center gap-2">
-                            <span className={`w-2 h-2 rounded-full ${style.dotColor}`} />
-                            <span>{displayLabel}</span>
-                          </span>
-                          {isCurrent && <span className="text-[10px] text-emerald-400 font-bold">✓</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+          {/* Strict ID-Based Voice Type Badge (Non-clickable) */}
+          {(() => {
+            const strictVoice = getStrictVoiceTypeForId(lead, channel);
+            return (
+              <span
+                className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold font-mono border shadow-sm select-none ${
+                  getVoiceTypeBadgeStyle(strictVoice).badgeClass
+                }`}
+                title={`Voice Type: ${getVoiceTypeDisplayLabel(strictVoice, channel)} (Assigned strictly by ID ${lead.id})`}
+              >
+                {getVoiceTypeDisplayLabel(strictVoice, channel)}
+              </span>
+            );
+          })()}
 
           {lead.scheduledDate && (
             <span
@@ -437,7 +375,6 @@ export function LeadsSubPage({
   // Voice Type Filtering States
   const [selectedVoiceFilter, setSelectedVoiceFilter] = useState<VoiceType | 'all'>('all');
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
-  const [openVoiceDropdownLeadId, setOpenVoiceDropdownLeadId] = useState<string | null>(null);
 
   // Reset filter and selection when switching between workspaces
   useEffect(() => {
@@ -632,7 +569,7 @@ export function LeadsSubPage({
   }, [sortedLeads]);
 
   const handleDragStart = (_event: DragStartEvent) => {
-    setOpenVoiceDropdownLeadId(null);
+    // Drag started
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -652,17 +589,6 @@ export function LeadsSubPage({
         `Reordered "${result.movedLead.name}": ${result.oldId} → ${result.newId}`
       );
     }
-  };
-
-  // Update a single lead's voiceType via the inline dropdown
-  const handleUpdateLeadVoiceType = (leadId: string, newVoiceType: VoiceType) => {
-    const updated = leads.map((l) =>
-      l.id === leadId
-        ? { ...l, voiceType: newVoiceType, isVoiceTypeOverridden: true }
-        : l
-    );
-    onUpdateLeads(updated);
-    setOpenVoiceDropdownLeadId(null);
   };
 
   // Open Edit Sequence Modal (starts empty unless operator has written text)
@@ -876,10 +802,14 @@ export function LeadsSubPage({
     }
 
     if (addedCount > 0) {
-      onUpdateLeads(currentList);
+      const recalculated = recalculateAllVoiceTypes(currentList, channel);
+      onUpdateLeads(recalculated);
       setIsBatchModalOpen(false);
       setBatchInputText('');
       setBatchError(null);
+      setAddedToast(
+        `Imported ${addedCount} ${addedCount === 1 ? 'lead' : 'leads'} into ${getChannelLabel(channel)} & updated queues.`
+      );
     } else if (duplicateCount === 0) {
       setBatchError('No valid leads found to import.');
     }
@@ -1056,7 +986,8 @@ export function LeadsSubPage({
       isSequenceConfigured: false,
     };
 
-    onUpdateLeads([...leads, newLead]);
+    const recalculated = recalculateAllVoiceTypes([...leads, newLead], channel);
+    onUpdateLeads(recalculated);
     setIsAddModalOpen(false);
     setManualError(null);
     setAddedToast(
@@ -1418,10 +1349,6 @@ export function LeadsSubPage({
                         isDndEnabled={!isFiltered}
                         isSelected={selectedLeadIds.has(lead.id)}
                         onToggleSelect={toggleSelectLead}
-                        workspaceVoiceTypes={workspaceVoiceTypes}
-                        openVoiceDropdownLeadId={openVoiceDropdownLeadId}
-                        setOpenVoiceDropdownLeadId={setOpenVoiceDropdownLeadId}
-                        onUpdateLeadVoiceType={handleUpdateLeadVoiceType}
                         onOpenEditSequence={handleOpenEditSequence}
                         onDeleteLead={handleDeleteLead}
                       />

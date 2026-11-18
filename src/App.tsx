@@ -53,11 +53,23 @@ export default function App() {
     loadBackstageLeads()
   );
 
-  // Listen for pipeline freeze, inbox, backstage, and diagnostic data repair changes across components
+  const isInternalSaveRef = React.useRef(false);
+
+  // Listen for pipeline freeze, inbox, backstage, channel storage, and diagnostic data repair changes across components
   React.useEffect(() => {
     const handleFreeze = () => setIsFrozen(isPipelineFrozenNow());
     const handleInbox = () => setInboxCount(loadInboxLeads().length);
     const handleBackstage = () => setBackstageLeads(loadBackstageLeads());
+    const handleChannelLeadsChanged = (e: Event) => {
+      if (isInternalSaveRef.current) return;
+      const customEvent = e as CustomEvent<{ channel?: MultiChannelType; leads?: ChannelLead[] }>;
+      const ch = customEvent.detail?.channel;
+      if (ch === 'combined') {
+        setCombinedLeads(loadChannelLeads('combined'));
+      } else if (ch === 'instagram') {
+        setInstagramLeads(loadChannelLeads('instagram'));
+      }
+    };
     const handleRepaired = () => {
       setCombinedLeads(loadChannelLeads('combined'));
       setInstagramLeads(loadChannelLeads('instagram'));
@@ -67,18 +79,22 @@ export default function App() {
     window.addEventListener('pipeline_freeze_changed', handleFreeze);
     window.addEventListener('inbox_leads_changed', handleInbox);
     window.addEventListener('backstage_leads_changed', handleBackstage);
+    window.addEventListener('channel_leads_changed', handleChannelLeadsChanged);
     window.addEventListener('crm_data_repaired', handleRepaired);
     window.addEventListener('storage', handleFreeze);
     window.addEventListener('storage', handleInbox);
     window.addEventListener('storage', handleBackstage);
+    window.addEventListener('storage', handleRepaired);
     return () => {
       window.removeEventListener('pipeline_freeze_changed', handleFreeze);
       window.removeEventListener('inbox_leads_changed', handleInbox);
       window.removeEventListener('backstage_leads_changed', handleBackstage);
+      window.removeEventListener('channel_leads_changed', handleChannelLeadsChanged);
       window.removeEventListener('crm_data_repaired', handleRepaired);
       window.removeEventListener('storage', handleFreeze);
       window.removeEventListener('storage', handleInbox);
       window.removeEventListener('storage', handleBackstage);
+      window.removeEventListener('storage', handleRepaired);
     };
   }, []);
 
@@ -89,12 +105,16 @@ export default function App() {
 
   const handleUpdateCombinedLeads = (updated: ChannelLead[]) => {
     setCombinedLeads(updated);
+    isInternalSaveRef.current = true;
     saveChannelLeads('combined', updated);
+    isInternalSaveRef.current = false;
   };
 
   const handleUpdateInstagramLeads = (updated: ChannelLead[]) => {
     setInstagramLeads(updated);
+    isInternalSaveRef.current = true;
     saveChannelLeads('instagram', updated);
+    isInternalSaveRef.current = false;
   };
 
   const todayStr = getLocalTodayStr();

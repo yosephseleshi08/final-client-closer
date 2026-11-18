@@ -5,7 +5,7 @@ import {
   saveChannelLeads,
   normalizeEmailOnlyWarmupStatus,
 } from './channelStorage';
-import { getStrictVoiceTypeForId } from './voiceTypeEngine';
+import { getStrictVoiceTypeForId, recalculateAllVoiceTypes } from './voiceTypeEngine';
 
 export const BACKSTAGE_STORAGE_KEY = 'outreach_backstage_leads_v1';
 
@@ -171,11 +171,7 @@ export function restoreLeadsFromBackstage(
       ? { id: cleanFields.id, numericId: cleanFields.numericId }
       : getNextLeadId(targetChannel, targetList);
 
-    const resolvedVoiceType = canKeepOriginalId
-      ? cleanFields.voiceType || getStrictVoiceTypeForId(assignedId.numericId, targetChannel)
-      : cleanFields.isVoiceTypeOverridden && cleanFields.voiceType
-      ? cleanFields.voiceType
-      : getStrictVoiceTypeForId(assignedId.numericId, targetChannel);
+    const resolvedVoiceType = getStrictVoiceTypeForId(assignedId.numericId, targetChannel);
 
     const restoredLead: ChannelLead = {
       ...cleanFields,
@@ -183,6 +179,7 @@ export function restoreLeadsFromBackstage(
       numericId: assignedId.numericId,
       channel: targetChannel,
       voiceType: resolvedVoiceType,
+      isVoiceTypeOverridden: false,
       isArchived: false,
       sortOrder: targetList.length,
     };
@@ -191,13 +188,16 @@ export function restoreLeadsFromBackstage(
     restoredLeads.push(restoredLead);
   }
 
-  const finalizeList = (list: ChannelLead[]): ChannelLead[] =>
-    normalizeEmailOnlyWarmupStatus(list)
-      .sort((a, b) => (a.numericId ?? 0) - (b.numericId ?? 0))
-      .map((l, idx) => ({ ...l, sortOrder: idx }));
+  const finalizeList = (list: ChannelLead[], ch: 'combined' | 'instagram'): ChannelLead[] =>
+    recalculateAllVoiceTypes(
+      normalizeEmailOnlyWarmupStatus(list)
+        .sort((a, b) => (a.numericId ?? 0) - (b.numericId ?? 0))
+        .map((l, idx) => ({ ...l, sortOrder: idx })),
+      ch
+    );
 
-  combinedList = finalizeList(combinedList);
-  instagramList = finalizeList(instagramList);
+  combinedList = finalizeList(combinedList, 'combined');
+  instagramList = finalizeList(instagramList, 'instagram');
 
   saveChannelLeads('combined', combinedList);
   saveChannelLeads('instagram', instagramList);

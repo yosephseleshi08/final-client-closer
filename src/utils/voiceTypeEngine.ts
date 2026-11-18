@@ -89,8 +89,7 @@ export function getRoundRobinVoiceType(
 
 /**
  * Returns user-facing label for a voice type in the current workspace.
- * For Instagram: IG-1 -> "Type 1", IG-2 -> "Type 2", etc.
- * For Combined: Email-1 -> "Type 1", Email-2 -> "Type 2", etc.
+ * Strictly returns IG-1..IG-6 for Instagram and Email-1..Email-4 for Combined/Email.
  */
 export function getVoiceTypeDisplayLabel(
   voiceType: VoiceType | 'all' | null | undefined,
@@ -98,24 +97,11 @@ export function getVoiceTypeDisplayLabel(
 ): string {
   if (!voiceType || voiceType === 'all') return 'All Types';
   if (channel === 'instagram') {
-    switch (voiceType) {
-      case 'IG-1': return 'Type 1';
-      case 'IG-2': return 'Type 2';
-      case 'IG-3': return 'Type 3';
-      case 'IG-4': return 'Type 4';
-      case 'IG-5': return 'Type 5';
-      case 'IG-6': return 'Type 6';
-      default: return voiceType;
-    }
+    if (IG_VOICE_TYPES.includes(voiceType)) return voiceType;
+    return 'IG-1';
   }
-  // Combined / Email
-  switch (voiceType) {
-    case 'Email-1': return 'Type 1';
-    case 'Email-2': return 'Type 2';
-    case 'Email-3': return 'Type 3';
-    case 'Email-4': return 'Type 4';
-    default: return voiceType;
-  }
+  if (EMAIL_VOICE_TYPES.includes(voiceType)) return voiceType;
+  return 'Email-1';
 }
 
 export interface WorkspaceFilterOption {
@@ -125,33 +111,55 @@ export interface WorkspaceFilterOption {
 
 /**
  * Returns the exact filter dropdown options for the given workspace.
- * Instagram: All Types, Type 1 through Type 6.
- * Combined: All Types, Type 1 through Type 4.
+ * Instagram: All Types, IG-1 through IG-6.
+ * Combined: All Types, Email-1 through Email-4.
  */
 export function getWorkspaceFilterOptions(channel: MultiChannelType): WorkspaceFilterOption[] {
   if (channel === 'instagram') {
     return [
       { value: 'all', label: 'All Types' },
-      { value: 'IG-1', label: 'Type 1' },
-      { value: 'IG-2', label: 'Type 2' },
-      { value: 'IG-3', label: 'Type 3' },
-      { value: 'IG-4', label: 'Type 4' },
-      { value: 'IG-5', label: 'Type 5' },
-      { value: 'IG-6', label: 'Type 6' },
+      { value: 'IG-1', label: 'IG-1' },
+      { value: 'IG-2', label: 'IG-2' },
+      { value: 'IG-3', label: 'IG-3' },
+      { value: 'IG-4', label: 'IG-4' },
+      { value: 'IG-5', label: 'IG-5' },
+      { value: 'IG-6', label: 'IG-6' },
     ];
   }
   return [
     { value: 'all', label: 'All Types' },
-    { value: 'Email-1', label: 'Type 1' },
-    { value: 'Email-2', label: 'Type 2' },
-    { value: 'Email-3', label: 'Type 3' },
-    { value: 'Email-4', label: 'Type 4' },
+    { value: 'Email-1', label: 'Email-1' },
+    { value: 'Email-2', label: 'Email-2' },
+    { value: 'Email-3', label: 'Email-3' },
+    { value: 'Email-4', label: 'Email-4' },
   ];
 }
 
 /**
- * Ensures all leads have an assigned voiceType strictly tied to their ID number,
- * while preserving manual operator overrides (lead.isVoiceTypeOverridden = true).
+ * Recalculates and assigns strict ID-based voice types for ALL leads in a channel.
+ * Ensures IG-1..IG-6 (Instagram) and Email-1..Email-4 (Combined/Email) stay mathematically
+ * tied to each lead's current ID number on every import or ID shift.
+ */
+export function recalculateAllVoiceTypes(
+  leads: ChannelLead[],
+  channel: MultiChannelType
+): ChannelLead[] {
+  return leads.map((lead, idx) => {
+    const expectedType = getStrictVoiceTypeForId(lead, channel, idx);
+    if (lead.voiceType === expectedType && !lead.isVoiceTypeOverridden) {
+      return lead;
+    }
+    return {
+      ...lead,
+      voiceType: expectedType,
+      isVoiceTypeOverridden: false,
+    };
+  });
+}
+
+/**
+ * Ensures all leads have an assigned voiceType strictly tied to their ID number.
+ * Manual overrides are disabled; the lead's ID strictly governs its Voice Type.
  */
 export function ensureVoiceTypeAssignments(
   leads: ChannelLead[],
@@ -160,17 +168,13 @@ export function ensureVoiceTypeAssignments(
   let hasChanges = false;
 
   const updatedLeads = leads.map((lead, idx) => {
-    // If the operator manually overrode this type, preserve it
-    if (lead.isVoiceTypeOverridden && lead.voiceType) {
-      return lead;
-    }
-
     const expectedType = getStrictVoiceTypeForId(lead, channel, idx);
-    if (lead.voiceType !== expectedType) {
+    if (lead.voiceType !== expectedType || lead.isVoiceTypeOverridden) {
       hasChanges = true;
       return {
         ...lead,
         voiceType: expectedType,
+        isVoiceTypeOverridden: false,
       };
     }
 

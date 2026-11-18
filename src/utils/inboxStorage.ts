@@ -1,7 +1,7 @@
 import { InboxLead, MultiChannelType, ChannelLead } from '../types';
 import { getNextLeadId, saveChannelLeads, loadChannelLeads, findDuplicateLead, hasSocialWarmupLink } from './channelStorage';
 import { getNextAvailableScheduleDate } from './cadenceEngine';
-import { getStrictVoiceTypeForId } from './voiceTypeEngine';
+import { getStrictVoiceTypeForId, recalculateAllVoiceTypes } from './voiceTypeEngine';
 
 export const INBOX_STORAGE_KEY = 'outreach_engine_lead_inbox_v1';
 
@@ -356,6 +356,7 @@ export function acceptInboxLeadIntoCrm(
     email: extractedEmail || undefined,
     channel: targetChannel,
     voiceType: getStrictVoiceTypeForId(numericId, targetChannel),
+    isVoiceTypeOverridden: false,
     sortOrder: 0,
     createdAt: nowIso,
     scheduledDate: assignedScheduleDate,
@@ -378,11 +379,14 @@ export function acceptInboxLeadIntoCrm(
     rawDetails: lead.rawDetails,
   };
 
-  // Prepend new lead at index 0 and resequence sort order
-  const updatedLeads = [newChannelLead, ...currentLeads].map((l, index) => ({
-    ...l,
-    sortOrder: index,
-  }));
+  // Prepend new lead at index 0, resequence sort order, and recalculate ALL voice types strictly by ID
+  const updatedLeads = recalculateAllVoiceTypes(
+    [newChannelLead, ...currentLeads].map((l, index) => ({
+      ...l,
+      sortOrder: index,
+    })),
+    targetChannel
+  );
 
   // Save to persistent channel storage
   saveChannelLeads(targetChannel, updatedLeads);
@@ -392,7 +396,7 @@ export function acceptInboxLeadIntoCrm(
 
   return {
     targetChannel,
-    newLead: newChannelLead,
+    newLead: updatedLeads[0],
     updatedLeads,
     isDuplicate: false,
   };
@@ -494,6 +498,7 @@ export function acceptAllInboxLeadsIntoCrm(
       email: extractedEmail || undefined,
       channel: targetChannel,
       voiceType: getStrictVoiceTypeForId(numericId, targetChannel),
+      isVoiceTypeOverridden: false,
       sortOrder: currentTargetList.length,
       createdAt: nowIso,
       scheduledDate: assignedScheduleDate,
@@ -522,9 +527,15 @@ export function acceptAllInboxLeadsIntoCrm(
     acceptedCount++;
   }
 
-  // Resequence sort orders
-  combinedList = combinedList.map((l, idx) => ({ ...l, sortOrder: idx }));
-  instagramList = instagramList.map((l, idx) => ({ ...l, sortOrder: idx }));
+  // Resequence sort orders and recalculate ALL voice types strictly by ID on import
+  combinedList = recalculateAllVoiceTypes(
+    combinedList.map((l, idx) => ({ ...l, sortOrder: idx })),
+    'combined'
+  );
+  instagramList = recalculateAllVoiceTypes(
+    instagramList.map((l, idx) => ({ ...l, sortOrder: idx })),
+    'instagram'
+  );
 
   // Save both channels
   saveChannelLeads('combined', combinedList);

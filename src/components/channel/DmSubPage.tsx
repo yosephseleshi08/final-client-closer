@@ -24,6 +24,7 @@ import { getChannelLabel, getBlindRouteLink } from '../../utils/channelStorage';
 import { TestLinkButton } from '../TestLinkButton';
 import {
   getLocalTodayStr,
+  normalizeToLocalDateStr,
   getTomorrowWarmupTargetDate,
   isLeadWarmed,
   isEmailOnlyLead,
@@ -101,17 +102,21 @@ export function DmSubPage({ channel, leads, onUpdateLeads }: DmSubPageProps) {
   const isSaturday = todayDayOfWeek === 6;
   const isSunday = todayDayOfWeek === 0;
 
-  // STRICT RULE: This tab must ONLY display leads scheduled for TOMORROW.
-  // Email-only leads do NOT require warm-up and must NOT be displayed here.
-  const tomorrowLeads = leads.filter((l) => {
+  // STRICT RULE: "Warm-Up Today" queries leads where scheduledDate === tomorrow AND warmupStatus !== 'warmed'.
+  // Email-only leads do NOT require warm-up and are excluded.
+  const tomorrowSocialLeads = leads.filter((l) => {
     if (l.isCompleted || l.initialSentDate) return false;
     if (isEmailOnlyLead(l)) return false; // Strict: Warm-Up Tab must ONLY display Instagram & Facebook leads
     if (getBlindRouteLink(l, 'warmup') === null) return false;
-    return l.scheduledDate === warmupTargetDate;
+    return normalizeToLocalDateStr(l.scheduledDate) === warmupTargetDate;
   });
 
-  const warmedCount = tomorrowLeads.filter((l) => isLeadWarmed(l)).length;
-  const lockedCount = tomorrowLeads.length - warmedCount;
+  const tomorrowLeads = tomorrowSocialLeads.filter(
+    (l) => l.warmupStatus !== 'warmed' && !isLeadWarmed(l)
+  );
+
+  const warmedCount = tomorrowSocialLeads.filter((l) => isLeadWarmed(l)).length;
+  const lockedCount = tomorrowLeads.length;
   const selectedLead = tomorrowLeads.find((l) => l.id === selectedLeadId);
 
   const handleOpenPitchEditor = (lead: ChannelLead) => {

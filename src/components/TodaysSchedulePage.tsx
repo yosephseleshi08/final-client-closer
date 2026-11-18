@@ -431,32 +431,40 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const schedTodayDate = new Date(schedY, schedM - 1, schedD);
   const schedDayOfWeek = schedTodayDate.getDay();
   const isSchedSaturday = schedDayOfWeek === 6;
-  const isSchedSunday = schedDayOfWeek === 0;
-  const warmupTargetDateStr = isSchedSunday
-    ? null
-    : getTomorrowWarmupTargetDate(todayStr);
+  const warmupTargetDateStr = getTomorrowWarmupTargetDate(todayStr);
 
-  // Warm-up targets only Instagram and Facebook leads with social profiles.
-  // Email-only leads are excluded.
-  const warmupForTomorrowLeads = useMemo(() => {
+  // All tomorrow-scheduled social leads eligible for warm-up (Email-only leads are excluded)
+  const tomorrowSocialWarmupLeads = useMemo(() => {
     if (!warmupTargetDateStr) return [];
-    return allLeads.filter((l) => {
+    const combinedAll = [
+      ...effectiveCombinedLeads.map((l) => ({ ...l, channelLabel: 'Combined Outreach' })),
+      ...instagramLeads.map((l) => ({ ...l, channelLabel: 'Instagram' })),
+    ];
+    return combinedAll.filter((l) => {
       if (l.isCompleted || l.initialSentDate) return false;
-      if (l.scheduledDate !== warmupTargetDateStr) return false;
+      if (normalizeToLocalDateStr(l.scheduledDate) !== warmupTargetDateStr) return false;
       if (isEmailOnlyLead(l)) return false;
       return getBlindRouteLink(l, 'warmup') !== null;
     });
-  }, [allLeads, warmupTargetDateStr]);
+  }, [effectiveCombinedLeads, instagramLeads, warmupTargetDateStr]);
 
-  const warmupCompletedCount = warmupForTomorrowLeads.filter(
-    (l) => l.warmupStatus === 'warmed' || l.isWarmedUp
+  // Warm-Up Queue strictly queries leads where scheduledDate === tomorrow AND warmupStatus !== 'warmed'
+  const warmupForTomorrowLeads = useMemo(() => {
+    return tomorrowSocialWarmupLeads.filter(
+      (l) => l.warmupStatus !== 'warmed' && !l.isWarmedUp
+    );
+  }, [tomorrowSocialWarmupLeads]);
+
+  const warmupCompletedCount = tomorrowSocialWarmupLeads.filter(
+    (l) => l.warmupStatus === 'warmed' || Boolean(l.isWarmedUp)
   ).length;
 
+  const warmupTotalScheduled = tomorrowSocialWarmupLeads.length;
   const warmupTotalNeeded = warmupForTomorrowLeads.length;
-  const warmupPercent = warmupTotalNeeded > 0
-    ? Math.min(100, Math.round((warmupCompletedCount / warmupTotalNeeded) * 100))
+  const warmupPercent = warmupTotalScheduled > 0
+    ? Math.min(100, Math.round((warmupCompletedCount / warmupTotalScheduled) * 100))
     : 100;
-  const isWarmupFinished = warmupTotalNeeded > 0 && warmupCompletedCount >= warmupTotalNeeded;
+  const isWarmupFinished = warmupTotalScheduled > 0 && warmupTotalNeeded === 0;
 
   const handleToggleLeadWarmup = (lead: ChannelLead) => {
     const isCurrentlyWarmed = lead.warmupStatus === 'warmed' || Boolean(lead.isWarmedUp);
@@ -499,7 +507,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
         setFbWarmupCooldownMs(cooldownMs);
       }
 
-      if (warmupCompletedCount + 1 >= warmupTotalNeeded && warmupTotalNeeded > 0) {
+      if (warmupTotalNeeded <= 1 && warmupTotalScheduled > 0) {
         playGoalAccomplishedFanfare();
       } else {
         playSuccessChime();
@@ -723,7 +731,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
       followupsSent: followupsSentTodayCount,
       followupsRemainingDue: followupsDueTodayCount,
       warmupCompleted: warmupCompletedCount,
-      warmupTarget: warmupTotalNeeded,
+      warmupTarget: warmupTotalScheduled,
       warmupPercentage: warmupPercent,
     });
   }, [
@@ -734,7 +742,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     followupsSentTodayCount,
     followupsDueTodayCount,
     warmupCompletedCount,
-    warmupTotalNeeded,
+    warmupTotalScheduled,
     warmupPercent,
   ]);
 
@@ -847,7 +855,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
   const pendingActionsCount =
     newDueTodayCount +
     followupsDueTodayCount +
-    Math.max(0, warmupTotalNeeded - warmupCompletedCount);
+    warmupTotalNeeded;
 
   return (
     <div className="space-y-6">
@@ -1173,7 +1181,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
           {/* Directive 3: Warm-Up Queue */}
           <div
             className={`p-4 rounded-2xl border transition-all flex flex-col justify-between gap-3 ${
-              warmupTotalNeeded - warmupCompletedCount > 0
+              warmupTotalNeeded > 0
                 ? 'border-amber-500/50 bg-amber-950/20 shadow-[0_0_15px_rgba(245,158,11,0.15)] ring-1 ring-amber-500/30'
                 : 'border-white/5 bg-slate-950/40 opacity-70'
             }`}
@@ -1186,23 +1194,23 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                 </span>
                 <span
                   className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
-                    warmupTotalNeeded - warmupCompletedCount > 0
+                    warmupTotalNeeded > 0
                       ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                       : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                   }`}
                 >
-                  {warmupCompletedCount} / {warmupTotalNeeded} Verified
+                  {warmupCompletedCount} / {warmupTotalScheduled} Verified
                 </span>
               </div>
               <p className="text-xs text-slate-300 leading-snug">
-                {warmupTotalNeeded - warmupCompletedCount > 0
-                  ? `${warmupTotalNeeded - warmupCompletedCount} leads need warm-up today to unlock tomorrow's dispatch.`
-                  : warmupTotalNeeded > 0
+                {warmupTotalNeeded > 0
+                  ? `${warmupTotalNeeded} leads need warm-up today to unlock tomorrow's dispatch.`
+                  : warmupTotalScheduled > 0
                   ? 'All prospects scheduled for tomorrow are verified and unlocked!'
                   : 'No warm-ups needed today.'}
               </p>
             </div>
-            {warmupTotalNeeded - warmupCompletedCount > 0 ? (
+            {warmupTotalNeeded > 0 ? (
               <button
                 type="button"
                 onClick={() => setActiveModal('warmup_leads')}
@@ -1286,7 +1294,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
                 <h3 className="text-base sm:text-lg font-black text-white font-['Outfit'] flex items-center gap-2 mt-0.5">
                   <span>Warm-Up Progress:</span>
                   <span className="font-mono text-amber-400">
-                    {warmupCompletedCount} / {warmupTotalNeeded}
+                    {warmupCompletedCount} / {warmupTotalScheduled}
                   </span>
                   <span className="text-xs font-mono text-slate-400 font-semibold">
                     ({warmupPercent}%)
@@ -1295,7 +1303,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
               </div>
             </div>
 
-            {isWarmupFinished && warmupTotalNeeded > 0 && (
+            {isWarmupFinished && warmupTotalScheduled > 0 && (
               <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold font-mono shrink-0">
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                 <span>Prepped!</span>
@@ -1306,12 +1314,12 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
           <div className="w-full h-3 bg-slate-950/80 rounded-full overflow-hidden border border-white/10 p-0.5 shadow-inner">
             <div
               className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-300 shadow-md shadow-amber-500/40"
-              style={{ width: `${warmupTotalNeeded === 0 ? 0 : warmupPercent}%` }}
+              style={{ width: `${warmupTotalScheduled === 0 ? 0 : warmupPercent}%` }}
             />
           </div>
 
           <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-            <span>Needed {isSchedSaturday ? 'for Monday' : 'for tomorrow'}: {warmupTotalNeeded} Leads</span>
+            <span>Needed {isSchedSaturday ? 'for Monday' : 'for tomorrow'}: {warmupTotalNeeded} Pending</span>
             <span className="text-amber-300">{warmupCompletedCount} Warmed Up</span>
           </div>
         </div>

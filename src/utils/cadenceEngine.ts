@@ -868,10 +868,7 @@ export function autoScheduleLeads(
   }
 
   return leads.map((lead, idx) => {
-    const assignedVoice =
-      lead.isVoiceTypeOverridden && lead.voiceType
-        ? lead.voiceType
-        : getStrictVoiceTypeForId(lead, channel, idx);
+    const assignedVoice = getStrictVoiceTypeForId(lead, channel, idx);
     const emailOnly = isEmailOnlyLead(lead);
 
     if (assignments[lead.id]) {
@@ -881,6 +878,7 @@ export function autoScheduleLeads(
         warmupStatus: emailOnly ? 'warmed' : (lead.warmupStatus || (lead.isWarmedUp ? 'warmed' : 'locked')),
         isWarmedUp: emailOnly ? true : lead.isWarmedUp,
         voiceType: assignedVoice,
+        isVoiceTypeOverridden: false,
         dismissedDate: undefined,
       };
     }
@@ -889,6 +887,7 @@ export function autoScheduleLeads(
       warmupStatus: emailOnly ? 'warmed' : lead.warmupStatus,
       isWarmedUp: emailOnly ? true : lead.isWarmedUp,
       voiceType: assignedVoice,
+      isVoiceTypeOverridden: false,
     };
   });
 }

@@ -1,6 +1,6 @@
 import { ChannelLead, MultiChannelType } from '../types';
 import { extractCleanEmail } from './dataRepair';
-import { getStrictVoiceTypeForId } from './voiceTypeEngine';
+import { getStrictVoiceTypeForId, ensureVoiceTypeAssignments } from './voiceTypeEngine';
 
 const STORAGE_PREFIX = 'outreach_channel_leads_';
 
@@ -47,7 +47,7 @@ export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
       const fbList: ChannelLead[] = rawFb ? JSON.parse(rawFb) : [];
 
       if (emailList.length > 0 || fbList.length > 0) {
-        const merged: ChannelLead[] = normalizeEmailOnlyWarmupStatus([
+        const mergedRaw: ChannelLead[] = normalizeEmailOnlyWarmupStatus([
           ...fbList.map((l, i) => ({
             ...l,
             channel: 'combined' as MultiChannelType,
@@ -59,8 +59,9 @@ export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
             sortOrder: fbList.length + i,
           })),
         ]);
+        const { updatedLeads: merged } = ensureVoiceTypeAssignments(mergedRaw, channel);
         localStorage.setItem(storageKey, JSON.stringify(merged));
-        return merged.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        return [...merged].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
       }
     }
 
@@ -69,11 +70,13 @@ export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
       if (Array.isArray(parsed)) {
         const activeOnly = parsed.filter((l: ChannelLead) => !l?.isArchived);
         const normalized = normalizeEmailOnlyWarmupStatus(activeOnly);
-        if (normalized !== parsed || activeOnly.length !== parsed.length) {
-          localStorage.setItem(storageKey, JSON.stringify(normalized));
+        const { updatedLeads: voiceNormalized, hasChanges: voiceChanged } =
+          ensureVoiceTypeAssignments(normalized, channel);
+        if (voiceChanged || normalized !== parsed || activeOnly.length !== parsed.length) {
+          localStorage.setItem(storageKey, JSON.stringify(voiceNormalized));
         }
         // Sort by sortOrder ascending
-        return [...normalized].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        return [...voiceNormalized].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
       }
     }
   } catch (err) {
@@ -83,12 +86,20 @@ export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
 }
 
 /**
- * Saves leads for a specific channel to localStorage (excluding any archived leads).
+ * Saves leads for a specific channel to localStorage (excluding any archived leads)
+ * and notifies listeners immediately so active views re-render without refresh.
  */
 export function saveChannelLeads(channel: MultiChannelType, leads: ChannelLead[]): void {
   try {
     const activeOnly = leads.filter((l) => !l.isArchived);
     localStorage.setItem(`${STORAGE_PREFIX}${channel}`, JSON.stringify(activeOnly));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('channel_leads_changed', {
+          detail: { channel, leads: activeOnly },
+        })
+      );
+    }
   } catch (err) {
     console.error(`Failed to save leads for channel "${channel}":`, err);
   }
@@ -139,6 +150,8 @@ export function resequenceLeadIds(
       ...lead,
       numericId: seq,
       id: `${prefix}-${seq}`,
+      voiceType: getStrictVoiceTypeForId(seq, channel),
+      isVoiceTypeOverridden: false,
       sortOrder: index,
     };
   });
@@ -166,7 +179,11 @@ export function removeAndResequenceActiveLeads(
   for (const lead of remaining) {
     if (isLeadPositionFixed(lead) && lead.numericId && lead.numericId > 0) {
       fixedReservedNums.add(lead.numericId);
-      fixedLeads.push(lead);
+      fixedLeads.push({
+        ...lead,
+        voiceType: getStrictVoiceTypeForId(lead.numericId, channel),
+        isVoiceTypeOverridden: false,
+      });
     } else {
       movableLeads.push(lead);
     }
@@ -179,15 +196,12 @@ export function removeAndResequenceActiveLeads(
     }
     const seq = nextFreeSeq;
     nextFreeSeq++;
-    const nextVoiceType =
-      lead.isVoiceTypeOverridden && lead.voiceType
-        ? lead.voiceType
-        : getStrictVoiceTypeForId(seq, channel);
     return {
       ...lead,
       numericId: seq,
       id: `${prefix}-${seq}`,
-      voiceType: nextVoiceType,
+      voiceType: getStrictVoiceTypeForId(seq, channel),
+      isVoiceTypeOverridden: false,
     };
   });
 
@@ -341,6 +355,8 @@ export function reorderChannelLeadsWithFixedLocks(
         ...lead,
         numericId: fixedSeq,
         id: `${prefix}-${fixedSeq}`,
+        voiceType: getStrictVoiceTypeForId(fixedSeq, channel),
+        isVoiceTypeOverridden: false,
         sortOrder: idx,
       };
     }
@@ -352,17 +368,13 @@ export function reorderChannelLeadsWithFixedLocks(
     nextMovableNum++;
     const computedId = `${prefix}-${seq}`;
 
-    const nextVoiceType =
-      lead.isVoiceTypeOverridden && lead.voiceType
-        ? lead.voiceType
-        : getStrictVoiceTypeForId(seq, channel);
-
     const updated: ChannelLead = {
       ...lead,
       numericId: seq,
       id: computedId,
       sortOrder: idx,
-      voiceType: nextVoiceType,
+      voiceType: getStrictVoiceTypeForId(seq, channel),
+      isVoiceTypeOverridden: false,
     };
 
     if (lead.id === activeLeadId) {
