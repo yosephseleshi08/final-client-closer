@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Settings, ShieldCheck, Lock, Unlock, AlertTriangle, Check, Wrench } from 'lucide-react';
 import { isManualWarmupOverrideEnabled, setManualWarmupOverride } from '../utils/cadenceEngine';
 import { runDiagnosticDataRepair, DataRepairReport } from '../utils/dataRepair';
@@ -26,6 +27,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     window.addEventListener('crm_warmup_override_changed', handleOverrideChanged);
     return () => window.removeEventListener('crm_warmup_override_changed', handleOverrideChanged);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -55,9 +65,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     }, 5500);
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-      <div className="w-full max-w-lg rounded-3xl bg-slate-900 border border-white/10 p-6 sm:p-7 shadow-2xl space-y-6 text-slate-100 animate-in zoom-in-95 duration-150">
+  const modalContent = (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="CRM Settings & Testing Station"
+    >
+      <div
+        className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl bg-slate-900 border border-white/10 p-6 sm:p-7 shadow-2xl space-y-6 text-slate-100 animate-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-4">
           <div className="flex items-center gap-2.5">
@@ -235,4 +254,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };

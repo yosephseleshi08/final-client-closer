@@ -251,7 +251,7 @@ export interface WeeklyAnalysisSummary {
 
 export type MultiChannelType = 'combined' | 'instagram' | 'email' | 'facebook';
 
-export type GlobalNavTab = 'combined' | 'instagram' | 'inbox' | 'today' | 'dashboard' | 'history';
+export type GlobalNavTab = 'combined' | 'instagram' | 'inbox' | 'today' | 'dashboard' | 'history' | 'backstage';
 
 export type DailyHistoryStatus = 'full' | 'partial' | 'zero' | 'sunday' | 'frozen' | 'pre_launch';
 
@@ -416,6 +416,12 @@ export interface ChannelLead {
   // Cross-Channel Routing & FB Restriction Flag
   fb_message_restricted?: boolean; // When true on FB lead, routes fallback outreach to Email
   notes?: string;
+
+  // Soft Delete / Backstage Recycle Bin
+  isArchived?: boolean;
+  archivedAt?: string;
+  archivedFromChannel?: MultiChannelType;
+  archiveUid?: string;
 }
 
 

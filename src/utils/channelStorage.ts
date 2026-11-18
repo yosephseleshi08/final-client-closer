@@ -67,8 +67,9 @@ export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        const normalized = normalizeEmailOnlyWarmupStatus(parsed);
-        if (normalized !== parsed) {
+        const activeOnly = parsed.filter((l: ChannelLead) => !l?.isArchived);
+        const normalized = normalizeEmailOnlyWarmupStatus(activeOnly);
+        if (normalized !== parsed || activeOnly.length !== parsed.length) {
           localStorage.setItem(storageKey, JSON.stringify(normalized));
         }
         // Sort by sortOrder ascending
@@ -82,11 +83,12 @@ export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
 }
 
 /**
- * Saves leads for a specific channel to localStorage.
+ * Saves leads for a specific channel to localStorage (excluding any archived leads).
  */
 export function saveChannelLeads(channel: MultiChannelType, leads: ChannelLead[]): void {
   try {
-    localStorage.setItem(`${STORAGE_PREFIX}${channel}`, JSON.stringify(leads));
+    const activeOnly = leads.filter((l) => !l.isArchived);
+    localStorage.setItem(`${STORAGE_PREFIX}${channel}`, JSON.stringify(activeOnly));
   } catch (err) {
     console.error(`Failed to save leads for channel "${channel}":`, err);
   }
@@ -140,6 +142,63 @@ export function resequenceLeadIds(
       sortOrder: index,
     };
   });
+}
+
+/**
+ * Removes soft-deleted/archived lead IDs from active leads and resequences
+ * unlocked leads into sequential available slots while keeping already warmed-up
+ * and already sent leads strictly fixed at their exact numericId and ID.
+ */
+export function removeAndResequenceActiveLeads(
+  leads: ChannelLead[],
+  idsToRemove: Set<string>,
+  channel: MultiChannelType
+): ChannelLead[] {
+  const remaining = leads
+    .filter((l) => !idsToRemove.has(l.id))
+    .sort((a, b) => (a.numericId ?? a.sortOrder ?? 0) - (b.numericId ?? b.sortOrder ?? 0));
+
+  const prefix = getChannelPrefix(channel);
+  const fixedReservedNums = new Set<number>();
+  const fixedLeads: ChannelLead[] = [];
+  const movableLeads: ChannelLead[] = [];
+
+  for (const lead of remaining) {
+    if (isLeadPositionFixed(lead) && lead.numericId && lead.numericId > 0) {
+      fixedReservedNums.add(lead.numericId);
+      fixedLeads.push(lead);
+    } else {
+      movableLeads.push(lead);
+    }
+  }
+
+  let nextFreeSeq = 1;
+  const assignedMovables: ChannelLead[] = movableLeads.map((lead) => {
+    while (fixedReservedNums.has(nextFreeSeq)) {
+      nextFreeSeq++;
+    }
+    const seq = nextFreeSeq;
+    nextFreeSeq++;
+    const nextVoiceType =
+      lead.isVoiceTypeOverridden && lead.voiceType
+        ? lead.voiceType
+        : getStrictVoiceTypeForId(seq, channel);
+    return {
+      ...lead,
+      numericId: seq,
+      id: `${prefix}-${seq}`,
+      voiceType: nextVoiceType,
+    };
+  });
+
+  const combined = [...fixedLeads, ...assignedMovables].sort(
+    (a, b) => (a.numericId ?? 0) - (b.numericId ?? 0)
+  );
+
+  return combined.map((lead, idx) => ({
+    ...lead,
+    sortOrder: idx,
+  }));
 }
 
 export type LeadLockReason = 'warmed' | 'sent' | null;
@@ -267,18 +326,31 @@ export function reorderChannelLeadsWithFixedLocks(
   let movedLead: ChannelLead | undefined;
   let newId: string | undefined;
 
-  const reorderedLeads = merged.map((lead, idx) => {
-    const seq = idx + 1;
-    const computedId = `${prefix}-${seq}`;
+  const fixedNums = new Set<number>();
+  for (const l of merged) {
+    if (isLeadPositionFixed(l) && l.numericId && l.numericId > 0) {
+      fixedNums.add(l.numericId);
+    }
+  }
 
+  let nextMovableNum = 1;
+  const reorderedLeads = merged.map((lead, idx) => {
     if (isLeadPositionFixed(lead)) {
+      const fixedSeq = lead.numericId && lead.numericId > 0 ? lead.numericId : idx + 1;
       return {
         ...lead,
-        numericId: seq,
-        id: computedId,
+        numericId: fixedSeq,
+        id: `${prefix}-${fixedSeq}`,
         sortOrder: idx,
       };
     }
+
+    while (fixedNums.has(nextMovableNum)) {
+      nextMovableNum++;
+    }
+    const seq = nextMovableNum;
+    nextMovableNum++;
+    const computedId = `${prefix}-${seq}`;
 
     const nextVoiceType =
       lead.isVoiceTypeOverridden && lead.voiceType

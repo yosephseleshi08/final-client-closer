@@ -5,6 +5,7 @@ import { TodaysSchedulePage } from './components/TodaysSchedulePage';
 import { ExecutiveDashboard } from './components/ExecutiveDashboard';
 import { HistoryPage } from './components/HistoryPage';
 import { LeadInboxView } from './components/LeadInboxView';
+import { BackstagePage } from './components/BackstagePage';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import {
   ChannelLead,
@@ -16,6 +17,7 @@ import {
   saveChannelLeads,
 } from './utils/channelStorage';
 import { loadInboxLeads } from './utils/inboxStorage';
+import { loadBackstageLeads } from './utils/backstageStorage';
 import {
   getLocalTodayStr,
   isDateToday,
@@ -47,26 +49,36 @@ export default function App() {
     loadChannelLeads('instagram')
   );
 
-  // Listen for pipeline freeze, inbox, and diagnostic data repair changes across components
+  const [backstageLeads, setBackstageLeads] = useState<ChannelLead[]>(() =>
+    loadBackstageLeads()
+  );
+
+  // Listen for pipeline freeze, inbox, backstage, and diagnostic data repair changes across components
   React.useEffect(() => {
     const handleFreeze = () => setIsFrozen(isPipelineFrozenNow());
     const handleInbox = () => setInboxCount(loadInboxLeads().length);
+    const handleBackstage = () => setBackstageLeads(loadBackstageLeads());
     const handleRepaired = () => {
       setCombinedLeads(loadChannelLeads('combined'));
       setInstagramLeads(loadChannelLeads('instagram'));
       setInboxCount(loadInboxLeads().length);
+      setBackstageLeads(loadBackstageLeads());
     };
     window.addEventListener('pipeline_freeze_changed', handleFreeze);
     window.addEventListener('inbox_leads_changed', handleInbox);
+    window.addEventListener('backstage_leads_changed', handleBackstage);
     window.addEventListener('crm_data_repaired', handleRepaired);
     window.addEventListener('storage', handleFreeze);
     window.addEventListener('storage', handleInbox);
+    window.addEventListener('storage', handleBackstage);
     return () => {
       window.removeEventListener('pipeline_freeze_changed', handleFreeze);
       window.removeEventListener('inbox_leads_changed', handleInbox);
+      window.removeEventListener('backstage_leads_changed', handleBackstage);
       window.removeEventListener('crm_data_repaired', handleRepaired);
       window.removeEventListener('storage', handleFreeze);
       window.removeEventListener('storage', handleInbox);
+      window.removeEventListener('storage', handleBackstage);
     };
   }, []);
 
@@ -133,6 +145,7 @@ export default function App() {
           instagramLeadCount={instagramLeads.length}
           inboxCount={inboxCount}
           todayTaskCount={todayTaskCount}
+          backstageCount={backstageLeads.length}
           isFrozen={isFrozen}
           onToggleFreeze={handleToggleFreeze}
         />
@@ -145,6 +158,7 @@ export default function App() {
               leads={combinedLeads}
               onUpdateLeads={handleUpdateCombinedLeads}
               onNavigateToChannel={(channel) => setActiveNavTab(channel as GlobalNavTab)}
+              onNavigateToBackstage={() => setActiveNavTab('backstage')}
               allLeads={{ combined: combinedLeads, instagram: instagramLeads }}
               onUpdateInstagramLeads={handleUpdateInstagramLeads}
             />
@@ -156,6 +170,7 @@ export default function App() {
               leads={instagramLeads}
               onUpdateLeads={handleUpdateInstagramLeads}
               onNavigateToChannel={(channel) => setActiveNavTab(channel as GlobalNavTab)}
+              onNavigateToBackstage={() => setActiveNavTab('backstage')}
               allLeads={{ combined: combinedLeads, instagram: instagramLeads }}
               onUpdateInstagramLeads={handleUpdateInstagramLeads}
             />
@@ -225,6 +240,23 @@ export default function App() {
               onNavigateToToday={() => setActiveNavTab('today')}
               combinedLeads={combinedLeads}
               instagramLeads={instagramLeads}
+            />
+          )}
+
+          {activeNavTab === 'backstage' && (
+            <BackstagePage
+              backstageLeads={backstageLeads}
+              combinedLeads={combinedLeads}
+              instagramLeads={instagramLeads}
+              onRestored={(updatedCombined, updatedInstagram, remainingBackstage) => {
+                setCombinedLeads(updatedCombined);
+                setInstagramLeads(updatedInstagram);
+                setBackstageLeads(remainingBackstage);
+              }}
+              onBackstageUpdated={(remainingBackstage) => {
+                setBackstageLeads(remainingBackstage);
+              }}
+              onNavigateToChannel={(ch) => setActiveNavTab(ch)}
             />
           )}
         </main>

@@ -25,6 +25,7 @@ interface ChannelWorkspaceProps {
   leads: ChannelLead[];
   onUpdateLeads: (leads: ChannelLead[]) => void;
   onNavigateToChannel?: (channel: MultiChannelType) => void;
+  onNavigateToBackstage?: () => void;
   allLeads?: {
     combined?: ChannelLead[];
     instagram?: ChannelLead[];
@@ -41,6 +42,7 @@ export function ChannelWorkspace({
   leads,
   onUpdateLeads,
   onNavigateToChannel,
+  onNavigateToBackstage,
   allLeads,
   onUpdateEmailLeads,
   onUpdateInstagramLeads,
@@ -227,6 +229,7 @@ export function ChannelWorkspace({
             leads={leads}
             onUpdateLeads={onUpdateLeads}
             onNavigateToChannel={onNavigateToChannel}
+            onNavigateToBackstage={onNavigateToBackstage}
           />
         )}
 

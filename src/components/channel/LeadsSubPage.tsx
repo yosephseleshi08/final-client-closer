@@ -50,7 +50,7 @@ import {
   extractSuggestedName,
   exportChannelData,
   getChannelLabel,
-  resequenceLeadIds,
+  removeAndResequenceActiveLeads,
   findDuplicateLead,
   detectLinkChannel,
   validateChannelLink,
@@ -58,6 +58,7 @@ import {
   reorderChannelLeadsWithFixedLocks,
   LeadLockReason,
 } from '../../utils/channelStorage';
+import { archiveLeadsToBackstage } from '../../utils/backstageStorage';
 import {
   getScheduleDayStyle,
   isDateToday,
@@ -82,6 +83,7 @@ interface LeadsSubPageProps {
   leads: ChannelLead[];
   onUpdateLeads: (leads: ChannelLead[]) => void;
   onNavigateToChannel?: (channel: MultiChannelType) => void;
+  onNavigateToBackstage?: () => void;
 }
 
 interface SortableLeadRowProps {
@@ -89,6 +91,8 @@ interface SortableLeadRowProps {
   channel: MultiChannelType;
   lockReason: LeadLockReason;
   isDndEnabled: boolean;
+  isSelected: boolean;
+  onToggleSelect: (id: string) => void;
   workspaceVoiceTypes: VoiceType[];
   openVoiceDropdownLeadId: string | null;
   setOpenVoiceDropdownLeadId: (id: string | null) => void;
@@ -102,6 +106,8 @@ function SortableLeadRow({
   channel,
   lockReason,
   isDndEnabled,
+  isSelected,
+  onToggleSelect,
   workspaceVoiceTypes,
   openVoiceDropdownLeadId,
   setOpenVoiceDropdownLeadId,
@@ -183,9 +189,18 @@ function SortableLeadRow({
       }`}
       title={canDrag ? 'Click and drag to change lead ID order' : lockTooltip || undefined}
     >
-      {/* 1. ID + Drag Handle / Lock Status */}
+      {/* 1. Selection + Drag Handle / Lock Status + ID */}
       <td className="py-3.5 px-4 text-left font-mono text-xs tabular-nums text-slate-300 whitespace-nowrap">
         <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            onChange={() => onToggleSelect(lead.id)}
+            aria-label={`Select ${lead.name}`}
+            className="rounded border-slate-600 bg-slate-900 text-indigo-500 focus:ring-indigo-500 cursor-pointer shrink-0"
+          />
           {isFixed ? (
             <span
               className={`inline-flex items-center justify-center w-5 h-5 rounded border shrink-0 cursor-not-allowed ${
@@ -363,7 +378,7 @@ function SortableLeadRow({
         </button>
       </td>
 
-      {/* 4. Action: Delete Button */}
+      {/* 4. Action: Soft Delete to Backstage Button */}
       <td className="py-3.5 px-4 text-right">
         <div className="flex items-center justify-end">
           <button
@@ -371,8 +386,8 @@ function SortableLeadRow({
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => onDeleteLead(lead.id)}
             className="p-2 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-            title="Delete lead (remaining IDs will re-sequence)"
-            aria-label={`Delete ${lead.name}`}
+            title="Move to Backstage (soft delete — restore anytime)"
+            aria-label={`Move ${lead.name} to Backstage`}
           >
             <Trash2 className="w-4 h-4" />
           </button>
@@ -382,9 +397,17 @@ function SortableLeadRow({
   );
 }
 
-export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChannel }: LeadsSubPageProps) {
+export function LeadsSubPage({
+  channel,
+  leads,
+  onUpdateLeads,
+  onNavigateToChannel,
+  onNavigateToBackstage,
+}: LeadsSubPageProps) {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
+  const [backstageToast, setBackstageToast] = useState<string | null>(null);
   const [duplicateAlert, setDuplicateAlert] = useState<{
     message: string;
     timestamp: number;
@@ -416,11 +439,25 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
   const [openVoiceDropdownLeadId, setOpenVoiceDropdownLeadId] = useState<string | null>(null);
 
-  // Reset filter when switching between workspaces
+  // Reset filter and selection when switching between workspaces
   useEffect(() => {
     setSelectedVoiceFilter('all');
     setIsFilterDropdownOpen(false);
+    setSelectedLeadIds(new Set());
   }, [channel]);
+
+  useEffect(() => {
+    const activeIds = new Set(leads.map((l) => l.id));
+    setSelectedLeadIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (activeIds.has(id)) next.add(id);
+        else changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, [leads]);
 
   // Auto-assign round-robin voice types to existing leads immediately on mount if missing
   useEffect(() => {
@@ -504,6 +541,14 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     }, 4500);
     return () => clearTimeout(timer);
   }, [addedToast]);
+
+  useEffect(() => {
+    if (!backstageToast) return;
+    const timer = setTimeout(() => {
+      setBackstageToast(null);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [backstageToast]);
 
   // Workspace-specific voice options and allowed types
   const workspaceVoiceTypes = useMemo(() => {
@@ -681,10 +726,58 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
     }, 1200);
   };
 
+  const toggleSelectLead = (id: string) => {
+    setSelectedLeadIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allFilteredSelected =
+    filteredLeads.length > 0 && filteredLeads.every((l) => selectedLeadIds.has(l.id));
+
+  const toggleSelectAllFiltered = () => {
+    setSelectedLeadIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        filteredLeads.forEach((l) => next.delete(l.id));
+      } else {
+        filteredLeads.forEach((l) => next.add(l.id));
+      }
+      return next;
+    });
+  };
+
+  const handleSoftDeleteLeads = (ids: string[]) => {
+    const idSet = new Set(ids);
+    const toArchive = leads.filter((l) => idSet.has(l.id));
+    if (toArchive.length === 0) return;
+
+    archiveLeadsToBackstage(toArchive, channel);
+    const remaining = removeAndResequenceActiveLeads(leads, idSet, channel);
+    onUpdateLeads(remaining);
+
+    setSelectedLeadIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+
+    if (toArchive.length === 1) {
+      setBackstageToast(
+        `Moved "${toArchive[0].name}" (${toArchive[0].id}) to Backstage. Restore anytime from 🗑️ Backstage.`
+      );
+    } else {
+      setBackstageToast(
+        `Moved ${toArchive.length} leads to Backstage. Restore anytime from 🗑️ Backstage.`
+      );
+    }
+  };
+
   const handleDeleteLead = (id: string) => {
-    const filtered = leads.filter((l) => l.id !== id);
-    const resequenced = resequenceLeadIds(filtered, channel);
-    onUpdateLeads(resequenced);
+    handleSoftDeleteLeads([id]);
   };
 
   const handleCopyPrompt = (text: string) => {
@@ -1032,6 +1125,42 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
         </div>
       )}
 
+      {/* Soft Delete -> Backstage Toast Banner */}
+      {backstageToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-5 right-5 z-50 max-w-lg w-[calc(100vw-2.5rem)] rounded-2xl border border-amber-500/40 bg-slate-900/95 p-4 text-xs sm:text-sm font-semibold text-slate-100 shadow-2xl shadow-black/70 backdrop-blur-md animate-in slide-in-from-top-3 flex items-center justify-between gap-3"
+        >
+          <div className="flex items-center gap-2.5 flex-1">
+            <Trash2 className="w-5 h-5 text-amber-400 shrink-0" />
+            <span className="leading-snug">{backstageToast}</span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onNavigateToBackstage && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBackstageToast(null);
+                  onNavigateToBackstage();
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/35 text-amber-200 text-xs font-bold transition cursor-pointer whitespace-nowrap"
+              >
+                Open Backstage
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setBackstageToast(null)}
+              className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer shrink-0"
+              aria-label="Dismiss notification"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Toolbar: Closed-System Notice & Manual Add / Batch / Search Bar */}
       <div className="relative z-30 rounded-2xl border border-white/[0.08] bg-slate-900/60 p-4 sm:p-5 backdrop-blur-sm shadow-xl space-y-4">
         <div className="p-3.5 rounded-xl bg-indigo-950/30 border border-indigo-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
@@ -1148,6 +1277,17 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
           </div>
 
           <div className="flex items-center gap-2 self-end sm:self-auto">
+            {selectedLeadIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => handleSoftDeleteLeads(Array.from(selectedLeadIds))}
+                className="px-3.5 py-2 rounded-xl border border-rose-500/35 bg-rose-500/15 hover:bg-rose-500/25 text-rose-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer whitespace-nowrap"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                <span>Move Selected to Backstage ({selectedLeadIds.size})</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setShowExportMenu(!showExportMenu)}
@@ -1234,7 +1374,19 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-4 text-left w-36">ID</th>
+                  <th className="py-3 px-4 text-left w-44">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={allFilteredSelected}
+                        onChange={toggleSelectAllFiltered}
+                        disabled={filteredLeads.length === 0}
+                        aria-label="Select all visible leads"
+                        className="rounded border-slate-600 bg-slate-900 text-indigo-500 focus:ring-indigo-500 cursor-pointer disabled:opacity-40"
+                      />
+                      <span>ID</span>
+                    </div>
+                  </th>
                   <th className="py-3 px-4 text-left">Prospect Name</th>
                   <th className="py-3 px-4 text-left w-64">Sequence Configuration</th>
                   <th className="py-3 px-4 text-right w-20">Action</th>
@@ -1264,6 +1416,8 @@ export function LeadsSubPage({ channel, leads, onUpdateLeads, onNavigateToChanne
                         channel={channel}
                         lockReason={getLeadLockReason(lead)}
                         isDndEnabled={!isFiltered}
+                        isSelected={selectedLeadIds.has(lead.id)}
+                        onToggleSelect={toggleSelectLead}
                         workspaceVoiceTypes={workspaceVoiceTypes}
                         openVoiceDropdownLeadId={openVoiceDropdownLeadId}
                         setOpenVoiceDropdownLeadId={setOpenVoiceDropdownLeadId}
