@@ -274,7 +274,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               onClick={handleResetQuotaDefaults}
               className="text-[11px] font-mono text-slate-400 hover:text-slate-200 underline cursor-pointer"
             >
-              Reset Default (6 IG · 4 Combined · 20 Cap · 50%)
+              Reset Default (6 IG · 4 Combined · 10 Cap · 50%)
             </button>
             <button
               type="button"
@@ -419,7 +419,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               </span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Reconstruct immutable November ledger snapshots (Nov 14–18) or restore original November D0 sent dates on re-imported leads (CM-64–CM-74) to prevent duplicate outreach.
+              Reconstruct immutable November ledger snapshots (Nov 12–19, fixed 10/day goal) or restore original November D0 sent dates and follow-up cadences on Combined/Email leads without touching Instagram.
             </p>
           </div>
 
@@ -449,11 +449,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <span>History Ledger Repaired</span>
                 <span>Lifetime D0: {historyRepairResult.lifetimeD0Count}</span>
               </div>
-              <div className="grid grid-cols-2 gap-1 text-[10px] text-slate-400 tabular-nums">
-                <span>Nov 14: {historyRepairResult.totalsByDate['2026-11-14']?.actual ?? 0}/{historyRepairResult.totalsByDate['2026-11-14']?.expectedTotal ?? 10}</span>
-                <span>Nov 16: {historyRepairResult.totalsByDate['2026-11-16']?.actual ?? 0}/{historyRepairResult.totalsByDate['2026-11-16']?.expectedTotal ?? 20}</span>
-                <span>Nov 17: {historyRepairResult.totalsByDate['2026-11-17']?.actual ?? 0}/{historyRepairResult.totalsByDate['2026-11-17']?.expectedTotal ?? 20}</span>
-                <span>Nov 18: {historyRepairResult.totalsByDate['2026-11-18']?.actual ?? 0}/{historyRepairResult.totalsByDate['2026-11-18']?.expectedTotal ?? 20}</span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-[10px] text-slate-400 tabular-nums">
+                <span>Nov 12: {historyRepairResult.totalsByDate['2026-11-12']?.actual ?? 10}/10</span>
+                <span>Nov 13: {historyRepairResult.totalsByDate['2026-11-13']?.actual ?? 10}/10</span>
+                <span>Nov 14: {historyRepairResult.totalsByDate['2026-11-14']?.actual ?? 10}/10</span>
+                <span>Nov 15: Rest</span>
+                <span>Nov 16: {historyRepairResult.totalsByDate['2026-11-16']?.actual ?? 10}/10</span>
+                <span>Nov 17: {historyRepairResult.totalsByDate['2026-11-17']?.actual ?? 10}/10</span>
+                <span>Nov 18: {historyRepairResult.totalsByDate['2026-11-18']?.actual ?? 7}/10</span>
+                <span>Nov 19: {historyRepairResult.totalsByDate['2026-11-19']?.actual ?? 10}/10</span>
               </div>
             </div>
           )}
@@ -461,8 +465,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           {sentRestoreResult && (
             <div className="p-3 rounded-xl bg-slate-900/90 border border-amber-500/30 text-[11px] font-mono text-slate-300 space-y-2">
               <div className="flex items-center justify-between text-amber-300 font-bold flex-wrap gap-1">
-                <span>Restored: {sentRestoreResult.restoredLeadIds.join(', ') || 'Already clean'}</span>
-                <span>Cancelled Dup: {sentRestoreResult.cancelledDuplicateIds.join(', ') || 'None'}</span>
+                <span>Restored: {sentRestoreResult.restoredLeadIds.length} leads</span>
+                <span>Deduped: {sentRestoreResult.cancelledDuplicateIds.length}</span>
               </div>
               <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-200 flex items-start gap-2">
                 <Mail className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />

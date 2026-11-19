@@ -32,15 +32,18 @@ import { isPipelineFrozenNow, togglePipelineFreeze } from './utils/pipelineFreez
 import { runDiagnosticDataRepair } from './utils/dataRepair';
 import { backfillDispatchLogFromLeads } from './utils/dispatchLog';
 import { checkAndFreezeRolloverObligations } from './utils/dailyObligation';
+import { ensureNovBackupSyncApplied } from './data/sentDateRestore';
 
 export default function App() {
   const [activeNavTab, setActiveNavTab] = useState<GlobalNavTab>('today');
   const [isFrozen, setIsFrozen] = useState<boolean>(() => isPipelineFrozenNow());
   const [inboxCount, setInboxCount] = useState<number>(() => loadInboxLeads().length);
 
-  // Run auto-clean Diagnostic Data Repair, immutable dispatch backfill, and rollover freeze on startup
+  // Run Nov 12–19 Combined Email backup restore (Instagram untouched), Diagnostic Data Repair,
+  // immutable dispatch backfill, and rollover freeze on startup
   useState(() => {
-    runDiagnosticDataRepair(false);
+    ensureNovBackupSyncApplied();
+    runDiagnosticDataRepair(false, { skipInstagram: true });
     backfillDispatchLogFromLeads([
       ...loadChannelLeads('combined'),
       ...loadChannelLeads('instagram'),

@@ -140,25 +140,74 @@ export function extractRawPlatformLink(it: any): string {
  * Supports arrays or wrapped objects with flexible key naming.
  */
 export function parseQualifiedLeadsJson(jsonText: string): InboxLead[] {
+  const cleanedText = String(jsonText || '').replace(/^\uFEFF/, '').trim();
+  if (!cleanedText) {
+    throw new Error('The uploaded file is empty.');
+  }
+
   let parsed: any;
   try {
-    parsed = JSON.parse(jsonText);
-  } catch (err) {
-    throw new Error('Invalid JSON format. Please ensure qualified-leads.json contains valid JSON syntax.');
+    parsed = JSON.parse(cleanedText);
+  } catch {
+    // Fallback for NDJSON (one JSON object per line)
+    const lines = cleanedText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const lineObjects: any[] = [];
+    for (const line of lines) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj && typeof obj === 'object') lineObjects.push(obj);
+      } catch {
+        // ignore invalid line
+      }
+    }
+    if (lineObjects.length > 0) {
+      parsed = lineObjects;
+    } else {
+      throw new Error('Invalid JSON format. Please ensure qualified-leads.json contains valid JSON syntax.');
+    }
   }
 
   let items: any[] = [];
   if (Array.isArray(parsed)) {
     items = parsed;
   } else if (parsed && typeof parsed === 'object') {
-    if (Array.isArray(parsed.leads)) {
-      items = parsed.leads;
-    } else if (Array.isArray(parsed.qualifiedLeads)) {
-      items = parsed.qualifiedLeads;
-    } else if (Array.isArray(parsed.qualified_leads)) {
-      items = parsed.qualified_leads;
-    } else if (Array.isArray(parsed.data)) {
-      items = parsed.data;
+    const arrayKey = [
+      'leads',
+      'qualifiedLeads',
+      'qualified_leads',
+      'data',
+      'results',
+      'items',
+      'prospects',
+      'rows',
+      'restaurants',
+    ].find((k) => Array.isArray(parsed[k]));
+
+    if (arrayKey) {
+      items = parsed[arrayKey];
+    } else if (
+      Array.isArray(parsed.instagram) ||
+      Array.isArray(parsed.facebook) ||
+      Array.isArray(parsed.email) ||
+      Array.isArray(parsed.combined) ||
+      Array.isArray(parsed.ig) ||
+      Array.isArray(parsed.fb)
+    ) {
+      const tagged = (arr: any[], defaultPlat: string) =>
+        Array.isArray(arr)
+          ? arr.map((x) => (x && typeof x === 'object' ? { platform: defaultPlat, ...x } : x))
+          : [];
+      items = [
+        ...tagged(parsed.instagram, 'Instagram'),
+        ...tagged(parsed.ig, 'Instagram'),
+        ...tagged(parsed.facebook, 'Facebook'),
+        ...tagged(parsed.fb, 'Facebook'),
+        ...tagged(parsed.email, 'Email'),
+        ...tagged(parsed.combined, 'Email'),
+      ];
     } else {
       // Single lead object fallback
       items = [parsed];
@@ -172,25 +221,30 @@ export function parseQualifiedLeadsJson(jsonText: string): InboxLead[] {
     const it = items[i];
     if (!it || typeof it !== 'object') continue;
 
+    const rawPlatformLink = extractRawPlatformLink(it);
+
     const name = String(
       it.name ||
-      it.restaurantName ||
-      it.businessName ||
-      it.business_name ||
-      it.leadName ||
-      `Lead #${i + 1}`
+        it.restaurantName ||
+        it.restaurant ||
+        it.businessName ||
+        it.business_name ||
+        it.leadName ||
+        it.title ||
+        it.company ||
+        it.companyName ||
+        it.accountName ||
+        it.handle ||
+        `Lead #${i + 1}`
     ).trim();
 
-    const rawPlatform = String(
-      it.platform ||
-      it.channel ||
-      it.source ||
-      it.platformName ||
-      'IG'
+    const explicitRawPlatform = String(
+      it.platform || it.channel || it.source || it.platformName || ''
     ).trim();
 
-    const lowerPlatform = rawPlatform.toLowerCase();
+    const lowerPlatform = explicitRawPlatform.toLowerCase();
     let platform: 'Instagram' | 'Facebook' | 'Email' | 'Other' = 'Instagram';
+    let rawPlatform = explicitRawPlatform || 'IG';
 
     if (lowerPlatform.includes('fb') || lowerPlatform.includes('face')) {
       platform = 'Facebook';
@@ -198,44 +252,69 @@ export function parseQualifiedLeadsJson(jsonText: string): InboxLead[] {
       platform = 'Email';
     } else if (lowerPlatform.includes('ig') || lowerPlatform.includes('insta')) {
       platform = 'Instagram';
+    } else {
+      // Infer platform from link/contact fields when explicit platform is missing or generic
+      const linkLower = rawPlatformLink.toLowerCase();
+      if (
+        linkLower.startsWith('mailto:') ||
+        (linkLower.includes('@') && !linkLower.includes('instagram.com') && !linkLower.includes('facebook.com') && !linkLower.startsWith('@')) ||
+        Boolean(it.email || it.Email || it.emailAddress || it.contactEmail)
+      ) {
+        platform = 'Email';
+        rawPlatform = explicitRawPlatform || 'Email';
+      } else if (
+        linkLower.includes('facebook.com') ||
+        linkLower.includes('fb.com') ||
+        linkLower.includes('fb.me') ||
+        Boolean(it.facebook || it.Facebook || it.facebookUrl)
+      ) {
+        platform = 'Facebook';
+        rawPlatform = explicitRawPlatform || 'FB';
+      } else {
+        platform = 'Instagram';
+      }
     }
-
-    // Extract raw platformLink without mutation, stripping underscores, or regex replacements
-    const rawPlatformLink = extractRawPlatformLink(it);
 
     // Explicit dual-channel link extraction
     const rawFb = String(
       it.facebook ||
-      it.Facebook ||
-      it.facebookUrl ||
-      it.facebook_url ||
-      it.facebookLink ||
-      it.facebook_link ||
-      it.fb ||
-      it.socialLinks?.facebook ||
-      (rawPlatformLink.includes('facebook.com') || rawPlatformLink.includes('fb.com') ? rawPlatformLink : '')
+        it.Facebook ||
+        it.facebookUrl ||
+        it.facebook_url ||
+        it.facebookLink ||
+        it.facebook_link ||
+        it.fb ||
+        it.socialLinks?.facebook ||
+        (rawPlatformLink.toLowerCase().includes('facebook.com') || rawPlatformLink.toLowerCase().includes('fb.com')
+          ? rawPlatformLink
+          : '')
     ).trim();
 
     const rawEmail = String(
       it.email ||
-      it.Email ||
-      it.emailAddress ||
-      it.email_address ||
-      it.contactEmail ||
-      it.contact_email ||
-      it.socialLinks?.email ||
-      (rawPlatformLink.includes('@') && !rawPlatformLink.includes('facebook.com') && !rawPlatformLink.includes('instagram.com') ? rawPlatformLink : '')
+        it.Email ||
+        it.emailAddress ||
+        it.email_address ||
+        it.contactEmail ||
+        it.contact_email ||
+        it.socialLinks?.email ||
+        (rawPlatformLink.includes('@') &&
+        !rawPlatformLink.toLowerCase().includes('facebook.com') &&
+        !rawPlatformLink.toLowerCase().includes('instagram.com') &&
+        !rawPlatformLink.trim().startsWith('@')
+          ? rawPlatformLink.replace(/^mailto:/i, '')
+          : '')
     ).trim();
 
     const prompt = String(
       it.prompt ||
-      it.customPitch ||
-      it.pitch ||
-      it.pitchHook ||
-      it.leadAnalysis ||
-      it.outreachPrompt ||
-      it.notes ||
-      ''
+        it.customPitch ||
+        it.pitch ||
+        it.pitchHook ||
+        it.leadAnalysis ||
+        it.outreachPrompt ||
+        it.notes ||
+        ''
     ).trim();
 
     result.push({
@@ -271,7 +350,8 @@ export function acceptInboxLeadIntoCrm(
     instagram?: ChannelLead[];
     facebook?: ChannelLead[];
     email?: ChannelLead[];
-  }
+  },
+  options?: { forceAccept?: boolean }
 ): {
   targetChannel: MultiChannelType;
   newLead: ChannelLead;
@@ -286,10 +366,12 @@ export function acceptInboxLeadIntoCrm(
     targetChannel = 'instagram';
   }
 
-  // Load existing leads for this channel if not provided
-  const currentLeads = existingChannelLeads?.[targetChannel] ?? loadChannelLeads(targetChannel);
-  const combinedListForDup = existingChannelLeads?.combined ?? loadChannelLeads('combined');
-  const igListForDup = existingChannelLeads?.instagram ?? loadChannelLeads('instagram');
+  // Always prefer fresh persisted channel storage so stale UI props never overwrite or drop leads
+  const storedCombined = loadChannelLeads('combined');
+  const storedInstagram = loadChannelLeads('instagram');
+  const combinedListForDup = storedCombined.length > 0 ? storedCombined : (existingChannelLeads?.combined ?? []);
+  const igListForDup = storedInstagram.length > 0 ? storedInstagram : (existingChannelLeads?.instagram ?? []);
+  const currentLeads = targetChannel === 'combined' ? combinedListForDup : igListForDup;
 
   // CRITICAL RULE: Never modify the platformLink value on import.
   const rawPlatformLink =
@@ -300,44 +382,51 @@ export function acceptInboxLeadIntoCrm(
 
   const storedLink = rawPlatformLink;
 
-  // Normalized duplicate guard across link, active CRM, Backstage archive, and immutable dispatchLog
-  const normalizedMatch = findNormalizedDuplicateMatches(
-    {
-      name: lead.name,
-      link: storedLink,
-      platformLink: storedLink,
-      email: lead.email,
-      facebook: lead.facebook,
-      instagram: lead.instagram,
-    },
-    {
-      activeCombined: combinedListForDup,
-      activeInstagram: igListForDup,
-    }
-  );
+  if (!options?.forceAccept) {
+    // Channel-scoped normalized duplicate guard across link, active CRM, Backstage archive, and immutable dispatchLog
+    const normalizedMatch = findNormalizedDuplicateMatches(
+      {
+        name: lead.name,
+        link: storedLink,
+        platformLink: storedLink,
+        email: lead.email,
+        facebook: lead.facebook,
+        instagram: lead.instagram,
+      },
+      {
+        targetChannel: targetChannel === 'combined' ? 'combined' : 'instagram',
+        activeCombined: combinedListForDup,
+        activeInstagram: igListForDup,
+      }
+    );
 
-  if (normalizedMatch.hasMatch) {
-    return {
-      targetChannel,
-      newLead: normalizedMatch.bestMatch || currentLeads[0],
-      updatedLeads: currentLeads,
-      isDuplicate: true,
-      duplicateReason:
-        normalizedMatch.summaryReason ||
-        `Matches existing or previously dispatched lead "${lead.name}"`,
-    };
-  }
-
-  if (storedLink) {
-    const duplicate = findDuplicateLead(storedLink, currentLeads);
-    if (duplicate) {
+    if (normalizedMatch.hasMatch) {
+      // Automatically reject & remove duplicate lead from Inbox
+      removeInboxLead(lead.id);
       return {
         targetChannel,
-        newLead: duplicate,
+        newLead: normalizedMatch.bestMatch || currentLeads[0],
         updatedLeads: currentLeads,
         isDuplicate: true,
-        duplicateReason: `Link already exists on ${duplicate.id} (${duplicate.name})`,
+        duplicateReason:
+          normalizedMatch.summaryReason ||
+          `Matches existing or previously dispatched lead "${lead.name}"`,
       };
+    }
+
+    if (storedLink) {
+      const duplicate = findDuplicateLead(storedLink, currentLeads);
+      if (duplicate) {
+        // Automatically reject & remove duplicate-link lead from Inbox
+        removeInboxLead(lead.id);
+        return {
+          targetChannel,
+          newLead: duplicate,
+          updatedLeads: currentLeads,
+          isDuplicate: true,
+          duplicateReason: `Link already exists on ${duplicate.id} (${duplicate.name})`,
+        };
+      }
     }
   }
 
@@ -456,12 +545,21 @@ export function acceptAllInboxLeadsIntoCrm(
   updatedInstagram: ChannelLead[];
   acceptedCount: number;
   duplicateCount: number;
+  remainingLeads: InboxLead[];
+  skippedLeads: Array<{ lead: InboxLead; reason: string }>;
 } {
-  let combinedList = [...(existingChannelLeads?.combined ?? loadChannelLeads('combined'))];
-  let instagramList = [...(existingChannelLeads?.instagram ?? loadChannelLeads('instagram'))];
+  // Always read authoritative localStorage state first so stale props cannot drop existing leads
+  const storedCombined = loadChannelLeads('combined');
+  const storedInstagram = loadChannelLeads('instagram');
+  let combinedList = [...(storedCombined.length > 0 ? storedCombined : (existingChannelLeads?.combined ?? []))];
+  let instagramList = [...(storedInstagram.length > 0 ? storedInstagram : (existingChannelLeads?.instagram ?? []))];
 
   let acceptedCount = 0;
   let duplicateCount = 0;
+  let addedToCombined = 0;
+  let addedToInstagram = 0;
+  const acceptedInboxIds = new Set<string>();
+  const skippedLeads: Array<{ lead: InboxLead; reason: string }> = [];
   const nowIso = new Date().toISOString();
 
   for (const lead of leadsToAccept) {
@@ -473,6 +571,7 @@ export function acceptAllInboxLeadsIntoCrm(
     }
 
     const currentTargetList = targetChannel === 'combined' ? combinedList : instagramList;
+    const channelScope = targetChannel === 'combined' ? 'combined' : 'instagram';
 
     const rawPlatformLink =
       (typeof lead.platformLink === 'string' && lead.platformLink.trim()) ||
@@ -492,12 +591,24 @@ export function acceptAllInboxLeadsIntoCrm(
         instagram: lead.instagram,
       },
       {
+        targetChannel: channelScope,
         activeCombined: combinedList,
         activeInstagram: instagramList,
       }
     );
-    if (normMatch.hasMatch || getHistoricalSentDateForName(lead.name)) {
+
+    const histDate = !storedLink && !lead.email && !lead.facebook && !lead.instagram
+      ? getHistoricalSentDateForName(lead.name, channelScope)
+      : null;
+
+    if (normMatch.hasMatch || histDate) {
       duplicateCount++;
+      skippedLeads.push({
+        lead,
+        reason:
+          normMatch.summaryReason ||
+          `Previously dispatched as "${lead.name}" (${histDate})`,
+      });
       continue;
     }
 
@@ -505,13 +616,16 @@ export function acceptAllInboxLeadsIntoCrm(
       const duplicate = findDuplicateLead(storedLink, currentTargetList);
       if (duplicate) {
         duplicateCount++;
+        skippedLeads.push({
+          lead,
+          reason: `Link already exists on ${duplicate.id} (${duplicate.name})`,
+        });
         continue;
       }
     }
 
     const { id, numericId } = getNextLeadId(targetChannel, currentTargetList);
     const assignedScheduleDate = getNextAvailableScheduleDate(currentTargetList, targetChannel);
-    const isFbRestricted = Boolean(lead.rawDetails?.fb_message_restricted || lead.rawDetails?.restricted);
 
     const extractedFb =
       lead.facebook ||
@@ -521,7 +635,9 @@ export function acceptAllInboxLeadsIntoCrm(
       lead.rawDetails?.facebook_url ||
       lead.rawDetails?.fb ||
       lead.rawDetails?.socialLinks?.facebook ||
-      (rawPlatformLink.includes('facebook.com') || rawPlatformLink.includes('fb.com') ? rawPlatformLink : undefined);
+      (rawPlatformLink.toLowerCase().includes('facebook.com') || rawPlatformLink.toLowerCase().includes('fb.com')
+        ? rawPlatformLink
+        : undefined);
 
     const extractedEmail =
       lead.email ||
@@ -530,7 +646,12 @@ export function acceptAllInboxLeadsIntoCrm(
       lead.rawDetails?.emailAddress ||
       lead.rawDetails?.contactEmail ||
       lead.rawDetails?.socialLinks?.email ||
-      (rawPlatformLink.includes('@') && !rawPlatformLink.includes('facebook.com') && !rawPlatformLink.includes('instagram.com') ? rawPlatformLink : undefined);
+      (rawPlatformLink.includes('@') &&
+      !rawPlatformLink.toLowerCase().includes('facebook.com') &&
+      !rawPlatformLink.toLowerCase().includes('instagram.com') &&
+      !rawPlatformLink.trim().startsWith('@')
+        ? rawPlatformLink.replace(/^mailto:/i, '')
+        : undefined);
 
     const emailOnly = !hasSocialWarmupLink({
       channel: targetChannel,
@@ -576,33 +697,45 @@ export function acceptAllInboxLeadsIntoCrm(
 
     if (targetChannel === 'combined') {
       combinedList.push(newChannelLead);
+      addedToCombined++;
     } else {
       instagramList.push(newChannelLead);
+      addedToInstagram++;
     }
+    acceptedInboxIds.add(lead.id);
     acceptedCount++;
   }
 
-  // Resequence sort orders and recalculate ALL voice types strictly by ID on import
-  combinedList = recalculateAllVoiceTypes(
-    combinedList.map((l, idx) => ({ ...l, sortOrder: idx })),
-    'combined'
-  );
-  instagramList = recalculateAllVoiceTypes(
-    instagramList.map((l, idx) => ({ ...l, sortOrder: idx })),
-    'instagram'
-  );
+  // Only recalculate voice types and persist channels that actually received new leads
+  if (addedToCombined > 0) {
+    combinedList = recalculateAllVoiceTypes(
+      combinedList.map((l, idx) => ({ ...l, sortOrder: idx })),
+      'combined'
+    );
+    saveChannelLeads('combined', combinedList);
+  }
+  if (addedToInstagram > 0) {
+    instagramList = recalculateAllVoiceTypes(
+      instagramList.map((l, idx) => ({ ...l, sortOrder: idx })),
+      'instagram'
+    );
+    saveChannelLeads('instagram', instagramList);
+  }
 
-  // Save both channels
-  saveChannelLeads('combined', combinedList);
-  saveChannelLeads('instagram', instagramList);
-
-  // Clear all accepted from Inbox
-  clearAllInboxLeads();
+  // Remove both accepted leads AND auto-rejected duplicate-link leads from Inbox so duplicates disappear
+  const currentInbox = loadInboxLeads();
+  const autoRejectedIds = new Set(skippedLeads.map((s) => s.lead.id));
+  const remainingLeads = currentInbox.filter(
+    (l) => !acceptedInboxIds.has(l.id) && !autoRejectedIds.has(l.id)
+  );
+  saveInboxLeads(remainingLeads);
 
   return {
     updatedCombined: combinedList,
     updatedInstagram: instagramList,
     acceptedCount,
     duplicateCount,
+    remainingLeads,
+    skippedLeads,
   };
 }

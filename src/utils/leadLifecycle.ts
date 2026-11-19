@@ -118,16 +118,60 @@ function readStoredLeadsArray(storageKey: string): ChannelLead[] {
   }
 }
 
+const BARE_PLACEHOLDER_LINKS = new Set([
+  'instagram.com',
+  'instagr.am',
+  'facebook.com',
+  'fb.com',
+  'fb.me',
+  'na',
+  'n/a',
+  'none',
+  'null',
+  'undefined',
+  'profile',
+  '-',
+]);
+
 function normalizeUrlHandle(raw?: string): string {
   if (!raw || typeof raw !== 'string') return '';
-  return raw
+  let str = raw
     .trim()
     .toLowerCase()
     .replace(/^mailto:/i, '')
     .replace(/^https?:\/\//i, '')
+    .replace(/^(?:[a-z0-9_-]+\.)*(?:facebook\.com|fb\.com|fb\.me)(?:\/|$)/i, 'facebook.com/')
+    .replace(/^(?:[a-z0-9_-]+\.)*(?:instagram\.com|instagr\.am)(?:\/|$)/i, 'instagram.com/')
     .replace(/^(?:www\.|m\.|mobile\.|web\.)/i, '')
     .replace(/^@/, '')
     .replace(/\/+$/, '');
+
+  // Preserve unique Facebook profile.php?id=... while stripping tracking params
+  if (str.includes('facebook.com/profile.php') || str.startsWith('profile.php')) {
+    const idMatch = str.match(/[?&]id=([0-9a-zA-Z._-]+)/i);
+    if (idMatch && idMatch[1]) {
+      return `facebook.com/profile.php?id=${idMatch[1]}`;
+    }
+  } else if (!str.includes('@')) {
+    str = str.split('?')[0].split('#')[0].replace(/\/+$/, '');
+  }
+
+  if (!str || BARE_PLACEHOLDER_LINKS.has(str)) return '';
+  return str;
+}
+
+function getLinkPlatformGroup(normLink: string): 'instagram' | 'facebook' | 'email' | 'other' {
+  if (!normLink) return 'other';
+  if (normLink.includes('@') && !normLink.includes('/')) return 'email';
+  if (normLink.startsWith('instagram.com/')) return 'instagram';
+  if (normLink.startsWith('facebook.com/')) return 'facebook';
+  return 'other';
+}
+
+function getDistinctComparableLinks(lead: Partial<ChannelLead>): string[] {
+  return [lead.email, lead.link, lead.platformLink, lead.instagram, lead.facebook]
+    .map(normalizeUrlHandle)
+    .filter(Boolean);
 }
 
 function leadsShareLinkOrEmail(a: Partial<ChannelLead>, b: Partial<ChannelLead>): boolean {
@@ -145,9 +189,20 @@ function leadsShareLinkOrEmail(a: Partial<ChannelLead>, b: Partial<ChannelLead>)
   for (const la of linksA) {
     for (const lb of linksB) {
       if (la === lb) return true;
-      const tailA = la.replace(/^(?:instagram\.com|facebook\.com|fb\.com)\//, '');
-      const tailB = lb.replace(/^(?:instagram\.com|facebook\.com|fb\.com)\//, '');
-      if (tailA && tailB && tailA === tailB) return true;
+      const groupA = getLinkPlatformGroup(la);
+      const groupB = getLinkPlatformGroup(lb);
+      // Only strip platform domain prefix when both belong to the same social platform or one is an unprefixed handle
+      if (
+        (groupA === groupB && (groupA === 'instagram' || groupA === 'facebook')) ||
+        groupA === 'other' ||
+        groupB === 'other'
+      ) {
+        const tailA = la.replace(/^(?:instagram\.com|facebook\.com|fb\.com)\//, '');
+        const tailB = lb.replace(/^(?:instagram\.com|facebook\.com|fb\.com)\//, '');
+        if (tailA && tailB && !BARE_PLACEHOLDER_LINKS.has(tailA) && tailA === tailB) {
+          return true;
+        }
+      }
     }
   }
   return false;
@@ -179,33 +234,57 @@ export function findNormalizedDuplicateMatches(
   },
   options?: {
     excludeLeadId?: string;
+    targetChannel?: 'combined' | 'instagram';
     activeCombined?: ChannelLead[];
     activeInstagram?: ChannelLead[];
     backstageLeads?: ChannelLead[];
   }
 ): DuplicateMatchResult {
   const normCandidateName = canonicalizeLeadName(candidate.name);
+  const candidateLinks = getDistinctComparableLinks(candidate);
+
   const combined =
-    options?.activeCombined ??
-    readStoredLeadsArray(COMBINED_LEADS_KEY).filter((l) => !l?.isArchived);
+    options?.targetChannel === 'instagram'
+      ? []
+      : options?.activeCombined ??
+        readStoredLeadsArray(COMBINED_LEADS_KEY).filter((l) => !l?.isArchived);
   const instagram =
-    options?.activeInstagram ??
-    readStoredLeadsArray(INSTAGRAM_LEADS_KEY).filter((l) => !l?.isArchived);
-  const backstage =
-    options?.backstageLeads ?? readStoredLeadsArray(BACKSTAGE_LEADS_KEY);
+    options?.targetChannel === 'combined'
+      ? []
+      : options?.activeInstagram ??
+        readStoredLeadsArray(INSTAGRAM_LEADS_KEY).filter((l) => !l?.isArchived);
+  const backstage = (
+    options?.backstageLeads ?? readStoredLeadsArray(BACKSTAGE_LEADS_KEY)
+  ).filter((l) => {
+    if (!options?.targetChannel) return true;
+    if (options.targetChannel === 'instagram') return l.channel === 'instagram';
+    return l.channel !== 'instagram';
+  });
 
   const isMatch = (lead: ChannelLead): boolean => {
     if (options?.excludeLeadId && lead.id === options.excludeLeadId) return false;
-    if (normCandidateName && canonicalizeLeadName(lead.name) === normCandidateName) {
+    if (leadsShareLinkOrEmail(candidate, lead)) {
       return true;
     }
-    return leadsShareLinkOrEmail(candidate, lead);
+    if (normCandidateName && canonicalizeLeadName(lead.name) === normCandidateName) {
+      // If both leads have explicit, distinct links/emails (e.g. different locations/franchises), do not collide
+      const existingLinks = getDistinctComparableLinks(lead);
+      if (candidateLinks.length > 0 && existingLinks.length > 0) {
+        return false;
+      }
+      return true;
+    }
+    return false;
   };
 
   const activeMatches = [...combined, ...instagram].filter(isMatch);
   const backstageMatches = backstage.filter(isMatch);
   const dispatchMatches = normCandidateName
-    ? findLeadDispatchHistoryByName(candidate.name || '')
+    ? findLeadDispatchHistoryByName(candidate.name || '').filter((d) => {
+        if (!options?.targetChannel) return true;
+        if (options.targetChannel === 'instagram') return d.channel === 'instagram';
+        return d.channel !== 'instagram';
+      })
     : [];
 
   const hasMatch =
@@ -429,12 +508,20 @@ export function buildArchivedLeadState(
  * Checks if any historical dispatch entries in ridge_dispatch_log already exist for a lead name
  * so re-imports never blindly reset previously sent leads.
  */
-export function getHistoricalSentDateForName(name: string): string | null {
+export function getHistoricalSentDateForName(
+  name: string,
+  targetChannel?: 'combined' | 'instagram'
+): string | null {
   const entries = loadDispatchLog();
   const norm = canonicalizeLeadName(name);
   if (!norm) return null;
   const d0s = entries
-    .filter((e) => e.step === 'D0' && canonicalizeLeadName(e.leadName) === norm)
+    .filter((e) => {
+      if (e.step !== 'D0' || canonicalizeLeadName(e.leadName) !== norm) return false;
+      if (targetChannel === 'instagram') return e.channel === 'instagram';
+      if (targetChannel === 'combined') return e.channel !== 'instagram';
+      return true;
+    })
     .sort((a, b) => a.localDate.localeCompare(b.localDate));
   return d0s.length > 0 ? d0s[0].localDate : null;
 }

@@ -15,7 +15,12 @@ import {
   getEarliestDispatchLogDate,
   getLifetimeDispatchCount,
 } from './dispatchLog';
-import { evaluateDateObligationGrade } from './dailyObligation';
+import {
+  evaluateDateObligationGrade,
+  FIXED_DAILY_OUTREACH_GOAL,
+  HISTORY_LAUNCH_DATE,
+  VERIFIED_NOV_HISTORY_OVERRIDES,
+} from './dailyObligation';
 import { ExecutionTierMeta, getExecutionTierMeta } from './executionTiers';
 
 export const QUOTA_SETTINGS_STORAGE_KEY = 'outreach_execution_quota_settings_v1';
@@ -32,8 +37,8 @@ export interface ExecutionQuotaSettings {
 export const DEFAULT_EXECUTION_QUOTA_SETTINGS: ExecutionQuotaSettings = {
   igQuota: 6,
   combinedQuota: 4,
-  dailyQuota: 10,
-  dailyCapacity: 20,
+  dailyQuota: FIXED_DAILY_OUTREACH_GOAL,
+  dailyCapacity: FIXED_DAILY_OUTREACH_GOAL,
   streakThreshold: 50,
   streakMinPercent: 50,
 };
@@ -82,8 +87,12 @@ export function getQuotaSettings(): ExecutionQuotaSettings {
     const combinedQuota = Math.max(0, Math.round(Number(parsed.combinedQuota ?? 4)));
     const computedTotal = igQuota + combinedQuota;
     const dailyQuota =
-      computedTotal > 0 ? computedTotal : Math.max(1, Math.round(Number(parsed.dailyQuota ?? 10)));
-    const dailyCapacity = Math.max(1, Math.round(Number(parsed.dailyCapacity ?? 20)));
+      computedTotal > 0 ? computedTotal : Math.max(1, Math.round(Number(parsed.dailyQuota ?? FIXED_DAILY_OUTREACH_GOAL)));
+    const rawCap = Number(parsed.dailyCapacity ?? dailyQuota);
+    const dailyCapacity =
+      rawCap === 20 || Number.isNaN(rawCap) || rawCap <= 0
+        ? dailyQuota
+        : Math.max(1, Math.round(rawCap));
     const streakMinPercent = Math.min(
       100,
       Math.max(1, Math.round(Number(parsed.streakMinPercent ?? 50)))
@@ -296,12 +305,16 @@ export function calculateDailyExecutionScore(
 
   const grade = evaluateDateObligationGrade(targetDate, leads, quota);
   const stepCounts = countDispatchesByStep(targetDate);
-  const chCounts = countDispatchesByChannel(targetDate);
+  const chCountsD0 = countDispatchesByChannel(targetDate, 'D0');
+  const verifiedNov = VERIFIED_NOV_HISTORY_OVERRIDES[targetDate];
 
-  const igActual = chCounts.instagram;
-  const combinedActual = chCounts.combined;
-  const initialCount = stepCounts.D0;
-  const followupCount = stepCounts.D4 + stepCounts.D8 + stepCounts.D14;
+  const igActual = verifiedNov ? verifiedNov.igInitialCount : chCountsD0.instagram;
+  const combinedActual = verifiedNov ? verifiedNov.combinedInitialCount : chCountsD0.combined;
+  const initialCount = verifiedNov ? verifiedNov.initialCount : stepCounts.D0;
+  const liveFollowupCount = stepCounts.D4 + stepCounts.D8 + stepCounts.D14;
+  const followupCount = verifiedNov
+    ? Math.max(verifiedNov.followupD4Count, liveFollowupCount)
+    : liveFollowupCount;
 
   const isRestDay = grade.isRestDay;
   const isFrozen = grade.isFrozenDay;
@@ -416,14 +429,17 @@ export function calculateDailyExecutionScore(
 
   const pct = grade.percentage ?? 0;
   let shortfallReason = '';
-  if (grade.actual >= grade.capacityTarget) {
+  if (verifiedNov) {
+    shortfallReason = verifiedNov.note;
+  } else if (grade.actual >= grade.capacityTarget) {
     shortfallReason =
-      grade.backlog > 0
-        ? `Daily cap met (${grade.actual}/${grade.capacityTarget}) · ${grade.backlog} remaining in backlog`
-        : `Target met: ${grade.actual}/${grade.capacityTarget} dispatches verified (IG ${igActual} · Combined ${combinedActual})`;
+      followupCount > 0
+        ? `Target met: ${grade.actual}/${grade.capacityTarget} Initials (IG ${igActual} · Combined ${combinedActual}) · ${followupCount} follow-up${followupCount === 1 ? '' : 's'} sent`
+        : `Target met: ${grade.actual}/${grade.capacityTarget} Initials verified (IG ${igActual} · Combined ${combinedActual})`;
   } else {
     shortfallReason =
-      `Verified ${grade.actual}/${grade.capacityTarget} daily target (IG ${igActual} · Combined ${combinedActual})` +
+      `Verified ${grade.actual}/${grade.capacityTarget} Initials (IG ${igActual} · Combined ${combinedActual})` +
+      (followupCount > 0 ? ` · ${followupCount} follow-up${followupCount === 1 ? '' : 's'} sent` : '') +
       (grade.supplyGap ? ' · Supply Gap' : '');
   }
 
@@ -460,7 +476,7 @@ export function findEarliestDispatchDate(
   leads?: ChannelLead[],
   records?: DailyHistoryRecord[]
 ): string | null {
-  const candidates: string[] = [];
+  const candidates: string[] = [HISTORY_LAUNCH_DATE];
   const logEarliest = getEarliestDispatchLogDate();
   if (logEarliest) candidates.push(logEarliest);
 

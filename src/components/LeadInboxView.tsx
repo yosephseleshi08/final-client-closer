@@ -126,8 +126,9 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
         return;
       }
 
-      // Merge new leads at the top of the inbox
-      const updated = [...parsedLeads, ...inboxLeads];
+      // Merge new leads at the top of the latest persisted inbox
+      const latestInbox = loadInboxLeads();
+      const updated = [...parsedLeads, ...latestInbox];
       saveInboxLeads(updated);
       setInboxLeads(updated);
       showToast(`📥 Uploaded ${parsedLeads.length} qualified lead${parsedLeads.length === 1 ? '' : 's'}!`, 'info');
@@ -165,14 +166,16 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
     try {
       const result = acceptInboxLeadIntoCrm(lead, channelLeads);
 
+      // Sync local state from authoritative inbox storage (auto-removes duplicates too)
+      setInboxLeads(loadInboxLeads());
+
       if (result.isDuplicate) {
-        showToast(result.duplicateReason || 'Lead already exists in the pipeline.', 'error');
+        showToast(
+          `❌ Auto-rejected ${lead.name}: ${result.duplicateReason || 'Duplicate link already exists.'}`,
+          'reject'
+        );
         return;
       }
-      
-      // Update local state
-      const remaining = inboxLeads.filter((l) => l.id !== lead.id);
-      setInboxLeads(remaining);
 
       // Notify parent callback to update CRM leads in real time
       if (onLeadAccepted) {
@@ -198,10 +201,12 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
 
   // Batch Accept All - Iterates and moves all leads to correct workspaces with assigned dates
   const handleAcceptAll = () => {
-    if (inboxLeads.length === 0) return;
+    const latestQueue = inboxLeads.length > 0 ? inboxLeads : loadInboxLeads();
+    if (latestQueue.length === 0) return;
     try {
-      const result = acceptAllInboxLeadsIntoCrm(inboxLeads, channelLeads);
-      setInboxLeads([]);
+      const result = acceptAllInboxLeadsIntoCrm(latestQueue, channelLeads);
+      // Keep any skipped duplicates visible in Inbox so no lead is ever silently deleted
+      setInboxLeads(result.remainingLeads);
 
       if (onBatchAccepted) {
         onBatchAccepted(result.updatedCombined, result.updatedInstagram);
@@ -210,10 +215,19 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
         onLeadAccepted('instagram', result.updatedInstagram);
       }
 
-      if (result.duplicateCount > 0) {
-        showToast(`${result.duplicateCount} duplicate leads skipped.`, 'info');
+      if (result.duplicateCount > 0 && result.acceptedCount > 0) {
+        showToast(
+          `✅ Accepted ${result.acceptedCount} leads · ❌ ${result.duplicateCount} duplicate${result.duplicateCount === 1 ? '' : 's'} auto-rejected & removed.`,
+          'accept'
+        );
+      } else if (result.duplicateCount > 0 && result.acceptedCount === 0) {
+        showToast(
+          `❌ ${result.duplicateCount} duplicate lead${result.duplicateCount === 1 ? '' : 's'} auto-rejected & removed from Inbox.`,
+          'reject'
+        );
+      } else {
+        showToast(`✅ Accepted ${result.acceptedCount} leads into CRM!`, 'accept');
       }
-      showToast(`✅ Accepted ${result.acceptedCount} leads into CRM!`, 'accept');
     } catch (err) {
       console.error('Failed to accept all leads:', err);
       showToast('Error accepting leads into CRM.', 'error');
@@ -464,6 +478,10 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
                     const displayLink = lead.platformLink || lead.profileLink || '';
                     const resolvedHref = getPlatformLink(displayLink, lead.platform);
                     const isMail = resolvedHref.startsWith('mailto:');
+                    const targetChannelScope =
+                      lead.platform === 'Facebook' || lead.platform === 'Email'
+                        ? 'combined'
+                        : 'instagram';
                     const dupCheck = findNormalizedDuplicateMatches(
                       {
                         name: lead.name,
@@ -474,6 +492,7 @@ export const LeadInboxView: React.FC<LeadInboxViewProps> = ({
                         instagram: lead.instagram,
                       },
                       {
+                        targetChannel: targetChannelScope,
                         activeCombined: channelLeads?.combined,
                         activeInstagram: channelLeads?.instagram,
                       }

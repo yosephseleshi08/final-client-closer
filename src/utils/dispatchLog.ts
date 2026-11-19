@@ -364,14 +364,19 @@ export function countDispatchesByStep(dateStr: string): {
   return { D0, D4, D8, D14, total: entries.length };
 }
 
-export function countDispatchesByChannel(dateStr: string): {
+export function countDispatchesByChannel(
+  dateStr: string,
+  step?: DispatchStep
+): {
   instagram: number;
   combined: number;
   email: number;
   facebook: number;
   total: number;
 } {
-  const entries = getDispatchEntriesForDate(dateStr);
+  const entries = getDispatchEntriesForDate(dateStr).filter((e) =>
+    step ? e.step === step : true
+  );
   let instagram = 0;
   let email = 0;
   let facebook = 0;
@@ -389,6 +394,99 @@ export function countDispatchesByChannel(dateStr: string): {
     facebook,
     total: entries.length,
   };
+}
+
+export interface ReconcileNovDispatchOptions {
+  /** Canonical business names of backdated leads -> their exact D0 date */
+  backdatedD0ByName: Record<string, string>;
+  /** Exact D4 date for cohorts whose D4 already occurred (Nov 12-14 -> Nov 16-18) */
+  backdatedD4ByName: Record<string, string>;
+  /** Entries to guarantee are present after pruning stale/misdated entries */
+  verifiedEntries: AppendDispatchInput[];
+}
+
+/**
+ * Reconciles 'ridge_dispatch_log' for the Nov 12–19, 2026 recovery:
+ * - Strips outdated 'legacy-2026-11-*' / 'restore_*' reconstruction rows that used wrong baseline counts
+ * - Strips misdated entries for backdated Combined leads (e.g. erroneously logged on 11/19 or 11/20)
+ * - Preserves all real Instagram and legitimate non-stale entries untouched
+ * - Upserts the verified Nov 12–19 entries idempotently
+ */
+export function reconcileNovDispatchLog(options: ReconcileNovDispatchOptions): {
+  removedCount: number;
+  addedCount: number;
+  totalCount: number;
+} {
+  const existing = loadDispatchLog();
+  const { backdatedD0ByName, backdatedD4ByName, verifiedEntries } = options;
+
+  const filtered = existing.filter((entry) => {
+    const isNovWindow = entry.localDate >= '2026-11-12' && entry.localDate <= '2026-11-19';
+    // Remove synthetic legacy/restore entries in Nov 12-19 from the previous faulty baseline
+    if (
+      isNovWindow &&
+      (entry.source === 'reconstruction' ||
+        entry.source === 'restore' ||
+        entry.id.startsWith('legacy-2026-11-') ||
+        entry.id.startsWith('restore_'))
+    ) {
+      return false;
+    }
+
+    // Remove misdated entries for the 21 backdated leads (e.g. manually re-added & marked sent on 11/19 or 11/20)
+    const normName = canonicalizeLeadName(entry.leadName);
+    if (normName && backdatedD0ByName[normName]) {
+      if (entry.step === 'D0' && entry.localDate !== backdatedD0ByName[normName]) {
+        return false;
+      }
+      if (entry.step === 'D4') {
+        const expectedD4 = backdatedD4ByName[normName];
+        if (!expectedD4 || entry.localDate !== expectedD4) {
+          return false;
+        }
+      }
+      if ((entry.step === 'D8' || entry.step === 'D14') && entry.localDate <= '2026-11-19') {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  const removedCount = existing.length - filtered.length;
+  let addedCount = 0;
+
+  for (const input of verifiedEntries) {
+    const timestamp = input.timestamp || `${input.localDate || getLocalTodayDateString()}T12:00:00`;
+    const localDate =
+      toLocalDateString(input.localDate) ||
+      toLocalDateString(timestamp) ||
+      getLocalTodayDateString();
+
+    if (isEntryDuplicate(filtered, input.leadId, input.leadName, input.step, localDate)) {
+      continue;
+    }
+
+    filtered.push({
+      id:
+        input.id ||
+        `dsp_${localDate}_${input.leadId}_${input.step}_${addedCount}`,
+      leadId: input.leadId,
+      leadName: input.leadName || input.leadId,
+      channel: input.channel,
+      step: input.step,
+      localDate,
+      timestamp,
+      source: input.source || 'restore',
+    });
+    addedCount++;
+  }
+
+  if (removedCount > 0 || addedCount > 0) {
+    saveDispatchLogInternal(filtered);
+  }
+
+  return { removedCount, addedCount, totalCount: filtered.length };
 }
 
 export function getLifetimeDispatchCount(step?: DispatchStep): number {

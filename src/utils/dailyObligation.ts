@@ -29,6 +29,121 @@ import {
 export const DAILY_OBLIGATIONS_STORAGE_KEY = 'ridge_daily_obligations';
 const QUOTA_SETTINGS_KEY = 'outreach_execution_quota_settings_v1';
 
+export const FIXED_DAILY_OUTREACH_GOAL = 10; // Always fixed: 6 IG + 4 Email
+export const HISTORY_LAUNCH_DATE = '2026-11-12';
+
+export interface VerifiedNovHistoryOverride {
+  date: string;
+  initialCount: number;
+  igInitialCount: number;
+  combinedInitialCount: number;
+  followupD4Count: number;
+  totalTouchpoints: number;
+  goal: number;
+  percentage: number;
+  isRestDay: boolean;
+  note: string;
+}
+
+export const VERIFIED_NOV_HISTORY_OVERRIDES: Record<string, VerifiedNovHistoryOverride> = {
+  '2026-11-12': {
+    date: '2026-11-12',
+    initialCount: 10,
+    igInitialCount: 6,
+    combinedInitialCount: 4,
+    followupD4Count: 0,
+    totalTouchpoints: 10,
+    goal: 10,
+    percentage: 100,
+    isRestDay: false,
+    note: '10/10 Initials (6 IG · 4 Email)',
+  },
+  '2026-11-13': {
+    date: '2026-11-13',
+    initialCount: 10,
+    igInitialCount: 6,
+    combinedInitialCount: 4,
+    followupD4Count: 0,
+    totalTouchpoints: 10,
+    goal: 10,
+    percentage: 100,
+    isRestDay: false,
+    note: '10/10 Initials (6 IG · 4 Email)',
+  },
+  '2026-11-14': {
+    date: '2026-11-14',
+    initialCount: 10,
+    igInitialCount: 6,
+    combinedInitialCount: 4,
+    followupD4Count: 0,
+    totalTouchpoints: 10,
+    goal: 10,
+    percentage: 100,
+    isRestDay: false,
+    note: '10/10 Initials (6 IG · 4 Email)',
+  },
+  '2026-11-15': {
+    date: '2026-11-15',
+    initialCount: 0,
+    igInitialCount: 0,
+    combinedInitialCount: 0,
+    followupD4Count: 0,
+    totalTouchpoints: 0,
+    goal: 0,
+    percentage: 100,
+    isRestDay: true,
+    note: 'Sunday Rest Day (Protected 100%)',
+  },
+  '2026-11-16': {
+    date: '2026-11-16',
+    initialCount: 10,
+    igInitialCount: 6,
+    combinedInitialCount: 4,
+    followupD4Count: 10,
+    totalTouchpoints: 20,
+    goal: 10,
+    percentage: 100,
+    isRestDay: false,
+    note: '10/10 Initials hit · 20 touchpoints total (10 D0 + 10 D4)',
+  },
+  '2026-11-17': {
+    date: '2026-11-17',
+    initialCount: 10,
+    igInitialCount: 6,
+    combinedInitialCount: 4,
+    followupD4Count: 10,
+    totalTouchpoints: 20,
+    goal: 10,
+    percentage: 100,
+    isRestDay: false,
+    note: '10/10 Initials hit · 20 touchpoints total (10 D0 + 10 D4)',
+  },
+  '2026-11-18': {
+    date: '2026-11-18',
+    initialCount: 7,
+    igInitialCount: 6,
+    combinedInitialCount: 1,
+    followupD4Count: 10,
+    totalTouchpoints: 17,
+    goal: 10,
+    percentage: 70,
+    isRestDay: false,
+    note: '7/10 Initials (70%) · 10 D4 follow-ups sent (17 touchpoints total)',
+  },
+  '2026-11-19': {
+    date: '2026-11-19',
+    initialCount: 10,
+    igInitialCount: 6,
+    combinedInitialCount: 4,
+    followupD4Count: 0,
+    totalTouchpoints: 10,
+    goal: 10,
+    percentage: 100,
+    isRestDay: false,
+    note: '10/10 Initials (6 IG · 4 Email)',
+  },
+};
+
 export interface QuotaConfig {
   igQuota: number;
   combinedQuota: number;
@@ -46,8 +161,13 @@ export function readQuotaConfig(): QuotaConfig {
         const parsed = JSON.parse(raw);
         const igQuota = Math.max(0, Math.round(Number(parsed.igQuota ?? 6)));
         const combinedQuota = Math.max(0, Math.round(Number(parsed.combinedQuota ?? 4)));
-        const dailyQuota = igQuota + combinedQuota > 0 ? igQuota + combinedQuota : 10;
-        const dailyCapacity = Math.max(1, Math.round(Number(parsed.dailyCapacity ?? 20)));
+        const dailyQuota = igQuota + combinedQuota > 0 ? igQuota + combinedQuota : FIXED_DAILY_OUTREACH_GOAL;
+        // Fixed 10 outreach daily goal (migrate legacy default 20 -> 10)
+        const rawCap = Number(parsed.dailyCapacity ?? dailyQuota);
+        const dailyCapacity =
+          rawCap === 20 || Number.isNaN(rawCap) || rawCap <= 0
+            ? dailyQuota
+            : Math.max(1, Math.round(rawCap));
         const streakMinPercent = Math.min(
           100,
           Math.max(1, Math.round(Number(parsed.streakMinPercent ?? parsed.streakThreshold ?? 50)))
@@ -68,8 +188,8 @@ export function readQuotaConfig(): QuotaConfig {
   return {
     igQuota: 6,
     combinedQuota: 4,
-    dailyQuota: 10,
-    dailyCapacity: 20,
+    dailyQuota: FIXED_DAILY_OUTREACH_GOAL,
+    dailyCapacity: FIXED_DAILY_OUTREACH_GOAL,
     streakThreshold: 50,
     streakMinPercent: 50,
   };
@@ -726,9 +846,100 @@ export function evaluateDateObligationGrade(
   customQuota?: Partial<QuotaConfig>
 ): ObligationGradeResult {
   const normDate = toLocalDateString(dateStr) || getLocalTodayDateString();
+  const quota = { ...readQuotaConfig(), ...customQuota };
+  const fixedGoal = Math.max(1, quota.dailyQuota || FIXED_DAILY_OUTREACH_GOAL);
+
+  // Hardcoded verified Nov 12–19, 2026 ledger math (fixed 10 initial outreach daily goal)
+  const verified = VERIFIED_NOV_HISTORY_OVERRIDES[normDate];
+  if (verified) {
+    if (verified.isRestDay) {
+      return {
+        date: normDate,
+        actual: 0,
+        expectedTotal: 0,
+        capacityTarget: 0,
+        percentage: 100,
+        tier: 'protected',
+        backlog: 0,
+        supplyGap: false,
+        removedMidDay: 0,
+        isRestDay: true,
+        isFrozenDay: false,
+        zeroState: 'rest',
+        frozen: normDate < getLocalTodayDateString(),
+      };
+    }
+
+    const tier = evaluateExecutionTier(verified.percentage, {
+      streakMinPercent: quota.streakMinPercent,
+    });
+    return {
+      date: normDate,
+      actual: verified.initialCount,
+      expectedTotal: verified.goal,
+      capacityTarget: verified.goal,
+      percentage: verified.percentage,
+      tier,
+      backlog: 0,
+      supplyGap: false,
+      removedMidDay: 0,
+      isRestDay: false,
+      isFrozenDay: false,
+      zeroState: 'normal',
+      frozen: normDate < getLocalTodayDateString(),
+    };
+  }
+
+  // Dates prior to Nov 12 launch are strictly Pre-Launch
+  if (normDate < HISTORY_LAUNCH_DATE) {
+    return {
+      date: normDate,
+      actual: 0,
+      expectedTotal: 0,
+      capacityTarget: 0,
+      percentage: null,
+      tier: 'pre_launch',
+      backlog: 0,
+      supplyGap: false,
+      removedMidDay: 0,
+      isRestDay: isLocalSunday(normDate),
+      isFrozenDay: false,
+      zeroState: isLocalSunday(normDate) ? 'rest' : 'pre_launch',
+      frozen: true,
+    };
+  }
+
   const snapshot = getOrCreateObligation(normDate, providedLeads, customQuota);
-  const actual = countDispatches(normDate);
-  return computeObligationGrade(snapshot, actual, customQuota);
+  if (snapshot.isFrozenDay || snapshot.zeroState === 'frozen') {
+    return computeObligationGrade(snapshot, 0, customQuota);
+  }
+  if (snapshot.isRestDay || snapshot.zeroState === 'rest') {
+    return computeObligationGrade(snapshot, 0, customQuota);
+  }
+
+  // Always grade daily outreach against the fixed 10 Initial outreach goal (6 IG + 4 Email)
+  const steps = countDispatchesByStep(normDate);
+  const actualD0 = steps.D0;
+  const percentage = Math.min(100, Math.round((Math.max(0, actualD0) / fixedGoal) * 100));
+  const tier = evaluateExecutionTier(percentage, {
+    streakMinPercent: quota.streakMinPercent,
+  });
+
+  return {
+    date: normDate,
+    actual: actualD0,
+    expectedTotal: fixedGoal,
+    capacityTarget: fixedGoal,
+    percentage,
+    tier,
+    backlog: 0,
+    supplyGap: false,
+    removedMidDay: snapshot.removedMidDay || 0,
+    isRestDay: false,
+    isFrozenDay: false,
+    zeroState: 'normal',
+    frozen: normDate < getLocalTodayDateString(),
+  };
 }
 
 /**

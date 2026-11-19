@@ -504,7 +504,10 @@ const LEAD_STORAGE_KEYS = [
  * repairs corrupted email addresses, upgrades legacy cadence fields to the 4/8/14 schedule
  * without overwriting custom messages, flags unfixable emails, and persists results.
  */
-export function runDiagnosticDataRepair(dispatchEvent = true): DataRepairReport {
+export function runDiagnosticDataRepair(
+  dispatchEvent = true,
+  options?: { skipInstagram?: boolean }
+): DataRepairReport {
   let totalScanned = 0;
   let emailsCleaned = 0;
   let invalidFlagged = 0;
@@ -513,6 +516,9 @@ export function runDiagnosticDataRepair(dispatchEvent = true): DataRepairReport 
   let anyStoreUpdated = false;
 
   for (const key of LEAD_STORAGE_KEYS) {
+    if (options?.skipInstagram && key === 'outreach_channel_leads_instagram') {
+      continue;
+    }
     try {
       const raw = localStorage.getItem(key);
       if (!raw) continue;

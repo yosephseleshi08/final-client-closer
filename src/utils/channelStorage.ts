@@ -564,17 +564,33 @@ export function normalizeUrlForDuplicateCheck(
  * Checks whether two link inputs represent the exact same lead / profile,
  * ignoring differences in protocol (http/https), www., subdomains, trailing slashes, or query params.
  */
+const BARE_OR_EMPTY_LINK = /^(?:instagram\.com|instagr\.am|facebook\.com|fb\.com|fb\.me|n\/a|na|none|null|undefined|profile|-)$/i;
+
 export function areLinksEquivalent(linkA: string, linkB: string): boolean {
   if (!linkA || !linkB) return false;
   const normA = normalizeUrlForDuplicateCheck(linkA);
   const normB = normalizeUrlForDuplicateCheck(linkB);
   if (!normA || !normB) return false;
+  if (BARE_OR_EMPTY_LINK.test(normA) || BARE_OR_EMPTY_LINK.test(normB)) return false;
   if (normA === normB) return true;
 
-  // Handle case where one link has full domain and other has just handle or username
+  // Handle case where one link has full domain and other has just handle or username (only within same or non-domain handle)
   const cleanA = normA.replace(/^(?:facebook\.com|instagram\.com)\//, '').replace(/^@/, '');
   const cleanB = normB.replace(/^(?:facebook\.com|instagram\.com)\//, '').replace(/^@/, '');
-  if (cleanA && cleanB && cleanA === cleanB) {
+  if (
+    cleanA &&
+    cleanB &&
+    !BARE_OR_EMPTY_LINK.test(cleanA) &&
+    !BARE_OR_EMPTY_LINK.test(cleanB) &&
+    cleanA === cleanB
+  ) {
+    const isIgA = normA.startsWith('instagram.com/');
+    const isFbA = normA.startsWith('facebook.com/');
+    const isIgB = normB.startsWith('instagram.com/');
+    const isFbB = normB.startsWith('facebook.com/');
+    if ((isIgA && isFbB) || (isFbA && isIgB)) {
+      return false;
+    }
     return true;
   }
 

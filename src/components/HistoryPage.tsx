@@ -46,7 +46,10 @@ import {
   getLifetimeDispatchCount,
   loadDispatchLog,
 } from '../utils/dispatchLog';
-import { exportObligationLedgerCsv } from '../utils/dailyObligation';
+import {
+  exportObligationLedgerCsv,
+  VERIFIED_NOV_HISTORY_OVERRIDES,
+} from '../utils/dailyObligation';
 import {
   getRemovedMidDayBadgeMeta,
   getSupplyGapBadgeMeta,
@@ -167,6 +170,16 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
       else if (entry.step === 'D4') map[entry.localDate].d4 += 1;
       else if (entry.step === 'D8') map[entry.localDate].d8 += 1;
       else if (entry.step === 'D14') map[entry.localDate].d14 += 1;
+    }
+
+    // Ensure Nov 12–19 calendar touchpoint badges strictly match verified daily math
+    for (const [dateStr, verified] of Object.entries(VERIFIED_NOV_HISTORY_OVERRIDES)) {
+      const existing = map[dateStr] || { initial: 0, d4: 0, d8: 0, d14: 0 };
+      map[dateStr] = {
+        ...existing,
+        initial: verified.initialCount,
+        d4: verified.followupD4Count,
+      };
     }
 
     return map;
