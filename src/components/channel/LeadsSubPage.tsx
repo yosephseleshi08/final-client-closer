@@ -532,17 +532,20 @@ export function LeadsSubPage({
     workspaceVoiceTypes.forEach((vt) => {
       if (vt) counts[vt] = 0;
     });
-    leads.forEach((l) => {
-      if (l.voiceType) {
-        counts[l.voiceType] = (counts[l.voiceType] || 0) + 1;
+    leads.forEach((l, idx) => {
+      const strictVoice = getStrictVoiceTypeForId(l, channel, idx);
+      if (strictVoice) {
+        counts[strictVoice] = (counts[strictVoice] || 0) + 1;
       }
     });
     return counts;
-  }, [leads, workspaceVoiceTypes]);
+  }, [leads, workspaceVoiceTypes, channel]);
 
   // Requirement 4: Always order leads by ID from least to highest (1, 2, 3...)
   const sortedLeads = useMemo(() => {
-    return [...leads].sort((a, b) => (a.numericId || 0) - (b.numericId || 0));
+    return [...leads].sort(
+      (a, b) => extractLeadNumericId(a, 0) - extractLeadNumericId(b, 0)
+    );
   }, [leads]);
 
   // Combined Voice Type & Search Query filter
@@ -551,7 +554,9 @@ export function LeadsSubPage({
   const filteredLeads = useMemo(() => {
     let result = sortedLeads;
     if (selectedVoiceFilter !== 'all') {
-      result = result.filter((l) => l.voiceType === selectedVoiceFilter);
+      result = result.filter(
+        (l, idx) => getStrictVoiceTypeForId(l, channel, idx) === selectedVoiceFilter
+      );
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();

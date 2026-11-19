@@ -522,9 +522,8 @@ function buildRestoredLeadState(
     id: `CM-${spec.numericId}`,
     numericId: spec.numericId,
     sortOrder: spec.numericId - 1,
-    voiceType: lead.isVoiceTypeOverridden
-      ? lead.voiceType
-      : getStrictVoiceTypeForId(spec.numericId, 'combined'),
+    voiceType: getStrictVoiceTypeForId(spec.numericId, 'combined'),
+    isVoiceTypeOverridden: false,
     name: spec.name.includes('|') || spec.name.includes('(') ? lead.name || spec.name : spec.name,
     channel: 'combined',
     email: resolvedEmail || lead.email,
@@ -909,6 +908,8 @@ export function applySentDateRestore(): SentDateRestoreResult {
       id: `CM-${targetNum}`,
       numericId: targetNum,
       sortOrder: targetNum - 1,
+      voiceType: getStrictVoiceTypeForId(targetNum, 'combined'),
+      isVoiceTypeOverridden: false,
     };
   }
 

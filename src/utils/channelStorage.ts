@@ -31,6 +31,98 @@ export function getChannelLabel(channel: MultiChannelType): string {
 }
 
 /**
+ * Strictly normalizes Combined Outreach leads so every lead has:
+ * - unique sequential CM-<N> ID matching numericId: N
+ * - channel: 'combined'
+ * - strict cyclic voiceType (CM-1->Email-1, CM-2->Email-2, CM-3->Email-3, CM-4->Email-4, CM-5->Email-1, ...)
+ * - isVoiceTypeOverridden: false
+ * - ascending numericId order with matching sortOrder (0, 1, 2, ...)
+ */
+export function normalizeCombinedLeadStructure(
+  leads: ChannelLead[]
+): { normalizedLeads: ChannelLead[]; hasChanges: boolean } {
+  if (!leads || leads.length === 0) {
+    return { normalizedLeads: leads, hasChanges: false };
+  }
+
+  const usedNums = new Set<number>();
+  const assignedNums = new Array<number | null>(leads.length).fill(null);
+
+  // Pass 1: Reserve unique explicit CM-<N> IDs first
+  leads.forEach((lead, idx) => {
+    const cmMatch = typeof lead.id === 'string' ? lead.id.match(/^CM-(\d+)$/i) : null;
+    if (cmMatch) {
+      const parsed = parseInt(cmMatch[1], 10);
+      if (!isNaN(parsed) && parsed > 0 && !usedNums.has(parsed)) {
+        usedNums.add(parsed);
+        assignedNums[idx] = parsed;
+      }
+    }
+  });
+
+  // Pass 2: Assign remaining leads (legacy FB-/EM-/inbox- IDs or collisions) cleanly
+  let nextSeq = 1;
+  leads.forEach((lead, idx) => {
+    if (assignedNums[idx] !== null) return;
+    if (
+      typeof lead.numericId === 'number' &&
+      !isNaN(lead.numericId) &&
+      lead.numericId > 0 &&
+      !usedNums.has(lead.numericId)
+    ) {
+      usedNums.add(lead.numericId);
+      assignedNums[idx] = lead.numericId;
+      return;
+    }
+    while (usedNums.has(nextSeq)) {
+      nextSeq++;
+    }
+    usedNums.add(nextSeq);
+    assignedNums[idx] = nextSeq;
+    nextSeq++;
+  });
+
+  let hasChanges = false;
+  const repaired = leads.map((lead, idx) => {
+    const num = assignedNums[idx] ?? idx + 1;
+    const expectedId = `CM-${num}`;
+    const expectedVoice = getStrictVoiceTypeForId(num, 'combined');
+    if (
+      lead.id !== expectedId ||
+      lead.numericId !== num ||
+      lead.channel !== 'combined' ||
+      lead.voiceType !== expectedVoice ||
+      Boolean(lead.isVoiceTypeOverridden)
+    ) {
+      hasChanges = true;
+      return {
+        ...lead,
+        id: expectedId,
+        numericId: num,
+        channel: 'combined' as MultiChannelType,
+        voiceType: expectedVoice,
+        isVoiceTypeOverridden: false,
+      };
+    }
+    return lead;
+  });
+
+  const sorted = [...repaired].sort((a, b) => (a.numericId ?? 0) - (b.numericId ?? 0));
+  const finalized = sorted.map((lead, idx) => {
+    if (lead.sortOrder !== idx) {
+      hasChanges = true;
+      return {
+        ...lead,
+        sortOrder: idx,
+      };
+    }
+    return lead;
+  });
+
+  return { normalizedLeads: finalized, hasChanges };
+}
+
+/**
  * Loads leads for a specific channel from localStorage with full isolation.
  * For 'combined', automatically merges existing email and facebook stores if combined store is empty.
  */
@@ -59,9 +151,9 @@ export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
             sortOrder: fbList.length + i,
           })),
         ]).map((l) => normalizeExistingLeadCadence(l).normalizedLead);
-        const { updatedLeads: merged } = ensureVoiceTypeAssignments(mergedRaw, channel);
+        const { normalizedLeads: merged } = normalizeCombinedLeadStructure(mergedRaw);
         localStorage.setItem(storageKey, JSON.stringify(merged));
-        return [...merged].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        return merged;
       }
     }
 
@@ -76,6 +168,14 @@ export function loadChannelLeads(channel: MultiChannelType): ChannelLead[] {
           return normalizedLead;
         });
         const normalized = normalizeEmailOnlyWarmupStatus(cadenceMigrated);
+        if (channel === 'combined') {
+          const { normalizedLeads: combinedNormalized, hasChanges: combinedChanged } =
+            normalizeCombinedLeadStructure(normalized);
+          if (cadenceChanged || combinedChanged || normalized !== cadenceMigrated || activeOnly.length !== parsed.length) {
+            localStorage.setItem(storageKey, JSON.stringify(combinedNormalized));
+          }
+          return combinedNormalized;
+        }
         const { updatedLeads: voiceNormalized, hasChanges: voiceChanged } =
           ensureVoiceTypeAssignments(normalized, channel);
         if (cadenceChanged || voiceChanged || normalized !== cadenceMigrated || activeOnly.length !== parsed.length) {

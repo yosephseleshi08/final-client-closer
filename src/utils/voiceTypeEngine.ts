@@ -25,6 +25,13 @@ export function extractLeadNumericId(
     return leadOrId;
   }
   if (typeof leadOrId === 'object' && leadOrId !== null) {
+    if (typeof leadOrId.id === 'string') {
+      const prefixedMatch = leadOrId.id.match(/^(?:CM|IG|FB|EM)-(\d+)$/i);
+      if (prefixedMatch) {
+        const parsed = parseInt(prefixedMatch[1], 10);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
+    }
     if (typeof leadOrId.numericId === 'number' && !isNaN(leadOrId.numericId) && leadOrId.numericId > 0) {
       return leadOrId.numericId;
     }
@@ -329,7 +336,7 @@ export function formatDeepSeekBatchPrompt(
     .map((lead, idx) => {
       const link = lead.link || lead.instagram || lead.email || 'N/A';
       const city = lead.city || 'Local area';
-      const voice = lead.voiceType || targetTypeLabel;
+      const voice = getStrictVoiceTypeForId(lead, channel, idx) || targetTypeLabel;
 
       // Extract existing analysis or fallback details
       const analysisContent =

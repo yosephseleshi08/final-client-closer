@@ -501,9 +501,12 @@ export function acceptInboxLeadIntoCrm(
     rawDetails: lead.rawDetails,
   };
 
-  // Prepend new lead at index 0, resequence sort order, and recalculate ALL voice types strictly by ID
+  // Keep leads ordered by numericId ascending, align sortOrder, and recalculate ALL voice types strictly by ID
+  const orderedLeads = [...currentLeads, newChannelLead].sort(
+    (a, b) => (a.numericId ?? 0) - (b.numericId ?? 0)
+  );
   const updatedLeads = recalculateAllVoiceTypes(
-    [newChannelLead, ...currentLeads].map((l, index) => ({
+    orderedLeads.map((l, index) => ({
       ...l,
       sortOrder: index,
     })),
@@ -516,9 +519,11 @@ export function acceptInboxLeadIntoCrm(
   // Remove from Inbox
   removeInboxLead(lead.id);
 
+  const savedNewLead = updatedLeads.find((l) => l.id === newChannelLead.id) || newChannelLead;
+
   return {
     targetChannel,
-    newLead: updatedLeads[0],
+    newLead: savedNewLead,
     updatedLeads,
     isDuplicate: false,
   };
@@ -709,7 +714,9 @@ export function acceptAllInboxLeadsIntoCrm(
   // Only recalculate voice types and persist channels that actually received new leads
   if (addedToCombined > 0) {
     combinedList = recalculateAllVoiceTypes(
-      combinedList.map((l, idx) => ({ ...l, sortOrder: idx })),
+      [...combinedList]
+        .sort((a, b) => (a.numericId ?? 0) - (b.numericId ?? 0))
+        .map((l, idx) => ({ ...l, sortOrder: idx })),
       'combined'
     );
     saveChannelLeads('combined', combinedList);
