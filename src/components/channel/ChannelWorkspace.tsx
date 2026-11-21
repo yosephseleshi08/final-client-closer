@@ -3,12 +3,12 @@ import {
   Mail,
   Instagram,
   Facebook,
+  Layers,
   Users,
   MessageSquare,
   Calendar,
   Clock,
   Image as ImageIcon,
-  AlertCircle,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType, MultiChannelSubTab } from '../../types';
 import { LeadsSubPage } from './LeadsSubPage';
@@ -17,18 +17,34 @@ import { ScheduleSubPage } from './ScheduleSubPage';
 import { FollowupScheduleSubPage } from './FollowupScheduleSubPage';
 import { MockupSubPage } from './MockupSubPage';
 import { getChannelLabel } from '../../utils/channelStorage';
+import { getLocalTodayStr, isEmailOnlyLead, isLeadWarmedBeforeToday, resolveLeadCadenceStep } from '../../utils/cadenceEngine';
 
 interface ChannelWorkspaceProps {
   channel: MultiChannelType;
   leads: ChannelLead[];
   onUpdateLeads: (leads: ChannelLead[]) => void;
+  onNavigateToChannel?: (channel: MultiChannelType) => void;
+  onNavigateToBackstage?: () => void;
+  allLeads?: {
+    combined: ChannelLead[];
+    instagram: ChannelLead[];
+  };
+  onUpdateInstagramLeads?: (leads: ChannelLead[]) => void;
 }
 
-export function ChannelWorkspace({ channel, leads, onUpdateLeads }: ChannelWorkspaceProps) {
+export function ChannelWorkspace({
+  channel,
+  leads,
+  onUpdateLeads,
+  onNavigateToBackstage,
+  allLeads,
+}: ChannelWorkspaceProps) {
   const [activeSubTab, setActiveSubTab] = useState<MultiChannelSubTab>('leads');
 
   const getChannelIcon = () => {
     switch (channel) {
+      case 'combined':
+        return <Layers className="w-5 h-5 text-indigo-400" />;
       case 'email':
         return <Mail className="w-5 h-5 text-indigo-400" />;
       case 'instagram':
@@ -40,6 +56,7 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads }: ChannelWorks
 
   const getChannelTheme = () => {
     switch (channel) {
+      case 'combined':
       case 'email':
         return {
           gradient: 'from-indigo-500/20 via-indigo-500/5 to-transparent',
@@ -65,16 +82,30 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads }: ChannelWorks
   };
 
   const theme = getChannelTheme();
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalTodayStr();
 
-  // Calculate actionable items in this channel for badge (Initial due + Day 3 + Day 7)
   const urgentCount = leads.filter((l) => {
-    if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
-    if (!l.initialSentDate && l.scheduledDate && l.scheduledDate <= todayStr) return true;
-    if (l.initialSentDate && (l.followupCount === 0 || l.followupCount === undefined) && l.followup1Date && l.followup1Date <= todayStr) return true;
-    if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && l.followup2Date <= todayStr) return true;
-    return false;
+    if (
+      l.isCompleted ||
+      l.isArchived ||
+      l.cadenceStatus === 'cancelled' ||
+      l.leadStatus === 'replied' ||
+      l.leadStatus === 'completed'
+    ) {
+      return false;
+    }
+    const resolved = resolveLeadCadenceStep(l, todayStr);
+    if (resolved.stageNumber === 0) {
+      if (!l.scheduledDate) return false;
+      if (isEmailOnlyLead(l)) return l.scheduledDate <= todayStr;
+      return l.scheduledDate === todayStr && isLeadWarmedBeforeToday(l, todayStr);
+    }
+    return resolved.isFollowupDue;
   }).length;
+
+  const pitchesCount = leads.filter((l) => Boolean(l.initialDM || l.customPitch)).length;
+  const scheduledCount = leads.filter((l) => Boolean(l.scheduledDate)).length;
+  const mockupsCount = leads.filter((l) => Boolean(l.hasMockup || l.mockupHtml)).length;
 
   const subTabs: { id: MultiChannelSubTab; label: string; icon: React.ReactNode; badge?: number }[] = [
     {
@@ -87,13 +118,13 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads }: ChannelWorks
       id: 'dm',
       label: 'DM',
       icon: <MessageSquare className="w-4 h-4" />,
-      badge: leads.filter((l) => !!l.customPitch).length,
+      badge: pitchesCount,
     },
     {
       id: 'schedule',
       label: 'Schedule',
       icon: <Calendar className="w-4 h-4" />,
-      badge: leads.filter((l) => !!l.scheduledDate).length,
+      badge: scheduledCount,
     },
     {
       id: 'followup',
@@ -105,7 +136,7 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads }: ChannelWorks
       id: 'mockup',
       label: 'Mockup',
       icon: <ImageIcon className="w-4 h-4" />,
-      badge: leads.filter((l) => !!l.hasMockup).length,
+      badge: mockupsCount,
     },
   ];
 
@@ -120,16 +151,18 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads }: ChannelWorks
             {getChannelIcon()}
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-black text-white font-['Outfit']">
                 {getChannelLabel(channel)} Workspace
               </h1>
               <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${theme.badge}`}>
-                Independent Store
+                {channel === 'instagram' ? 'Quota: 6 DMs/Day' : 'Quota: 4 Messages/Day'}
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Strictly isolated data pipeline for {getChannelLabel(channel)} outreach and client acquisition.
+              {channel === 'combined'
+                ? 'Unified Facebook & Email pipeline with smart routing and strict 4/8/14-day cadence.'
+                : `Strictly isolated data pipeline for ${getChannelLabel(channel)} outreach and client acquisition.`}
             </p>
           </div>
         </div>
@@ -143,17 +176,17 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads }: ChannelWorks
           <div className="w-px h-6 bg-white/10" />
           <div>
             <span className="text-slate-500 block text-[10px] uppercase font-sans">DMs Ready</span>
-            <strong className="text-indigo-300 tabular-nums">{leads.filter((l) => !!l.customPitch).length}</strong>
+            <strong className="text-indigo-300 tabular-nums">{pitchesCount}</strong>
           </div>
           <div className="w-px h-6 bg-white/10" />
           <div>
             <span className="text-slate-500 block text-[10px] uppercase font-sans">Scheduled</span>
-            <strong className="text-slate-100 tabular-nums">{leads.filter((l) => !!l.scheduledDate).length}</strong>
+            <strong className="text-slate-100 tabular-nums">{scheduledCount}</strong>
           </div>
         </div>
       </div>
 
-      {/* Internal Sub-Navigation Tabs (The 5 Sub-Pages) */}
+      {/* Internal Sub-Navigation Tabs */}
       <div className="flex items-center gap-1.5 p-1 bg-slate-900/90 border border-white/10 rounded-2xl overflow-x-auto no-scrollbar shadow-inner">
         {subTabs.map((tab) => {
           const isActive = activeSubTab === tab.id;
@@ -197,6 +230,8 @@ export function ChannelWorkspace({ channel, leads, onUpdateLeads }: ChannelWorks
             channel={channel}
             leads={leads}
             onUpdateLeads={onUpdateLeads}
+            onNavigateToBackstage={onNavigateToBackstage}
+            allLeads={allLeads}
           />
         )}
 

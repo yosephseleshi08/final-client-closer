@@ -89,6 +89,7 @@ export const ExecutiveDashboard: React.FC<ExecutiveDashboardProps> = ({
     isFrozen: todayScore.isFrozen,
     isEmpty: todayScore.zeroState === 'empty',
     isPreLaunch: todayScore.zeroState === 'pre_launch',
+    isToday: true,
     streakMinPercent: quotaSettings.streakMinPercent,
   });
 

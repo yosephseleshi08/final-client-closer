@@ -16,6 +16,7 @@ export interface EvaluateTierOptions {
   isFrozen?: boolean;
   isPreLaunch?: boolean;
   isEmpty?: boolean;
+  isToday?: boolean;
   streakThreshold?: number;
   streakMinPercent?: number;
 }
@@ -131,6 +132,19 @@ export function getExecutionTierMeta(
       badgeClass: 'bg-[#F59E0B]/15 text-[#F59E0B] border-[#F59E0B]/35',
       barClass: 'bg-[#F59E0B]',
       cardBorderClass: 'border-[#F59E0B]/35 bg-[#F59E0B]/10 hover:border-[#F59E0B]/60',
+    };
+  }
+
+  if (options?.isToday) {
+    return {
+      tier: 'critical',
+      label: 'Active Day (In Progress)',
+      shortLabel: 'Active',
+      colorHex: '#38BDF8',
+      dotClass: 'bg-[#38BDF8] shadow-[0_0_8px_rgba(56,189,248,0.45)]',
+      badgeClass: 'bg-[#38BDF8]/15 text-[#38BDF8] border-[#38BDF8]/35',
+      barClass: 'bg-[#38BDF8]',
+      cardBorderClass: 'border-[#38BDF8]/35 bg-[#38BDF8]/10 hover:border-[#38BDF8]/60',
     };
   }
 

@@ -290,12 +290,14 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
     const combExpected = record.combinedExpected ?? quotaSettings.combinedQuota;
     const isEmpty = record.status === 'empty' || record.executionTier === 'empty' || record.zeroState === 'empty';
     const isPreLaunch = record.status === 'pre_launch' || record.executionTier === 'pre_launch';
+    const isToday = record.date === todayStr;
 
     const tierMeta = getExecutionTierMeta(isEmpty || isPreLaunch ? null : record.percentage, {
       isSunday: record.isSunday,
       isFrozen: record.isFrozen || record.status === 'frozen',
       isPreLaunch,
       isEmpty,
+      isToday,
       streakThreshold: quotaSettings.streakThreshold,
       streakMinPercent: quotaSettings.streakMinPercent,
     });
@@ -352,6 +354,15 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
         label: `${record.percentage}% (${fraction}) · Partial`,
         icon: <Clock className="w-3.5 h-3.5 text-[#F59E0B]" />,
         desc: reason,
+      };
+    }
+
+    if (isToday) {
+      return {
+        ...tierMeta,
+        label: `${record.percentage}% (${fraction}) · Active`,
+        icon: <Clock className="w-3.5 h-3.5 text-[#38BDF8]" />,
+        desc: `${splitLine} · Active day in progress`,
       };
     }
 

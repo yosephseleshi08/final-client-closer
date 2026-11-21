@@ -141,7 +141,7 @@ export const Header: React.FC<HeaderProps> = ({
                 }`}
                 title={isFrozen ? 'Today Frozen (Click to Resume)' : 'Freeze Day (Take Day Off)'}
               >
-                <span>{isFrozen ? '❄️ Frozen' : '❄️ Freeze Day'}</span>
+                <span>{isFrozen ? '▶️ Resume' : '❄️ Freeze Day'}</span>
               </button>
             )}
             <button
@@ -171,7 +171,7 @@ export const Header: React.FC<HeaderProps> = ({
                     : 'Freeze Day (Take Day Off): pauses today\'s tasks, shifts follow-ups to the next active working day, and protects your streak.'
                 }
               >
-                <span>{isFrozen ? '❄️ Frozen Today (Resume)' : '❄️ Freeze Day (Take Day Off)'}</span>
+                <span>{isFrozen ? '▶️ Resume Today' : '❄️ Freeze Day (Take Day Off)'}</span>
               </button>
             )}
             <button

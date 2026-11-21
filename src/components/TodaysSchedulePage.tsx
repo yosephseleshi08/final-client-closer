@@ -487,6 +487,7 @@ export const TodaysSchedulePage: React.FC<TodaysSchedulePageProps> = ({
     isFrozen: todayAuditScore.isFrozen,
     isPreLaunch: todayAuditScore.zeroState === 'pre_launch',
     isEmpty: todayAuditScore.zeroState === 'empty',
+    isToday: true,
     streakThreshold: quotaSettings.streakThreshold,
     streakMinPercent: quotaSettings.streakMinPercent,
   });
