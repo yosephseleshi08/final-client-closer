@@ -48,14 +48,21 @@ export function isDateFrozenDirect(dateStr: string): boolean {
     const raw = localStorage.getItem(PIPELINE_FREEZE_STORAGE_KEY);
     if (!raw) return false;
     const parsed = JSON.parse(raw);
+    const today = getLocalTodayDateString();
+
+    if (norm === today) {
+      return Boolean(parsed?.isFrozen) && (!parsed?.frozenStartDate || parsed.frozenStartDate === today);
+    }
+
+    if (norm > today) {
+      return false;
+    }
+
     if (Array.isArray(parsed?.frozenDates) && parsed.frozenDates.includes(norm)) {
       return true;
     }
-    if (parsed?.isFrozen && parsed?.frozenStartDate) {
-      const today = getLocalTodayDateString();
-      if (norm >= parsed.frozenStartDate && norm <= today) {
-        return true;
-      }
+    if (parsed?.isFrozen && parsed?.frozenStartDate === norm) {
+      return true;
     }
   } catch {
     // ignore storage errors

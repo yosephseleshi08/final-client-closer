@@ -426,7 +426,9 @@ export function computeOpenObligationSnapshot(
       Boolean((() => {
         try {
           const raw = localStorage.getItem('crm_pipeline_freeze_v1');
-          return raw ? JSON.parse(raw)?.isFrozen : false;
+          if (!raw) return false;
+          const parsed = JSON.parse(raw);
+          return Boolean(parsed?.isFrozen) && (!parsed?.frozenStartDate || parsed.frozenStartDate === todayStr);
         } catch {
           return false;
         }
@@ -562,8 +564,16 @@ export function getOrCreateObligation(
   const all = loadAllDailyObligations();
   const existing = all[normDate];
 
+  const todayStr = getLocalTodayDateString();
   if (existing && (existing.status === 'frozen' || existing.status === 'locked')) {
-    return existing;
+    // If today was previously frozen and has since been resumed/unfrozen, never reuse the stale frozen snapshot
+    const staleFrozenToday =
+      normDate === todayStr &&
+      !isDateFrozenDirect(todayStr) &&
+      (existing.isFrozenDay || existing.zeroState === 'frozen');
+    if (!staleFrozenToday) {
+      return existing;
+    }
   }
 
   const computed = computeOpenObligationSnapshot(normDate, providedLeads, customQuota);
