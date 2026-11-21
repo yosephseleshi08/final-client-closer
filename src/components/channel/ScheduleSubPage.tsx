@@ -1,24 +1,19 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Calendar,
+  Clock,
+  ExternalLink,
   RotateCcw,
-  Rocket,
-  CheckCircle2,
-  X,
-  Flame,
+  CalendarCheck2,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType } from '../../types';
 import { getChannelLabel } from '../../utils/channelStorage';
 import {
   getLocalTodayStr,
+  addDays,
   normalizeToLocalDateStr,
   isDateToday,
-  autoScheduleLeads,
-  getScheduleDayStyle,
-  addDays,
-  isEmailOnlyLead,
 } from '../../utils/cadenceEngine';
-import { formatDisplayDate } from '../../utils/historyStorage';
 
 interface ScheduleSubPageProps {
   channel: MultiChannelType;
@@ -27,26 +22,16 @@ interface ScheduleSubPageProps {
 }
 
 export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPageProps) {
-  const [scheduledBannerMsg, setScheduledBannerMsg] = useState<string | null>(null);
-  const [showAutoScheduleModal, setShowAutoScheduleModal] = useState(false);
+  const todayStr = getLocalTodayStr();
 
   const handleDateChange = (leadId: string, newDate: string) => {
     const normalized = normalizeToLocalDateStr(newDate);
     const updated = leads.map((l) => {
       if (l.id === leadId) {
-        const emailOnly = isEmailOnlyLead(l);
         return {
           ...l,
           scheduledDate: normalized || undefined,
-          warmupStatus: normalized
-            ? emailOnly
-              ? ('warmed' as const)
-              : (l.warmupStatus || (l.isWarmedUp ? 'warmed' : 'locked'))
-            : emailOnly
-            ? ('warmed' as const)
-            : undefined,
-          isWarmedUp: emailOnly ? true : l.isWarmedUp,
-          dismissedDate: undefined,
+          dismissedDate: undefined, // Clear any prior dismissal when rescheduling
         };
       }
       return l;
@@ -54,89 +39,30 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
     onUpdateLeads(updated);
   };
 
-  /**
-   * Auto-Schedule Execution
-   * Starts from Today or Tomorrow as selected by the user.
-   */
-  const handleExecuteAutoSchedule = (startMode: 'today' | 'tomorrow') => {
-    setShowAutoScheduleModal(false);
-    if (leads.length === 0) return;
-
-    const todayStr = getLocalTodayStr();
-    const startDate = startMode === 'today' ? todayStr : addDays(todayStr, 1);
-    const dailyQuota = channel === 'instagram' ? 6 : 4;
-
-    const updated = autoScheduleLeads(leads, channel, startDate);
-    onUpdateLeads(updated);
-
-    const unsentCount = updated.filter((l) => !l.initialSentDate && l.scheduledDate && l.cadenceStatus !== 'cancelled').length;
-    setScheduledBannerMsg(
-      `🚀 Auto-scheduled ${unsentCount} leads starting ${startMode === 'today' ? 'Today' : 'Tomorrow'} (${dailyQuota}/day, Sundays & frozen days skipped)!`
-    );
-    setTimeout(() => setScheduledBannerMsg(null), 4500);
+  const handleQuickSet = (leadId: string, daysAhead: number) => {
+    const targetDateStr = addDays(todayStr, daysAhead);
+    handleDateChange(leadId, targetDateStr);
   };
 
-  const activeSchedulableLeads = leads.filter((l) => l.cadenceStatus !== 'cancelled');
-  const scheduledCount = activeSchedulableLeads.filter((l) => !!l.scheduledDate).length;
-  const unscheduledCount = activeSchedulableLeads.length - scheduledCount;
-
-  // Format date helper: e.g. "Wed, Nov 11, 2026"
-  const formatDateDisplay = (dateStr?: string) => {
-    if (!dateStr) return 'Unscheduled';
-    const normalized = normalizeToLocalDateStr(dateStr);
-    if (!normalized) return 'Unscheduled';
-    const [y, m, d] = normalized.split('-').map(Number);
-    const dateObj = new Date(y, m - 1, d);
-    if (isNaN(dateObj.getTime())) return dateStr;
-    return dateObj.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
+  const scheduledCount = leads.filter((l) => !!l.scheduledDate).length;
 
   return (
     <div className="space-y-6">
-      {/* Top Header & Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-base font-bold text-white font-['Outfit'] flex items-center gap-2">
-            <span>{getChannelLabel(channel)} Dispatch Planner</span>
+          <h2 className="text-base font-bold text-white font-['Outfit']">
+            {getChannelLabel(channel)} Dispatch Planner & Date Assignment
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Flat Capacity Model: {channel === 'instagram' ? 'Target 6 leads/day' : 'Target 4 leads/day'} · Global Quota: 10 Combined Touchpoints/Day (Sundays rest).
+            Assign the exact planned dispatch date for each lead. Dates are saved automatically.
           </p>
         </div>
-
-        <div className="flex items-center gap-3 self-start sm:self-auto flex-wrap">
-          <div className="text-xs font-mono text-slate-400 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-white/10">
-            Scheduled: <span className="text-indigo-400 font-bold">{scheduledCount}</span> / {activeSchedulableLeads.length}
-            {unscheduledCount > 0 && (
-              <span className="text-amber-400 ml-1.5">({unscheduledCount} unscheduled)</span>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setShowAutoScheduleModal(true)}
-            disabled={leads.length === 0}
-            className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-indigo-600/30 cursor-pointer active:scale-95"
-            title="Auto-schedule all unscheduled leads"
-          >
-            <Rocket className="w-4 h-4 text-amber-300" />
-            <span>🚀 Auto-Schedule</span>
-          </button>
+        <div className="text-xs font-mono text-slate-400">
+          Scheduled:{' '}
+          <span className="text-indigo-400 font-bold">{scheduledCount}</span> /{' '}
+          {leads.length}
         </div>
       </div>
-
-      {/* Confirmation Notification Banner */}
-      {scheduledBannerMsg && (
-        <div className="p-3.5 rounded-xl border border-emerald-500/40 bg-emerald-950/40 text-emerald-200 text-xs font-semibold flex items-center gap-2 shadow-lg animate-in fade-in">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{scheduledBannerMsg}</span>
-        </div>
-      )}
 
       {leads.length === 0 ? (
         <div className="rounded-2xl border border-white/[0.08] bg-slate-900/50 p-12 text-center text-slate-400">
@@ -152,26 +78,19 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
             <table className="w-full border-collapse">
               <thead>
                 <tr className="border-b border-white/[0.08] bg-slate-950/60 text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                  <th className="py-3 px-4 text-left w-28">Lead ID</th>
+                  <th className="py-3 px-4 text-left w-32">Lead ID</th>
                   <th className="py-3 px-4 text-left">Prospect Name</th>
-                  {/* Requirement 4: Replaced Profile Link with Date column */}
-                  <th className="py-3 px-4 text-left w-56">Scheduled Date</th>
-                  <th className="py-3 px-4 text-right w-64">Edit Date</th>
+                  <th className="py-3 px-4 text-left w-52">Assigned Date</th>
+                  <th className="py-3 px-4 text-right">Quick Presets</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.04]">
                 {leads.map((lead) => {
                   const hasDate = Boolean(lead.scheduledDate);
                   const isToday = isDateToday(lead.scheduledDate);
-                  const dayStyle = getScheduleDayStyle(lead.scheduledDate);
 
                   return (
-                    <tr
-                      key={lead.id}
-                      className={`hover:bg-white/[0.02] transition-colors ${dayStyle.tintClass} ${
-                        isToday ? 'ring-1 ring-emerald-500/40 bg-emerald-950/20' : ''
-                      }`}
-                    >
+                    <tr key={lead.id} className="hover:bg-white/[0.02] transition-colors">
                       {/* ID */}
                       <td className="py-3.5 px-4 text-left font-mono text-xs tabular-nums">
                         <span className="font-semibold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20">
@@ -179,42 +98,25 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
                         </span>
                       </td>
 
-                      {/* Name */}
+                      {/* Name & Link */}
                       <td className="py-3.5 px-4 text-left">
                         <div className="font-medium text-sm text-slate-100 font-['Outfit'] truncate max-w-xs">
                           {lead.name}
                         </div>
+                        <a
+                          href={lead.link.startsWith('http') ? lead.link : `https://${lead.link}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-indigo-400 transition-colors mt-0.5 truncate max-w-xs"
+                        >
+                          <span className="truncate">{lead.link}</span>
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                        </a>
                       </td>
 
-                      {/* Requirement 4: Date Column (e.g. Wed, Nov 11, 2026) */}
+                      {/* Date Picker Input */}
                       <td className="py-3.5 px-4 text-left">
-                        {lead.cadenceStatus === 'cancelled' ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30">
-                            Cancelled{lead.cancelledReason ? ` · ${lead.cancelledReason}` : ''}
-                          </span>
-                        ) : hasDate ? (
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold font-mono border ${dayStyle.badgeClass}`}
-                            >
-                              <span>{formatDateDisplay(lead.scheduledDate)}</span>
-                            </span>
-                            {isToday && (
-                              <span className="text-[10px] font-black uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
-                                TODAY
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-xs font-mono text-slate-500 italic">
-                            Unscheduled
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Date Picker Input & Actions */}
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-2.5">
+                        <div className="flex items-center gap-2">
                           <input
                             type="date"
                             value={lead.scheduledDate || ''}
@@ -231,13 +133,40 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
                             <button
                               type="button"
                               onClick={() => handleDateChange(lead.id, '')}
-                              className="p-1.5 text-slate-500 hover:text-rose-400 rounded hover:bg-white/5 transition-colors cursor-pointer"
+                              className="p-1.5 text-slate-500 hover:text-rose-400 rounded hover:bg-white/5 transition-colors"
                               title="Clear date"
                               aria-label={`Clear date for ${lead.id}`}
                             >
-                              <RotateCcw className="w-3.5 h-3.5" />
+                              <RotateCcw className="w-3 h-3" />
                             </button>
                           )}
+                        </div>
+                      </td>
+
+                      {/* Quick Presets */}
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleQuickSet(lead.id, 0)}
+                            className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+                          >
+                            Today
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleQuickSet(lead.id, 1)}
+                            className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+                          >
+                            Tomorrow
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleQuickSet(lead.id, 3)}
+                            className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+                          >
+                            +3 Days
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -245,85 +174,6 @@ export function ScheduleSubPage({ channel, leads, onUpdateLeads }: ScheduleSubPa
                 })}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
-
-      {/* Requirement 4: Auto-Schedule Modal: Today vs Tomorrow */}
-      {showAutoScheduleModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="w-full max-w-md rounded-3xl bg-slate-900 border border-white/10 p-6 shadow-2xl space-y-5 text-slate-100">
-            <div className="flex items-start justify-between">
-              <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 font-mono">
-                  Auto-Schedule Pacer
-                </span>
-                <h3 className="text-xl font-black text-white font-['Outfit'] mt-0.5">
-                  Start Scheduling Date
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAutoScheduleModal(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Start scheduling from <strong>Today</strong> or <strong>Tomorrow</strong>?
-            </p>
-
-            <div className="space-y-3">
-              {/* Option 1: Tomorrow (Recommended) */}
-              <button
-                type="button"
-                onClick={() => handleExecuteAutoSchedule('tomorrow')}
-                className="w-full p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-left transition flex items-start gap-3 cursor-pointer group active:scale-98"
-              >
-                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0 mt-0.5">
-                  <Flame className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-sm font-bold text-white group-hover:text-amber-200">
-                    🌅 Start Tomorrow (Recommended)
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                    Warms them up today so prospects recognize your account before you dispatch outreach tomorrow. Sundays are automatically skipped.
-                  </p>
-                </div>
-              </button>
-
-              {/* Option 2: Today */}
-              <button
-                type="button"
-                onClick={() => handleExecuteAutoSchedule('today')}
-                className="w-full p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 text-left transition flex items-start gap-3 cursor-pointer group active:scale-98"
-              >
-                <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shrink-0 mt-0.5">
-                  <Calendar className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-sm font-bold text-white group-hover:text-indigo-200">
-                    📅 Start Today
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                    Immediately fills today's open quota slots ({channel === 'instagram' ? '6' : '4'} leads) and staggers remaining leads across upcoming weekdays.
-                  </p>
-                </div>
-              </button>
-            </div>
-
-            <div className="flex justify-end pt-2 border-t border-white/10">
-              <button
-                type="button"
-                onClick={() => setShowAutoScheduleModal(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white rounded-lg transition"
-              >
-                Cancel
-              </button>
-            </div>
           </div>
         </div>
       )}

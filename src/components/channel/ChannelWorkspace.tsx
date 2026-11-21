@@ -8,8 +8,7 @@ import {
   Calendar,
   Clock,
   Image as ImageIcon,
-  Layers,
-  Flame,
+  AlertCircle,
 } from 'lucide-react';
 import { ChannelLead, MultiChannelType, MultiChannelSubTab } from '../../types';
 import { LeadsSubPage } from './LeadsSubPage';
@@ -18,42 +17,18 @@ import { ScheduleSubPage } from './ScheduleSubPage';
 import { FollowupScheduleSubPage } from './FollowupScheduleSubPage';
 import { MockupSubPage } from './MockupSubPage';
 import { getChannelLabel } from '../../utils/channelStorage';
-import { getLocalTodayStr, normalizeToLocalDateStr, getTomorrowWarmupTargetDate, isEmailOnlyLead, resolveLeadCadenceStep } from '../../utils/cadenceEngine';
 
 interface ChannelWorkspaceProps {
   channel: MultiChannelType;
   leads: ChannelLead[];
   onUpdateLeads: (leads: ChannelLead[]) => void;
-  onNavigateToChannel?: (channel: MultiChannelType) => void;
-  onNavigateToBackstage?: () => void;
-  allLeads?: {
-    combined?: ChannelLead[];
-    instagram?: ChannelLead[];
-    facebook?: ChannelLead[];
-    email?: ChannelLead[];
-  };
-  onUpdateEmailLeads?: (leads: ChannelLead[]) => void;
-  onUpdateInstagramLeads?: (leads: ChannelLead[]) => void;
-  onUpdateFacebookLeads?: (leads: ChannelLead[]) => void;
 }
 
-export function ChannelWorkspace({
-  channel,
-  leads,
-  onUpdateLeads,
-  onNavigateToChannel,
-  onNavigateToBackstage,
-  allLeads,
-  onUpdateEmailLeads,
-  onUpdateInstagramLeads,
-  onUpdateFacebookLeads,
-}: ChannelWorkspaceProps) {
+export function ChannelWorkspace({ channel, leads, onUpdateLeads }: ChannelWorkspaceProps) {
   const [activeSubTab, setActiveSubTab] = useState<MultiChannelSubTab>('leads');
 
   const getChannelIcon = () => {
     switch (channel) {
-      case 'combined':
-        return <Layers className="w-5 h-5 text-indigo-400" />;
       case 'email':
         return <Mail className="w-5 h-5 text-indigo-400" />;
       case 'instagram':
@@ -65,13 +40,6 @@ export function ChannelWorkspace({
 
   const getChannelTheme = () => {
     switch (channel) {
-      case 'combined':
-        return {
-          gradient: 'from-indigo-500/20 via-sky-500/10 to-transparent',
-          border: 'border-indigo-500/30',
-          badge: 'bg-indigo-500/10 text-indigo-300 border-indigo-500/20',
-          activeTab: 'bg-gradient-to-r from-indigo-600 to-sky-600 text-white shadow-indigo-600/30',
-        };
       case 'email':
         return {
           gradient: 'from-indigo-500/20 via-indigo-500/5 to-transparent',
@@ -97,25 +65,15 @@ export function ChannelWorkspace({
   };
 
   const theme = getChannelTheme();
-  const todayStr = getLocalTodayStr();
-  const warmupTargetDate = getTomorrowWarmupTargetDate(todayStr);
+  const todayStr = new Date().toISOString().split('T')[0];
 
-  // Leads scheduled for tomorrow that are not yet sent (excluding Email-only leads which require no warm-up)
-  const tomorrowLeadsNeedingWarmup = leads.filter(
-    (l) => !l.isCompleted && !l.initialSentDate && normalizeToLocalDateStr(l.scheduledDate) === warmupTargetDate && !isEmailOnlyLead(l)
-  );
-  const tomorrowLockedCount = tomorrowLeadsNeedingWarmup.filter(
-    (l) => l.warmupStatus !== 'warmed' && !l.isWarmedUp
-  ).length;
-
-  // Calculate actionable items in this channel for badge (Initial due + Day 4 + Day 8 + Day 14)
+  // Calculate actionable items in this channel for badge (Initial due + Day 3 + Day 7)
   const urgentCount = leads.filter((l) => {
-    if (l.isCompleted || l.cadenceStatus === 'cancelled' || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
-    const resolved = resolveLeadCadenceStep(l, todayStr);
-    if (resolved.stageNumber === 0) {
-      return Boolean(l.scheduledDate && l.scheduledDate <= todayStr);
-    }
-    return resolved.isFollowupDue;
+    if (l.isCompleted || l.leadStatus === 'replied' || l.leadStatus === 'completed') return false;
+    if (!l.initialSentDate && l.scheduledDate && l.scheduledDate <= todayStr) return true;
+    if (l.initialSentDate && (l.followupCount === 0 || l.followupCount === undefined) && l.followup1Date && l.followup1Date <= todayStr) return true;
+    if (l.initialSentDate && l.followupCount === 1 && l.followup2Date && l.followup2Date <= todayStr) return true;
+    return false;
   }).length;
 
   const subTabs: { id: MultiChannelSubTab; label: string; icon: React.ReactNode; badge?: number }[] = [
@@ -126,16 +84,28 @@ export function ChannelWorkspace({
       badge: leads.length,
     },
     {
+      id: 'dm',
+      label: 'DM',
+      icon: <MessageSquare className="w-4 h-4" />,
+      badge: leads.filter((l) => !!l.customPitch).length,
+    },
+    {
       id: 'schedule',
       label: 'Schedule',
       icon: <Calendar className="w-4 h-4" />,
       badge: leads.filter((l) => !!l.scheduledDate).length,
     },
     {
+      id: 'followup',
+      label: 'Follow-Up Schedule',
+      icon: <Clock className="w-4 h-4" />,
+      badge: urgentCount > 0 ? urgentCount : undefined,
+    },
+    {
       id: 'mockup',
       label: 'Mockup',
       icon: <ImageIcon className="w-4 h-4" />,
-      badge: leads.filter((l) => !!l.hasMockup || !!l.mockupHtml).length,
+      badge: leads.filter((l) => !!l.hasMockup).length,
     },
   ];
 
@@ -155,13 +125,11 @@ export function ChannelWorkspace({
                 {getChannelLabel(channel)} Workspace
               </h1>
               <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${theme.badge}`}>
-                {channel === 'combined' ? 'Unified Pipeline · 4 Daily Quota' : 'Independent Store'}
+                Independent Store
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              {channel === 'combined'
-                ? 'Unified outreach pipeline for Email & Facebook prospects. Daily Quota: 4 touchpoints.'
-                : `Strictly isolated data pipeline for ${getChannelLabel(channel)} outreach and client acquisition.`}
+              Strictly isolated data pipeline for {getChannelLabel(channel)} outreach and client acquisition.
             </p>
           </div>
         </div>
@@ -229,8 +197,6 @@ export function ChannelWorkspace({
             channel={channel}
             leads={leads}
             onUpdateLeads={onUpdateLeads}
-            onNavigateToChannel={onNavigateToChannel}
-            onNavigateToBackstage={onNavigateToBackstage}
           />
         )}
 

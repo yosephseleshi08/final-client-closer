@@ -125,12 +125,44 @@ export const FollowupCopilot: React.FC<FollowupCopilotProps> = ({
     }
   };
 
-  // Load high-converting closer template on demand
-  const handleGenerateDraft = (typeOverride?: PitchType) => {
+  // Generate with Gemini on demand
+  const handleGenerateDraft = async (typeOverride?: PitchType) => {
     if (!selectedLead) return;
     const currentType = typeOverride || pitchType;
-    setDraftMessage(getInstantPresetPitch(selectedLead, currentType));
-    setStatusFeedback('⚡ Battle-tested closer template');
+    setIsGenerating(true);
+    setStatusFeedback('');
+
+    try {
+      const res = await fetch('/api/gemini/pitch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          leadName: selectedLead.restaurantName,
+          ownerName: selectedLead.contactName || '',
+          platform: selectedLead.platform,
+          followupCount: selectedLead.followupCount,
+          daysSince: 3,
+          mockupUrl: selectedLead.mockupLink || 'https://demo.closer.app/' + selectedLead.restaurantName.toLowerCase().replace(/[^a-z0-9]/g, ''),
+          customNotes: selectedLead.notes,
+          pitchType: currentType,
+          niche: 'Restaurant',
+        }),
+      });
+
+      const data = await res.json();
+      if (data?.pitch) {
+        setDraftMessage(data.pitch);
+        setStatusFeedback(data.source === 'gemini' ? `✨ Generated with Gemini (${data.model || 'Flash'})` : '⚡ Battle-tested closer template');
+      } else {
+        setDraftMessage(getInstantPresetPitch(selectedLead, currentType));
+        setStatusFeedback('⚡ Battle-tested closer template');
+      }
+    } catch (_err) {
+      setDraftMessage(getInstantPresetPitch(selectedLead, currentType));
+      setStatusFeedback('⚡ Battle-tested closer template');
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   // Instantly apply high-converting preset when lead or strategy changes (0ms delay, 0 quota burn)

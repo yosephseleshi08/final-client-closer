@@ -19,17 +19,15 @@ import {
 import { ChannelLead, MultiChannelType } from '../types';
 
 interface AnalyticsViewProps {
-  combinedLeads?: ChannelLead[];
-  emailLeads?: ChannelLead[];
+  emailLeads: ChannelLead[];
   instagramLeads: ChannelLead[];
-  facebookLeads?: ChannelLead[];
+  facebookLeads: ChannelLead[];
 }
 
 export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
-  combinedLeads,
-  emailLeads = [],
+  emailLeads,
   instagramLeads,
-  facebookLeads = [],
+  facebookLeads,
 }) => {
   const [conversionRate, setConversionRate] = useState<number>(25); // 0-100%
   const [monthlyRetainer, setMonthlyRetainer] = useState<number>(99); // $/mo
@@ -37,11 +35,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   const [analyticsToast, setAnalyticsToast] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const effectiveCombinedLeads = combinedLeads ?? [...emailLeads, ...facebookLeads];
-
   const allLeads = useMemo(
-    () => [...effectiveCombinedLeads, ...instagramLeads],
-    [effectiveCombinedLeads, instagramLeads]
+    () => [...emailLeads, ...instagramLeads, ...facebookLeads],
+    [emailLeads, instagramLeads, facebookLeads]
   );
 
   const totalLeads = allLeads.length;
